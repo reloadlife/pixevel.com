@@ -74,8 +74,8 @@ test("search: includes DISABLED product matching query", async () => {
     // Seed a non-matching product to ensure we are filtering correctly
     await seedProduct(tx, { titleFa: "محصول کاملاً متفاوت", status: "ACTIVE" });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(disabledId);
   });
@@ -91,8 +91,8 @@ test("search: includes out-of-stock (ACTIVE, zero units) product matching query"
 
     await seedProduct(tx, { titleFa: "محصول کاملاً متفاوت", status: "ACTIVE" });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(oosId);
   });
@@ -105,8 +105,8 @@ test("search: excludes ARCHIVED product even if it matches query", async () => {
       status: "ARCHIVED",
     });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).not.toContain(archivedId);
   });
@@ -125,8 +125,8 @@ test("search: excludes non-matching product", async () => {
       status: "ACTIVE",
     });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).not.toContain(nonMatchId);
   });
@@ -140,8 +140,8 @@ test("search: matches summaryFa field", async () => {
       status: "ACTIVE",
     });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(summaryMatchId);
   });
@@ -167,8 +167,8 @@ test("search: matches by tag name", async () => {
     // Non-matching product (no tag)
     await seedProduct(tx, { titleFa: "دیگری", status: "ACTIVE" });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(productId);
   });
@@ -207,8 +207,8 @@ test("search: matches by category name", async () => {
       publicPriceAmount: "150000",
     });
 
-    const results = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: SEARCH_TERM, _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(product.id);
   });
@@ -220,8 +220,8 @@ test("search: empty q returns all non-ARCHIVED products", async () => {
     const disabledId = await seedProduct(tx, { titleFa: "محصول غیرفعال", status: "DISABLED" });
     const archivedId = await seedProduct(tx, { titleFa: "محصول آرشیو", status: "ARCHIVED" });
 
-    const results = await getProductsForListing(null, { q: "", _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { q: "", _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(activeId);
     expect(ids).toContain(disabledId);
@@ -234,8 +234,8 @@ test("search: no q at all returns all non-ARCHIVED products", async () => {
     const activeId = await seedProduct(tx, { titleFa: "محصول فعال", status: "ACTIVE" });
     const archivedId = await seedProduct(tx, { titleFa: "محصول آرشیو", status: "ARCHIVED" });
 
-    const results = await getProductsForListing(null, { _db: tx });
-    const ids = results.map((p) => p.id);
+    const { items } = await getProductsForListing(null, { _db: tx });
+    const ids = items.map((p) => p.id);
 
     expect(ids).toContain(activeId);
     expect(ids).not.toContain(archivedId);

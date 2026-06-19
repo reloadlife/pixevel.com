@@ -5,11 +5,19 @@ import { getProductsForListing } from "@/lib/catalog";
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; page?: string }>;
 }) {
-  const { q } = await searchParams;
+  const { q, page: pageParam } = await searchParams;
+  const page = Math.max(1, Number(pageParam ?? "1") || 1);
   const user = await getCurrentUser();
-  const products = await getProductsForListing(user, { q });
+  const { items: products, meta } = await getProductsForListing(user, { q, page });
+
+  function pageUrl(p: number) {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    params.set("page", String(p));
+    return `/products?${params.toString()}`;
+  }
 
   return (
     <main
@@ -57,17 +65,54 @@ export default async function ProductsPage({
         </div>
         {q && (
           <p className="mt-2 text-sm text-muted-foreground">
-            {products.length} نتیجه برای «{q}»
+            {meta.total} نتیجه برای «{q}»
           </p>
         )}
       </form>
 
       {products.length > 0 ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {products.map((product) => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {products.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+
+          {/* Pager — only shown when there is more than one page */}
+          {meta.total > meta.pageSize && (
+            <nav className="mt-10 flex items-center justify-center gap-4" aria-label="صفحه‌بندی">
+              {meta.page > 1 ? (
+                <a
+                  href={pageUrl(meta.page - 1)}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+                >
+                  ← قبلی
+                </a>
+              ) : (
+                <span className="rounded-lg border border-border px-4 py-2 text-sm font-medium opacity-40">
+                  ← قبلی
+                </span>
+              )}
+
+              <span className="text-sm text-muted-foreground">
+                صفحه {meta.page} از {Math.ceil(meta.total / meta.pageSize)}
+              </span>
+
+              {meta.hasNext ? (
+                <a
+                  href={pageUrl(meta.page + 1)}
+                  className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
+                >
+                  بعدی →
+                </a>
+              ) : (
+                <span className="rounded-lg border border-border px-4 py-2 text-sm font-medium opacity-40">
+                  بعدی →
+                </span>
+              )}
+            </nav>
+          )}
+        </>
       ) : q ? (
         <div className="grid min-h-[50dvh] place-items-center border border-dashed border-border text-center">
           <div>

@@ -1,8 +1,8 @@
-import { and, ilike, ne, or, sql } from "drizzle-orm";
+import { and, count, ilike, ne, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 
 import type { ProductStatus } from "@/db/schema";
-import { categories, productTags, tags } from "@/db/schema";
+import { categories, products as productsTable, productTags, tags } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { decimalToNumber } from "@/lib/format";
 
@@ -183,6 +183,13 @@ function sortBlockProducts(products: ListingProduct[], sortKey: string) {
   return sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+export type ListingMeta = {
+  total: number;
+  page: number;
+  pageSize: number;
+  hasNext: boolean;
+};
+
 export async function getProductsForListing(
   user: { isPremium: boolean } | null,
   opts: ProductListingOptions = {},
@@ -190,11 +197,48 @@ export async function getProductsForListing(
   noStore();
 
   const { q, _db } = opts;
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = opts.pageSize ?? 24;
   const searchTerm = q?.trim();
   const db = _db ?? getDb();
 
   const tier = getUserTier(user);
-  const products = await db.query.products.findMany({
+
+  // Build a WHERE expression using table columns directly (for the count query).
+  function buildCountWhere() {
+    const archivedFilter = ne(productsTable.status, "ARCHIVED");
+    if (!searchTerm) return archivedFilter;
+
+    const term = `%${searchTerm}%`;
+    const textMatch = or(
+      ilike(productsTable.titleFa, term),
+      ilike(productsTable.summaryFa, term),
+      sql`EXISTS (
+        SELECT 1 FROM ${productTags} pt
+        JOIN ${tags} t ON t.id = pt."tagId"
+        WHERE pt."productId" = ${productsTable.id}
+          AND t."titleFa" ILIKE ${term}
+      )`,
+      sql`EXISTS (
+        SELECT 1 FROM ${categories} c
+        WHERE c.id = ${productsTable.categoryId}
+          AND c."titleFa" ILIKE ${term}
+      )`,
+    );
+
+    return and(archivedFilter, textMatch);
+  }
+
+  // COUNT query — same filters, no pagination.
+  const [countRow] = await db
+    .select({ total: count() })
+    .from(productsTable)
+    .where(buildCountWhere());
+
+  const total = countRow?.total ?? 0;
+  const offset = (page - 1) * pageSize;
+
+  const rows = await db.query.products.findMany({
     where: (product, { ne: neOp }) => {
       const archivedFilter = neOp(product.status, "ARCHIVED");
       if (!searchTerm) return archivedFilter;
@@ -246,9 +290,11 @@ export async function getProductsForListing(
       },
     },
     orderBy: (product, { desc }) => [desc(product.createdAt)],
+    limit: pageSize,
+    offset,
   });
 
-  return products.map((product) => {
+  const items = rows.map((product) => {
     const variants = product.variants.map((variant) => mapVariant(variant, tier));
     const firstVariant = variants[0];
     const images = visibleImages(product.images, tier);
@@ -297,6 +343,16 @@ export async function getProductsForListing(
       variants,
     };
   });
+
+  return {
+    items,
+    meta: {
+      total,
+      page,
+      pageSize,
+      hasNext: page * pageSize < total,
+    } satisfies ListingMeta,
+  };
 }
 
 export async function getProductForDetail(slug: string) {
@@ -391,7 +447,7 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
   const tier = getUserTier(user);
   const variants = product.variants.map((variant) => mapVariant(variant, tier));
   const images = visibleImages(product.images, tier);
-  const products = await getProductsForListing(user);
+  const { items: allProducts } = await getProductsForListing(user);
 
   return {
     id: product.id,
@@ -406,7 +462,7 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
     tags: product.tags.map((item) => item.tag),
     images,
     variants,
-    relatedProducts: relatedProductsForDetail(product, products),
+    relatedProducts: relatedProductsForDetail(product, allProducts),
   };
 }
 
@@ -428,7 +484,7 @@ export async function getHomepageView(user: { isPremium: boolean } | null) {
       },
       orderBy: (block, { asc }) => [asc(block.sortOrder)],
     }),
-    getProductsForListing(user),
+    getProductsForListing(user).then((r) => r.items),
   ]);
 
   if (blocks.length === 0) {

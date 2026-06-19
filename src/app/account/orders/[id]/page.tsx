@@ -44,6 +44,55 @@ function shippingStatusLabel(status: string): string {
   return map[status] ?? status;
 }
 
+type PaymentBanner = {
+  tone: "success" | "warning" | "danger" | "muted";
+  title: string;
+  note: string;
+};
+
+// Maps a payment status to a prominent banner shown at the top of the order.
+function paymentBanner(status: string): PaymentBanner {
+  switch (status) {
+    case "PAID":
+      return {
+        tone: "success",
+        title: "پرداخت شد، کدها آماده‌اند",
+        note: "کدهای خرید شما در پایین همین صفحه قابل مشاهده است و به ایمیل شما هم ارسال شد.",
+      };
+    case "FAILED":
+      return {
+        tone: "danger",
+        title: "پرداخت ناموفق",
+        note: "تراکنش شما تکمیل نشد. در صورت کسر وجه، مبلغ طی ۷۲ ساعت به حساب شما باز می‌گردد. می‌توانید دوباره برای پرداخت اقدام کنید.",
+      };
+    case "REFUNDED":
+      return {
+        tone: "muted",
+        title: "مبلغ مسترد شد",
+        note: "وجه این سفارش به شما بازگردانده شده است.",
+      };
+    case "AUTHORIZED":
+      return {
+        tone: "warning",
+        title: "در انتظار تأیید نهایی پرداخت",
+        note: "پرداخت شما در حال بررسی است. به محض تأیید، کدها در همین صفحه و از طریق ایمیل در دسترس قرار می‌گیرد.",
+      };
+    default:
+      return {
+        tone: "warning",
+        title: "در انتظار پرداخت",
+        note: "برای دریافت کدها، پرداخت سفارش را تکمیل کنید. در صورت بروز مشکل با پشتیبانی تماس بگیرید.",
+      };
+  }
+}
+
+const BANNER_TONE: Record<PaymentBanner["tone"], string> = {
+  success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+  warning: "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300",
+  danger: "border-red-500/30 bg-red-500/10 text-red-800 dark:text-red-300",
+  muted: "border-border bg-muted text-foreground",
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 interface PageProps {
@@ -86,6 +135,7 @@ export default async function OrderDetailPage({ params }: PageProps) {
   }
 
   const isPaid = order.paymentStatus === "PAID";
+  const banner = paymentBanner(order.paymentStatus);
 
   // Build variantId → codes[] map for digital delivery
   const codesByVariant = new Map<string, string[]>();
@@ -104,10 +154,7 @@ export default async function OrderDetailPage({ params }: PageProps) {
   );
 
   return (
-    <main
-      className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14"
-      dir="rtl"
-    >
+    <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14" dir="rtl">
       {/* Header */}
       <header className="mb-8">
         <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
@@ -118,6 +165,22 @@ export default async function OrderDetailPage({ params }: PageProps) {
           {order.orderNumber}
         </p>
       </header>
+
+      {/* Payment status banner */}
+      <div
+        className={`mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4 ${BANNER_TONE[banner.tone]}`}
+      >
+        <div className="min-w-0">
+          <p className="text-base font-black">{banner.title}</p>
+          <p className="mt-1 text-sm opacity-90">{banner.note}</p>
+        </div>
+        <a
+          href={`/account/orders/${order.id}/invoice`}
+          className="shrink-0 rounded-md border border-current px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-80"
+        >
+          دانلود فاکتور
+        </a>
+      </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
         {/* Order summary */}
@@ -194,7 +257,10 @@ export default async function OrderDetailPage({ params }: PageProps) {
             {/* Digital codes */}
             {hasDigital && (
               <div>
-                <h3 className="mb-3 text-sm font-black text-muted-foreground">کدهای دیجیتال</h3>
+                <h3 className="mb-1 text-sm font-black text-muted-foreground">کدهای دیجیتال</h3>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  این کدها به ایمیل شما هم ارسال شد. آن‌ها را در جای امنی نگه دارید.
+                </p>
                 <div className="space-y-3">
                   {order.items
                     .filter(

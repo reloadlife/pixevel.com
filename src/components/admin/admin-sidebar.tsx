@@ -1,14 +1,18 @@
 "use client";
 
 import {
+  BoxesIcon,
   ExternalLinkIcon,
   HomeIcon,
   ImageIcon,
   LayoutGridIcon,
+  MailIcon,
   PackageIcon,
   PlusIcon,
   ShoppingBagIcon,
+  StarIcon,
   TagIcon,
+  TicketPercentIcon,
   UsersIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -32,8 +36,12 @@ const navItems = [
   { href: "/admin/tags", label: "تگ‌ها", icon: TagIcon, exact: false },
   { href: "/admin/homepage", label: "صفحه خانه", icon: HomeIcon, exact: false },
   { href: "/admin/watermarks", label: "واترمارک‌ها", icon: ImageIcon, exact: false },
+  { href: "/admin/inventory", label: "انبار و موجودی", icon: BoxesIcon, exact: false },
   { href: "/admin/orders", label: "سفارش‌ها", icon: ShoppingBagIcon, exact: false },
+  { href: "/admin/coupons", label: "کدهای تخفیف", icon: TicketPercentIcon, exact: false },
+  { href: "/admin/reviews", label: "دیدگاه‌ها", icon: StarIcon, exact: false },
   { href: "/admin/users", label: "کاربران", icon: UsersIcon, exact: false },
+  { href: "/admin/newsletter", label: "خبرنامه", icon: MailIcon, exact: false },
   { href: "/", label: "مشاهده سایت", icon: ExternalLinkIcon, exact: true },
 ];
 

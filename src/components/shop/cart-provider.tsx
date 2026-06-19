@@ -11,6 +11,10 @@ type CartState = {
   count: number;
   loading: boolean;
   refresh: () => void;
+  /** Set a line's quantity (PATCH). `quantity < 1` removes the line. */
+  setQuantity: (variantId: string, quantity: number) => Promise<void>;
+  /** Remove a line entirely (DELETE). */
+  removeItem: (variantId: string) => Promise<void>;
 };
 
 const EMPTY_CART: CartView = { id: null, items: [], itemCount: 0, subtotal: 0 };
@@ -20,6 +24,8 @@ const CartContext = createContext<CartState>({
   count: 0,
   loading: false,
   refresh: () => {},
+  setQuantity: async () => {},
+  removeItem: async () => {},
 });
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
@@ -41,6 +47,54 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // `/api/cart/item` returns the authoritative cart, so we apply it directly — every
+  // useCart() consumer (header badge, bottom tabs, mini-cart) re-renders from one setState.
+  const removeItem = useCallback(
+    async (variantId: string) => {
+      try {
+        const response = await fetch("/api/cart/item", {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ variantId }),
+        });
+        const payload = await response.json();
+        if (payload?.ok) {
+          setCart(payload.data.cart as CartView);
+        } else {
+          refresh();
+        }
+      } catch {
+        refresh();
+      }
+    },
+    [refresh],
+  );
+
+  const setQuantity = useCallback(
+    async (variantId: string, quantity: number) => {
+      if (quantity < 1) {
+        await removeItem(variantId);
+        return;
+      }
+      try {
+        const response = await fetch("/api/cart/item", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ variantId, quantity }),
+        });
+        const payload = await response.json();
+        if (payload?.ok) {
+          setCart(payload.data.cart as CartView);
+        } else {
+          refresh();
+        }
+      } catch {
+        refresh();
+      }
+    },
+    [refresh, removeItem],
+  );
+
   useEffect(() => {
     refresh();
     const onChange = () => {
@@ -55,7 +109,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   }, [refresh]);
 
   return (
-    <CartContext.Provider value={{ cart, count: cart.itemCount, loading, refresh }}>
+    <CartContext.Provider
+      value={{ cart, count: cart.itemCount, loading, refresh, setQuantity, removeItem }}
+    >
       {children}
     </CartContext.Provider>
   );

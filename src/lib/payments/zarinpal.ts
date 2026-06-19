@@ -114,6 +114,111 @@ export const zarinpalProvider: PaymentProvider = {
   },
 };
 
+// ─── Refund ─────────────────────────────────────────────────────────────────
+
+export type ZarinpalRefundResult = {
+  /**
+   * - `refunded`: the gateway accepted the refund request.
+   * - `manual`: refunds are not configured (or no reference) → operator must
+   *   refund manually; this is a no-op, not an error.
+   * - `failed`: the gateway was called but rejected/errored the request.
+   */
+  status: "refunded" | "manual" | "failed";
+  message: string;
+};
+
+/**
+ * Best-effort Zarinpal refund over the GraphQL refund HTTP API (no SDK).
+ *
+ * Env-gated: requires `ZARINPAL_ACCESS_TOKEN` (an OAuth/PAT token from the
+ * Zarinpal dashboard). When the token or the payment `reference` (the gateway
+ * authority) is missing, returns `{ status: "manual" }` so the caller can still
+ * mark the order REFUNDED locally and flag a manual gateway refund.
+ *
+ * NEVER throws — any network/parse error is reported as `failed`.
+ *
+ * Reference: https://docs.zarinpal.com/paymentGateway/refund.html
+ */
+export async function refundZarinpalPayment({
+  reference,
+  amount,
+}: {
+  reference: string | null | undefined;
+  amount: number | string;
+}): Promise<ZarinpalRefundResult> {
+  const accessToken = process.env.ZARINPAL_ACCESS_TOKEN;
+
+  if (!accessToken) {
+    return {
+      status: "manual",
+      message: "ZARINPAL_ACCESS_TOKEN تنظیم نشده؛ استرداد باید دستی انجام شود.",
+    };
+  }
+
+  if (!reference) {
+    return {
+      status: "manual",
+      message: "مرجع پرداخت زرین‌پال موجود نیست؛ استرداد باید دستی انجام شود.",
+    };
+  }
+
+  const toman = Math.round(Number(amount));
+
+  if (!Number.isFinite(toman) || toman <= 0) {
+    return { status: "failed", message: "مبلغ استرداد نامعتبر است." };
+  }
+
+  const graphqlEndpoint = isSandbox
+    ? "https://next.sandbox.zarinpal.com/api/v4/graphql"
+    : "https://next.zarinpal.com/api/v4/graphql";
+
+  const query = `mutation { AddRefund(input: { session: "${reference}", amount: ${toman}, description: "admin refund" }) { id status } }`;
+
+  try {
+    const res = await fetch(graphqlEndpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ query }),
+    });
+
+    const json = (await res.json().catch(() => null)) as {
+      data?: { AddRefund?: { id?: string; status?: string } };
+      errors?: unknown;
+    } | null;
+
+    if (!res.ok || !json) {
+      return {
+        status: "failed",
+        message: `درگاه زرین‌پال استرداد را نپذیرفت (HTTP ${res.status}).`,
+      };
+    }
+
+    if (json.errors) {
+      return {
+        status: "failed",
+        message: `خطای درگاه زرین‌پال در استرداد: ${JSON.stringify(json.errors)}`,
+      };
+    }
+
+    const refundId = json.data?.AddRefund?.id;
+
+    if (refundId) {
+      return { status: "refunded", message: `استرداد در زرین‌پال ثبت شد (#${refundId}).` };
+    }
+
+    return { status: "failed", message: "پاسخ درگاه زرین‌پال نامشخص بود." };
+  } catch (error) {
+    return {
+      status: "failed",
+      message: `ارتباط با درگاه زرین‌پال برقرار نشد: ${error instanceof Error ? error.message : "خطای ناشناخته"}`,
+    };
+  }
+}
+
 // Self-register when this module is imported.
 registerProvider(zarinpalProvider);
 

@@ -32,6 +32,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return apiError("INVALID_SLUG", "اسلاگ محصول معتبر نیست.");
     }
 
+    if (error instanceof Error && error.message === "INVALID_FULFILLMENT_TYPE") {
+      return apiError("INVALID_FULFILLMENT_TYPE", "نوع تحویل محصول معتبر نیست.");
+    }
+
     if (error instanceof Error && error.message === "INVALID_PRICE") {
       return apiError("INVALID_PRICE", "قیمت محصول معتبر نیست.");
     }

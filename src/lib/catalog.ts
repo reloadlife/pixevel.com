@@ -6,9 +6,23 @@ import { categories, products as productsTable, productTags, tags } from "@/db/s
 import { getDb } from "@/lib/db";
 import { decimalToNumber } from "@/lib/format";
 
+export type ProductSortKey = "price_asc" | "price_desc" | "newest" | "stock_desc";
+
+export const PRODUCT_SORT_KEYS: ProductSortKey[] = [
+  "newest",
+  "price_asc",
+  "price_desc",
+  "stock_desc",
+];
+
 export type ProductListingOptions = {
   q?: string;
   category?: string; // category slug — when present, restrict to products in this category
+  tag?: string; // tag slug — when present, restrict to products carrying this tag
+  sort?: ProductSortKey;
+  minPrice?: number; // inclusive lower bound on the displayed (tier) price
+  maxPrice?: number; // inclusive upper bound on the displayed (tier) price
+  inStock?: boolean; // when true, hide products with no available stock
   page?: number;
   pageSize?: number;
   // Optional transaction/db override — used in tests to share the rollback tx.
@@ -27,6 +41,20 @@ export async function listCategories(
     .from(categories)
     .where(eq(categories.isVisible, true))
     .orderBy(asc(categories.sortOrder), asc(categories.titleFa));
+}
+
+/**
+ * Returns all visible (isVisible=true) tags ordered by titleFa.
+ */
+export async function listTags(
+  _db?: ReturnType<typeof getDb>,
+): Promise<{ id: string; slug: string; titleFa: string }[]> {
+  const db = _db ?? getDb();
+  return db
+    .select({ id: tags.id, slug: tags.slug, titleFa: tags.titleFa })
+    .from(tags)
+    .where(eq(tags.isVisible, true))
+    .orderBy(asc(tags.titleFa));
 }
 
 type UserTier = "PUBLIC" | "REGISTERED" | "PREMIUM";
@@ -141,6 +169,7 @@ export type ListingProduct = {
   showcaseImageUrl?: string | null;
   showcaseImages: ReturnType<typeof mapImage>[];
   price: number;
+  compareAtAmount: number;
   availableStock: number;
   variants: ReturnType<typeof mapVariant>[];
 };
@@ -211,7 +240,7 @@ export async function getProductsForListing(
 ) {
   noStore();
 
-  const { q, category, _db } = opts;
+  const { q, category, tag, sort, minPrice, maxPrice, inStock, _db } = opts;
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = opts.pageSize ?? 24;
   const searchTerm = q?.trim();
@@ -219,87 +248,124 @@ export async function getProductsForListing(
 
   const tier = getUserTier(user);
 
+  // Price-range / in-stock / price-and-stock sorting all depend on tier-resolved
+  // values that only exist after mapping (per-user pricing, available stock count).
+  // So those are applied in JS below, which means pagination must also happen in JS.
+  // Category / tag / full-text / archived filters stay in SQL.
+  const needsPostFilter =
+    typeof minPrice === "number" ||
+    typeof maxPrice === "number" ||
+    inStock === true ||
+    (sort != null && sort !== "newest");
+
   // Build a WHERE expression using table columns directly (for the count query).
   function buildCountWhere() {
     const archivedFilter = ne(productsTable.status, "ARCHIVED");
 
-    const categoryFilter = category
-      ? sql`EXISTS (
+    const baseFilters = [archivedFilter];
+
+    if (category) {
+      baseFilters.push(
+        sql`EXISTS (
           SELECT 1 FROM ${categories} c
           WHERE c.id = ${productsTable.categoryId}
             AND c.slug = ${category}
-        )`
-      : undefined;
+        )`,
+      );
+    }
 
-    if (!searchTerm) return categoryFilter ? and(archivedFilter, categoryFilter) : archivedFilter;
+    if (tag) {
+      baseFilters.push(
+        sql`EXISTS (
+          SELECT 1 FROM ${productTags} pt
+          JOIN ${tags} t ON t.id = pt."tagId"
+          WHERE pt."productId" = ${productsTable.id}
+            AND t.slug = ${tag}
+        )`,
+      );
+    }
 
-    const term = `%${searchTerm}%`;
-    const textMatch = or(
-      ilike(productsTable.titleFa, term),
-      ilike(productsTable.summaryFa, term),
-      sql`EXISTS (
-        SELECT 1 FROM ${productTags} pt
-        JOIN ${tags} t ON t.id = pt."tagId"
-        WHERE pt."productId" = ${productsTable.id}
-          AND t."titleFa" ILIKE ${term}
-      )`,
-      sql`EXISTS (
-        SELECT 1 FROM ${categories} c
-        WHERE c.id = ${productsTable.categoryId}
-          AND c."titleFa" ILIKE ${term}
-      )`,
-    );
+    if (searchTerm) {
+      const term = `%${searchTerm}%`;
+      const textMatch = or(
+        ilike(productsTable.titleFa, term),
+        ilike(productsTable.summaryFa, term),
+        sql`EXISTS (
+          SELECT 1 FROM ${productTags} pt
+          JOIN ${tags} t ON t.id = pt."tagId"
+          WHERE pt."productId" = ${productsTable.id}
+            AND t."titleFa" ILIKE ${term}
+        )`,
+        sql`EXISTS (
+          SELECT 1 FROM ${categories} c
+          WHERE c.id = ${productsTable.categoryId}
+            AND c."titleFa" ILIKE ${term}
+        )`,
+      );
+      if (textMatch) baseFilters.push(textMatch);
+    }
 
-    return categoryFilter
-      ? and(archivedFilter, categoryFilter, textMatch)
-      : and(archivedFilter, textMatch);
+    return and(...baseFilters);
   }
 
-  // COUNT query — same filters, no pagination.
+  // COUNT query — only meaningful for the SQL-paginated path. When post-filtering
+  // in JS, the real total is computed after filtering below.
   const [countRow] = await db
     .select({ total: count() })
     .from(productsTable)
     .where(buildCountWhere());
 
-  const total = countRow?.total ?? 0;
+  const sqlTotal = countRow?.total ?? 0;
   const offset = (page - 1) * pageSize;
 
   const rows = await db.query.products.findMany({
     where: (product, { ne: neOp }) => {
-      const archivedFilter = neOp(product.status, "ARCHIVED");
+      const filters = [neOp(product.status, "ARCHIVED")];
 
-      const categoryFilter = category
-        ? sql`EXISTS (
+      if (category) {
+        filters.push(
+          sql`EXISTS (
             SELECT 1 FROM ${categories} c
             WHERE c.id = ${product.categoryId}
               AND c.slug = ${category}
-          )`
-        : undefined;
+          )`,
+        );
+      }
 
-      if (!searchTerm) return categoryFilter ? and(archivedFilter, categoryFilter) : archivedFilter;
+      if (tag) {
+        filters.push(
+          sql`EXISTS (
+            SELECT 1 FROM ${productTags} pt
+            JOIN ${tags} t ON t.id = pt."tagId"
+            WHERE pt."productId" = ${product.id}
+              AND t.slug = ${tag}
+          )`,
+        );
+      }
 
-      const term = `%${searchTerm}%`;
-      const textMatch = or(
-        ilike(product.titleFa, term),
-        ilike(product.summaryFa, term),
-        // Match tag name via EXISTS subquery
-        sql`EXISTS (
-          SELECT 1 FROM ${productTags} pt
-          JOIN ${tags} t ON t.id = pt."tagId"
-          WHERE pt."productId" = ${product.id}
-            AND t."titleFa" ILIKE ${term}
-        )`,
-        // Match category name via EXISTS subquery
-        sql`EXISTS (
-          SELECT 1 FROM ${categories} c
-          WHERE c.id = ${product.categoryId}
-            AND c."titleFa" ILIKE ${term}
-        )`,
-      );
+      if (searchTerm) {
+        const term = `%${searchTerm}%`;
+        const textMatch = or(
+          ilike(product.titleFa, term),
+          ilike(product.summaryFa, term),
+          // Match tag name via EXISTS subquery
+          sql`EXISTS (
+            SELECT 1 FROM ${productTags} pt
+            JOIN ${tags} t ON t.id = pt."tagId"
+            WHERE pt."productId" = ${product.id}
+              AND t."titleFa" ILIKE ${term}
+          )`,
+          // Match category name via EXISTS subquery
+          sql`EXISTS (
+            SELECT 1 FROM ${categories} c
+            WHERE c.id = ${product.categoryId}
+              AND c."titleFa" ILIKE ${term}
+          )`,
+        );
+        if (textMatch) filters.push(textMatch);
+      }
 
-      return categoryFilter
-        ? and(archivedFilter, categoryFilter, textMatch)
-        : and(archivedFilter, textMatch);
+      return and(...filters);
     },
     with: {
       category: true,
@@ -327,11 +393,12 @@ export async function getProductsForListing(
       },
     },
     orderBy: (product, { desc }) => [desc(product.createdAt)],
-    limit: pageSize,
-    offset,
+    // When post-filtering/sorting in JS, fetch the whole matching set and
+    // paginate after. Otherwise let SQL paginate (the common, fast path).
+    ...(needsPostFilter ? {} : { limit: pageSize, offset }),
   });
 
-  const items = rows.map((product) => {
+  const mapped = rows.map((product) => {
     const variants = product.variants.map((variant) => mapVariant(variant, tier));
     const firstVariant = variants[0];
     const images = visibleImages(product.images, tier);
@@ -376,10 +443,38 @@ export async function getProductsForListing(
       showcaseImageUrl: showcaseImage?.url ?? defaultImage,
       showcaseImages: prioritizeImage(galleryImages, showcaseImage),
       price: firstVariant?.price ?? 0,
+      compareAtAmount: firstVariant?.compareAtAmount ?? 0,
       availableStock: variants.reduce((sum, variant) => sum + variant.availableStock, 0),
       variants,
     };
   });
+
+  // Fast path: SQL already filtered + paginated + ordered by newest.
+  if (!needsPostFilter) {
+    return {
+      items: mapped,
+      meta: {
+        total: sqlTotal,
+        page,
+        pageSize,
+        hasNext: page * pageSize < sqlTotal,
+      } satisfies ListingMeta,
+    };
+  }
+
+  // Post-filter path: apply tier-dependent price range + in-stock filters,
+  // then sort, then paginate in JS.
+  const filtered = mapped.filter((product) => {
+    if (inStock && product.availableStock <= 0) return false;
+    if (typeof minPrice === "number" && product.price < minPrice) return false;
+    if (typeof maxPrice === "number" && product.price > maxPrice) return false;
+    return true;
+  });
+
+  const sorted = sortBlockProducts(filtered, sort ?? "newest");
+
+  const total = sorted.length;
+  const items = sorted.slice(offset, offset + pageSize);
 
   return {
     items,

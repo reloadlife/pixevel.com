@@ -49,60 +49,78 @@ Non-goals: redesigning the spotlight search, category mega-menu, or bottom tabs.
 
 ## Architecture
 
-### 1. New shared primitive: `src/components/shell/hover-menu.tsx`
+> **Design revision (post-feedback):** the original plan used two *independent* hover
+> popovers (one per menu) animated with Motion. In practice the basket↔user **switch** was
+> still not smooth: when the pointer crosses from one trigger to the other, one popover must
+> exit-animate while the other enter-animates — there is always a visible gap/flicker, and two
+> Motion `AnimatePresence` trees cannot morph into one another. The fix is base-ui's
+> **shared-popover-with-multiple-triggers** feature: a *single* popover, owned by one
+> `Popover.Root`, that stays mounted and **morphs** position + size + content as it moves
+> between the account and cart triggers. This is purpose-built for exactly this interaction
+> (verified in `node_modules/@base-ui/react/docs/react/components/popover.md` →
+> "Multiple triggers" / "Animating the Popover").
 
-A thin wrapper over base-ui `Popover` that standardizes hover timing + Motion animation.
+### 1. New shared morphing popover: `src/components/shell/header-menus.tsx`
 
-```
-HoverMenu({
-  trigger,                  // ReactElement — the icon button (rendered as Popover.Trigger)
-  children,                 // popup content
-  open, onOpenChange,       // controlled (so AnimatePresence + press-filtering work)
-  contentClassName,         // popup styling (width, etc.)
-  align = "end",
-  sideOffset = 10,
-})
-```
-
-- `Popover.Root` controlled by `open` / `onOpenChange`.
-- `Popover.Trigger openOnHover delay={OPEN_DELAY} closeDelay={CLOSE_DELAY} render={trigger}`.
-- `AnimatePresence` → `Popover.Portal keepMounted` → `Popover.Positioner side="bottom" align sideOffset` →
-  `Popover.Popup render={<motion.div … />}`.
-
-Shared timing + motion constants live at the top of the file so both menus match exactly:
+Owns both header triggers, the single shared `Popover.Root`, and the cart `Drawer`. Replaces
+both `account-menu.tsx` and `cart-button.tsx`.
 
 ```
-OPEN_DELAY  = 70   // ms
-CLOSE_DELAY = 120  // ms
-ENTER  = { opacity: 0, scale: 0.96, y: -6 }
-ACTIVE = { opacity: 1, scale: 1,    y: 0  }
-SPRING = { type: "spring", stiffness: 520, damping: 34, mass: 0.7 }
+const headerMenu = Popover.createHandle<"account" | "cart">()   // module scope
+
+HeaderMenus({ user })
+  // controlled: open + activeId(triggerId) so a hover-cross re-targets the same popover
+  <Popover.Trigger handle id="account" payload="account" openOnHover delay closeDelay/>  // logged-in only
+  <Popover.Trigger handle id="cart"    payload="cart"    openOnHover delay closeDelay
+                   onClick={openDrawer}/>
+  <Popover.Root handle open onOpenChange triggerId={activeId}>
+    {({ payload }) => (
+      <Portal><Positioner …morph…><Popup …morph + enter/exit…>
+        <Viewport …direction-aware content cross-slide…>
+          {payload === "cart" ? <MiniCart/> : <AccountPanel/>}
+        </Viewport>
+      </Popup></Positioner></Portal>
+    )}
+  </Popover.Root>
+  <Drawer open={drawerOpen}/>   // cart click → full drawer
 ```
 
-The `motion.div` sets `style={{ transformOrigin: "var(--transform-origin)" }}` so it scales
-from the anchor corner (correct in RTL).
+Shared hover timing (identical for both triggers → one continuous surface):
 
-### 2. `account-menu.tsx` → uses `HoverMenu`
+```
+OPEN_DELAY  = 60   // ms  (Trigger `delay`)
+CLOSE_DELAY = 140  // ms  (Trigger `closeDelay`)
+```
 
-- Remove the manual `mouseenter`/`mouseleave`/`timer` machinery.
-- Guest (no user) stays a plain login `<Link>` (no menu).
-- Logged-in: `HoverMenu` with the icon button as trigger. Click toggles too (touch/a11y) —
-  base-ui press still works.
-- Content (polished):
-  - Header: avatar circle (initials from `fullName`, else a `UserRound` glyph) + name/phone;
-    gold ring + «VIP» pill when `isPremium`.
-  - Rows: حساب کاربری (`/account`), پنل مدیریت (`/admin`, ADMIN only).
-  - Divider → theme switch (`ThemeSegmented`) → divider → خروج (logout).
+Morph animation (CSS transitions, GPU, via base-ui data-attrs — no Motion here):
 
-### 3. `cart-button.tsx` → uses `HoverMenu` (desktop) + Vaul `Drawer` (click)
+- **Positioner**: `transition-[top,left,right,bottom]`, ~300ms `cubic-bezier(0.22,1,0.36,1)`,
+  `data-instant:transition-none` (skips the transition on first placement).
+- **Popup**: `transition-[width,height,opacity,transform]`; `data-starting-style` /
+  `data-ending-style` = `scale-95 opacity-0` for enter/exit; `origin-[var(--transform-origin)]`.
+- **Viewport**: wraps content; base-ui emits `data-activation-direction` (left/right) plus
+  `data-current` / `data-previous` children — old panel slides out, new slides in. base-ui
+  derives the direction from DOM rects, so RTL is handled automatically (wire both directions).
 
-- Drop `PreviewCard`.
-- Desktop (lg+): `HoverMenu` shows the animated mini-cart popover on hover. The popover is
-  **hover-only** — clicks are routed to the drawer. To prevent base-ui press from toggling the
-  popover, `onOpenChange` ignores the `triggerPress` reason; the button's `onClick` sets
-  `drawerOpen = true`.
-- Mobile (<lg): no hover; tapping the bag opens the Vaul `Drawer` (popup is `hidden lg:block`).
-- Badge (item count) unchanged.
+Each panel sets a fixed width (account `w-64`, cart `w-80`) so the size morph has defined
+endpoints.
+
+### 2. Click / mobile routing
+
+- **Cart click → Drawer.** `onOpenChange` intercepts `reason === "trigger-press" && trigger.id === "cart"`:
+  it opens the drawer and returns without opening the popover. The trigger's `onClick` also sets
+  `drawerOpen = true` (idempotent). So: desktop hover = morphing popover; any click = drawer;
+  mobile tap (no hover) = drawer.
+- **Account press** (mobile tap, or click) falls through normally → opens the account panel.
+- A hover-cross fires `onOpenChange(true, { reason: "trigger-hover", trigger })` → we keep `open`
+  and update `activeId` → the popover morphs to the new panel.
+
+### 3. `account-panel.tsx` (new) — account dropdown content
+
+- Header: avatar circle (initials from `fullName`, else `UserRound`) + name/phone; gold ring +
+  «VIP» pill when `isPremium`.
+- Rows: حساب کاربری (`/account`), پنل مدیریت (`/admin`, ADMIN only).
+- Divider → theme switch (`ThemeSegmented`) → divider → خروج (logout, owns the router call).
 
 ### 4. `cart-provider.tsx` → add mutators
 
@@ -118,28 +136,36 @@ removeItem(variantId: string): Promise<void>
 - `setQuantity(_, 0)` removes (or callers use `removeItem`). Guard against going below 1 in the UI.
 - Keep failures silent-but-safe (re-`refresh()` on error so UI doesn't drift).
 
-### 5. `mini-cart.tsx` → polished rows
+### 5. `mini-cart.tsx` → polished rows (used by both the popover cart panel and the drawer)
 
 - Each line: thumbnail + title + variant + **qty stepper (− / qty / ＋)** + line total +
   **remove (trash) button**.
-- Wrap rows in `AnimatePresence` so removing a line animates out (height/opacity collapse).
+- Wrap rows in Motion `AnimatePresence` so removing a line animates out (opacity/height
+  collapse) — the only place Motion is used. The popup's CSS height transition follows the
+  content shrink, so the container resize stays smooth.
 - Stepper calls `setQuantity`; trash calls `removeItem`. Disable controls while a row mutation
   is in flight (local pending state) to avoid double-fires.
 - Footer unchanged in structure: subtotal (gold) + checkout + "مشاهده سبد کامل".
 - Empty state unchanged.
 
-### 6. Delete `search-bar.tsx` (dead code).
+### 6. `site-header.tsx` → render `<HeaderMenus user={user} />` in place of the old
+`<AccountMenu/> <CartButton/>` pair.
+
+### 7. Delete `search-bar.tsx` (dead code), `account-menu.tsx`, `cart-button.tsx` (folded into
+`header-menus.tsx` + `account-panel.tsx`).
 
 ## Files
 
 | Action | File |
 | --- | --- |
-| add dep | `motion` (motion.dev) |
-| new | `src/components/shell/hover-menu.tsx` |
-| edit | `src/components/shell/account-menu.tsx` |
-| edit | `src/components/shell/cart-button.tsx` |
+| add dep | `motion` (motion.dev) — used only for mini-cart row removal |
+| new | `src/components/shell/header-menus.tsx` (shared morphing popover + cart drawer) |
+| new | `src/components/shell/account-panel.tsx` (account dropdown content) |
 | edit | `src/components/shell/mini-cart.tsx` |
+| edit | `src/components/shell/site-header.tsx` |
 | edit | `src/components/shop/cart-provider.tsx` |
+| delete | `src/components/shell/account-menu.tsx` |
+| delete | `src/components/shell/cart-button.tsx` |
 | delete | `src/components/shell/search-bar.tsx` |
 
 ## Testing / verification
@@ -152,7 +178,11 @@ removeItem(variantId: string): Promise<void>
 
 ## Risks / notes
 
-- The exact `triggerPress` reason string must be confirmed against base-ui's `REASONS` at
-  implementation time (filter in `onOpenChange`).
-- `prefers-reduced-motion`: gate the spring (Motion respects it via `useReducedMotion`) so the
-  popups fall back to a plain fade.
+- Press reason confirmed: `eventDetails.reason === "trigger-press"` (base-ui
+  `internals/reason-parts`). Cart-click routing keys on that + `trigger.id === "cart"`.
+- The size morph needs each panel to have a defined width; account `w-64`, cart `w-80`. If a
+  panel's height changes (cart row removal), the Popup `height` transition animates the resize.
+- `prefers-reduced-motion`: the morph durations are short; for the mini-cart Motion rows, gate
+  with `useReducedMotion()` so removal falls back to an instant cut.
+- Mobile: the morphing popover only matters on hover (desktop). On touch, account tap opens the
+  panel; cart tap opens the drawer. Keep the popup width within the viewport (`max-w-[...]`).

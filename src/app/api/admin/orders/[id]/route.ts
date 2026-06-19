@@ -1,21 +1,25 @@
 import {
   cancelOrder,
   confirmOrderPayment,
+  failOrderPayment,
   getAdminOrder,
   markDelivered,
   markShipped,
   markUnitDamaged,
   refundOrder,
+  resendOrderCodes,
 } from "@/lib/admin/orders";
 import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 
 type ActionBody =
   | { action: "confirm" }
+  | { action: "fail" }
   | { action: "ship" }
   | { action: "deliver" }
   | { action: "cancel" }
   | { action: "refund" }
+  | { action: "resend-codes" }
   | { action: "damage_unit"; unitId: string };
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
@@ -49,10 +53,16 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return apiError("INVALID_BODY", "درخواست معتبر نیست.");
   }
 
+  // Some actions carry extra metadata back to the client (refund / resend).
+  let actionResult: Record<string, unknown> | undefined;
+
   try {
     switch (body.action) {
       case "confirm":
         await confirmOrderPayment(id);
+        break;
+      case "fail":
+        await failOrderPayment(id);
         break;
       case "ship":
         await markShipped(id);
@@ -63,8 +73,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       case "cancel":
         await cancelOrder(id);
         break;
-      case "refund":
-        await refundOrder(id);
+      case "refund": {
+        const outcome = await refundOrder(id);
+        actionResult = { refund: outcome };
+        break;
+      }
+      case "resend-codes":
+        await resendOrderCodes(id);
+        actionResult = { resent: true };
         break;
       case "damage_unit":
         if (!body.unitId) {
@@ -77,10 +93,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
 
     const order = await getAdminOrder(id);
-    return apiOk({ order });
+    return apiOk({ order, ...actionResult });
   } catch (error) {
     if (error instanceof Error && error.message === "ORDER_NOT_FOUND") {
       return apiError("ORDER_NOT_FOUND", "سفارش پیدا نشد.", 404);
+    }
+
+    if (error instanceof Error && error.message === "ORDER_NOT_PAID") {
+      return apiError("ORDER_NOT_PAID", "ارسال مجدد کدها فقط برای سفارش پرداخت‌شده ممکن است.");
     }
 
     return apiError("ORDER_ACTION_FAILED", "عملیات سفارش انجام نشد.", 500);

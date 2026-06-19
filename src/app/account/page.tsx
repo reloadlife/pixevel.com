@@ -110,6 +110,7 @@ export default async function AccountPage() {
           <SectionCard title="سفارش‌ها" count={orders.length} emptyText="هنوز سفارشی ثبت نشده است.">
             {orders.map((order) => {
               const meta = orderStatusMeta(order.status);
+              const payMeta = paymentStatusMeta(order.paymentStatus);
               return (
                 <Link
                   key={order.id}
@@ -123,11 +124,17 @@ export default async function AccountPage() {
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {faDate(order.createdAt)}
                     </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <StatusBadge label={meta.label} tone={meta.tone} />
+                      <StatusBadge label={payMeta.label} tone={payMeta.tone} />
+                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <StatusBadge label={meta.label} tone={meta.tone} />
+                  <div className="flex shrink-0 items-center gap-2">
                     <span className="text-sm font-bold">
                       {formatToman(order.totalAmount.toString())}
+                    </span>
+                    <span aria-hidden className="text-muted-foreground">
+                      ‹
                     </span>
                   </div>
                 </Link>

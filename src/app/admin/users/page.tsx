@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { UserManagement } from "@/components/admin/user-management";
+import { listAdminUsers, toAdminUserRow } from "@/lib/admin/users";
 import { getCurrentUser } from "@/lib/auth";
-import { getDb } from "@/lib/db";
 
 export default async function AdminUsersPage() {
   const user = await getCurrentUser();
@@ -15,24 +15,17 @@ export default async function AdminUsersPage() {
     redirect("/admin");
   }
 
-  const users = await getDb().query.users.findMany({
-    columns: {
-      id: true,
-      phone: true,
-      fullName: true,
-      role: true,
-      isPremium: true,
-      createdAt: true,
-    },
-    orderBy: (item, { desc }) => [desc(item.createdAt)],
-  });
+  const result = await listAdminUsers({ page: 1 });
 
   return (
     <UserManagement
-      initialUsers={users.map((item) => ({
-        ...item,
-        createdAt: item.createdAt.toISOString(),
-      }))}
+      initialUsers={result.rows.map(toAdminUserRow)}
+      initialPagination={{
+        page: result.page,
+        pageSize: result.pageSize,
+        total: result.total,
+        totalPages: result.totalPages,
+      }}
     />
   );
 }

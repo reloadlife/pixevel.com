@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import type { CurrentUser } from "@/lib/auth";
 import type { Category } from "@/lib/nav-items";
 import { BottomTabs } from "./bottom-tabs";
+import { CookieConsent } from "./cookie-consent";
+import { SiteFooter } from "./site-footer";
 import { SiteHeader } from "./site-header";
 
 /**
@@ -31,6 +33,8 @@ export function AppShell({
     <div className="flex min-h-dvh flex-col">
       <SiteHeader user={user} categories={categories} />
       <main className="flex-1 pb-20 lg:pb-10">{children}</main>
+      <SiteFooter categories={categories} />
+      <CookieConsent />
       <BottomTabs user={user} categories={categories} />
     </div>
   );

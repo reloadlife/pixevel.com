@@ -1,36 +1,107 @@
+import { CatalogFilters } from "@/components/shop/catalog-filters";
 import { ProductCard } from "@/components/shop/product-card";
 import { getCurrentUser } from "@/lib/auth";
-import { getProductsForListing, listCategories } from "@/lib/catalog";
+import {
+  getProductsForListing,
+  listCategories,
+  listTags,
+  PRODUCT_SORT_KEYS,
+  type ProductSortKey,
+} from "@/lib/catalog";
+import { formatToman } from "@/lib/format";
+
+function parsePositiveAmount(raw: string | undefined): number | undefined {
+  if (raw == null || raw.trim() === "") return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return undefined;
+  return value;
+}
 
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string; category?: string }>;
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+    category?: string;
+    tag?: string;
+    sort?: string;
+    minPrice?: string;
+    maxPrice?: string;
+    inStock?: string;
+  }>;
 }) {
-  const { q, page: pageParam, category } = await searchParams;
+  const {
+    q,
+    page: pageParam,
+    category,
+    tag,
+    sort: sortParam,
+    minPrice: minPriceParam,
+    maxPrice: maxPriceParam,
+    inStock: inStockParam,
+  } = await searchParams;
+
   const page = Math.max(1, Number(pageParam ?? "1") || 1);
+  const sort = PRODUCT_SORT_KEYS.includes(sortParam as ProductSortKey)
+    ? (sortParam as ProductSortKey)
+    : undefined;
+
+  let minPrice = parsePositiveAmount(minPriceParam);
+  let maxPrice = parsePositiveAmount(maxPriceParam);
+  if (minPrice != null && maxPrice != null && minPrice > maxPrice) {
+    [minPrice, maxPrice] = [maxPrice, minPrice];
+  }
+
+  const inStock = inStockParam === "true";
+
   const user = await getCurrentUser();
-  const [{ items: products, meta }, allCategories] = await Promise.all([
-    getProductsForListing(user, { q, category, page }),
+  const [{ items: products, meta }, allCategories, allTags] = await Promise.all([
+    getProductsForListing(user, {
+      q,
+      category,
+      tag,
+      sort,
+      minPrice,
+      maxPrice,
+      inStock,
+      page,
+    }),
     listCategories(),
+    listTags(),
   ]);
+
   const activeCategoryTitle = category
     ? (allCategories.find((c) => c.slug === category)?.titleFa ?? category)
     : null;
+  const activeTagTitle = tag ? (allTags.find((t) => t.slug === tag)?.titleFa ?? tag) : null;
 
-  function pageUrl(p: number) {
+  // Build a URL that preserves all current filters and overrides the given keys.
+  function buildUrl(overrides: Record<string, string | number | null | undefined>) {
     const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (category) params.set("category", category);
-    params.set("page", String(p));
-    return `/products?${params.toString()}`;
+    const base: Record<string, string | undefined> = {
+      q,
+      category,
+      tag,
+      sort: sortParam,
+      minPrice: minPriceParam,
+      maxPrice: maxPriceParam,
+      inStock: inStock ? "true" : undefined,
+    };
+    for (const [key, value] of Object.entries(base)) {
+      if (value != null && value !== "") params.set(key, value);
+    }
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value == null || value === "") params.delete(key);
+      else params.set(key, String(value));
+    }
+    const query = params.toString();
+    return query ? `/products?${query}` : "/products";
   }
 
-  function clearCategoryUrl() {
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    return `/products${params.size > 0 ? `?${params.toString()}` : ""}`;
-  }
+  const hasActiveFilters = Boolean(
+    category || tag || minPrice != null || maxPrice != null || inStock || sort,
+  );
 
   return (
     <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14" dir="rtl">
@@ -46,6 +117,13 @@ export default async function ProductsPage({
 
       {/* Search form — GET, RTL, submits ?q= */}
       <form method="GET" action="/products" className="mb-8">
+        {/* Preserve active filters across a new search */}
+        {category ? <input type="hidden" name="category" value={category} /> : null}
+        {tag ? <input type="hidden" name="tag" value={tag} /> : null}
+        {sortParam ? <input type="hidden" name="sort" value={sortParam} /> : null}
+        {minPriceParam ? <input type="hidden" name="minPrice" value={minPriceParam} /> : null}
+        {maxPriceParam ? <input type="hidden" name="maxPrice" value={maxPriceParam} /> : null}
+        {inStock ? <input type="hidden" name="inStock" value="true" /> : null}
         <div className="relative">
           <input
             type="search"
@@ -73,28 +151,37 @@ export default async function ProductsPage({
             </svg>
           </span>
         </div>
-        {q && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            {meta.total} نتیجه برای «{q}»
-          </p>
-        )}
       </form>
 
-      {/* Active category filter chip */}
-      {activeCategoryTitle && (
-        <div className="mb-6 flex items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-3 py-1 text-sm font-medium">
-            دسته: {activeCategoryTitle}
-            <a
-              href={clearCategoryUrl()}
-              aria-label="حذف فیلتر دسته"
-              className="ms-1 text-muted-foreground hover:text-foreground"
-            >
-              ×
-            </a>
-          </span>
-        </div>
-      )}
+      <CatalogFilters categories={allCategories} tags={allTags} />
+
+      {/* Active filter chips + results count */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <span className="text-sm font-bold text-muted-foreground">{meta.total} نتیجه</span>
+
+        {activeCategoryTitle && (
+          <FilterChip label={`دسته: ${activeCategoryTitle}`} href={buildUrl({ category: null })} />
+        )}
+        {activeTagTitle && (
+          <FilterChip label={`برچسب: ${activeTagTitle}`} href={buildUrl({ tag: null })} />
+        )}
+        {minPrice != null && (
+          <FilterChip label={`از ${formatToman(minPrice)}`} href={buildUrl({ minPrice: null })} />
+        )}
+        {maxPrice != null && (
+          <FilterChip label={`تا ${formatToman(maxPrice)}`} href={buildUrl({ maxPrice: null })} />
+        )}
+        {inStock && <FilterChip label="فقط موجود" href={buildUrl({ inStock: null })} />}
+
+        {hasActiveFilters && (
+          <a
+            href={q ? `/products?q=${encodeURIComponent(q)}` : "/products"}
+            className="text-sm font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            حذف همه فیلترها
+          </a>
+        )}
+      </div>
 
       {products.length > 0 ? (
         <>
@@ -109,7 +196,7 @@ export default async function ProductsPage({
             <nav className="mt-10 flex items-center justify-center gap-4" aria-label="صفحه‌بندی">
               {meta.page > 1 ? (
                 <a
-                  href={pageUrl(meta.page - 1)}
+                  href={buildUrl({ page: meta.page - 1 })}
                   className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
                 >
                   ← قبلی
@@ -126,7 +213,7 @@ export default async function ProductsPage({
 
               {meta.hasNext ? (
                 <a
-                  href={pageUrl(meta.page + 1)}
+                  href={buildUrl({ page: meta.page + 1 })}
                   className="rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-muted"
                 >
                   بعدی →
@@ -139,11 +226,13 @@ export default async function ProductsPage({
             </nav>
           )}
         </>
-      ) : q ? (
+      ) : q || hasActiveFilters ? (
         <div className="grid min-h-[50dvh] place-items-center border border-dashed border-border text-center">
           <div>
             <h2 className="text-2xl font-black">نتیجه‌ای یافت نشد</h2>
-            <p className="mt-2 text-sm text-muted-foreground">جستجوی دیگری امتحان کنید.</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              فیلترها یا جستجوی دیگری امتحان کنید.
+            </p>
           </div>
         </div>
       ) : (
@@ -157,5 +246,20 @@ export default async function ProductsPage({
         </div>
       )}
     </main>
+  );
+}
+
+function FilterChip({ label, href }: { label: string; href: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-3 py-1 text-sm font-medium">
+      {label}
+      <a
+        href={href}
+        aria-label={`حذف فیلتر ${label}`}
+        className="ms-1 text-muted-foreground hover:text-foreground"
+      >
+        ×
+      </a>
+    </span>
   );
 }

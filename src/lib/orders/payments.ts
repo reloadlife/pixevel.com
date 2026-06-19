@@ -1,6 +1,14 @@
 import { eq, sql } from "drizzle-orm";
 import { orderItems, orders, payments, products, productVariants } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { sendEmail } from "@/lib/email/client";
+import {
+  type DigitalCodeGroup,
+  digitalCodesEmail,
+  type OrderEmailItem,
+  type OrderEmailSummary,
+  orderReceiptEmail,
+} from "@/lib/email/templates";
 import { releaseUnits, sellReservedUnits } from "./inventory";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -84,6 +92,121 @@ export async function confirmPayment(orderId: string, opts: ConfirmOptions = {})
     const db = getDb();
     await db.transaction(run);
   }
+
+  // Best-effort transactional email delivery. Runs AFTER the payment is fully
+  // committed and never throws — a missing email config or provider failure
+  // must not affect the payment outcome (codes remain visible in the account).
+  // We only attempt this on the standalone (non-composed) confirm path so we
+  // don't fire mail mid-transaction when callers inject their own `tx`.
+  if (!opts.tx) {
+    await sendOrderEmails(orderId).catch((err) => {
+      console.error("[payments] order email delivery error:", err);
+    });
+  }
+}
+
+/**
+ * Build and send the receipt + digital-codes emails for a freshly paid order.
+ *
+ * Best-effort: swallows all failures (logs them) and returns void. Reads the
+ * order, its items (with variant → product for titles) and the SOLD inventory
+ * units assigned to it.
+ *
+ * Exported so admin tooling can re-send the codes/receipt for an already-paid
+ * order (see {@link resendOrderCodes}).
+ */
+export async function sendOrderEmails(orderId: string): Promise<void> {
+  const db = getDb();
+
+  const order = await db.query.orders.findFirst({
+    where: (o, { eq: eqOp }) => eqOp(o.id, orderId),
+    with: {
+      items: true,
+      inventoryUnits: {
+        where: (u, { eq: eqOp }) => eqOp(u.status, "SOLD"),
+        columns: { id: true, variantId: true, code: true },
+      },
+    },
+  });
+
+  if (!order) {
+    return;
+  }
+
+  const summary: OrderEmailSummary = {
+    orderNumber: order.orderNumber,
+    customerName: order.customerName,
+    subtotalAmount: order.subtotalAmount,
+    shippingAmount: order.shippingAmount,
+    discountAmount: order.discountAmount,
+    totalAmount: order.totalAmount,
+    couponCode: order.couponCode,
+    giftMessage: order.giftMessage,
+  };
+
+  // (a) Receipt → customerEmail.
+  if (order.customerEmail) {
+    const items: OrderEmailItem[] = order.items.map((item) => ({
+      titleFa: item.titleFa,
+      variantFa: [item.colorNameFa, item.materialNameFa, item.size ? `سایز ${item.size}` : null]
+        .filter(Boolean)
+        .join(" / "),
+      quantity: item.quantity,
+      totalPrice: item.totalPrice,
+    }));
+
+    const receipt = orderReceiptEmail(summary, items);
+    const res = await sendEmail({
+      to: order.customerEmail,
+      subject: receipt.subject,
+      html: receipt.html,
+      text: receipt.text,
+    });
+    if (res.status === "failed") {
+      console.error(`[payments] receipt email failed for ${order.orderNumber}: ${res.message}`);
+    }
+  }
+
+  // (b) Digital codes → recipientEmail ?? customerEmail.
+  const codesTo = order.recipientEmail ?? order.customerEmail;
+  if (codesTo && order.inventoryUnits.length > 0) {
+    // Map variantId → product/item title via the order's own line items.
+    const titleByVariant = new Map<string, string>();
+    for (const item of order.items) {
+      if (item.variantId) {
+        titleByVariant.set(item.variantId, item.titleFa);
+      }
+    }
+
+    // Group sold codes by variant, preserving an "گروه" per product line.
+    const codesByVariant = new Map<string, string[]>();
+    for (const unit of order.inventoryUnits) {
+      const existing = codesByVariant.get(unit.variantId) ?? [];
+      existing.push(unit.code);
+      codesByVariant.set(unit.variantId, existing);
+    }
+
+    const groups: DigitalCodeGroup[] = [];
+    for (const [variantId, codes] of codesByVariant) {
+      groups.push({
+        titleFa: titleByVariant.get(variantId) ?? "محصول دیجیتال",
+        codes,
+      });
+    }
+
+    if (groups.length > 0) {
+      const codesMail = digitalCodesEmail({ order: summary, codes: groups });
+      const res = await sendEmail({
+        to: codesTo,
+        subject: codesMail.subject,
+        html: codesMail.html,
+        text: codesMail.text,
+      });
+      if (res.status === "failed") {
+        console.error(`[payments] codes email failed for ${order.orderNumber}: ${res.message}`);
+      }
+    }
+  }
 }
 
 /**
@@ -112,4 +235,30 @@ export async function failPayment(orderId: string, opts: TransactionOptions = {}
     const db = getDb();
     await db.transaction(run);
   }
+}
+
+/**
+ * Re-send the digital-codes (and receipt) email for an already-PAID order.
+ *
+ * Reuses {@link sendOrderEmails}. Throws `ORDER_NOT_PAID` if the order is not
+ * in a PAID payment state, so the admin layer can surface a clear message.
+ * Email delivery itself is best-effort and never throws.
+ */
+export async function resendOrderCodes(orderId: string): Promise<void> {
+  const db = getDb();
+
+  const order = await db.query.orders.findFirst({
+    where: (o, { eq: eqOp }) => eqOp(o.id, orderId),
+    columns: { id: true, paymentStatus: true },
+  });
+
+  if (!order) {
+    throw new Error("ORDER_NOT_FOUND");
+  }
+
+  if (order.paymentStatus !== "PAID") {
+    throw new Error("ORDER_NOT_PAID");
+  }
+
+  await sendOrderEmails(orderId);
 }

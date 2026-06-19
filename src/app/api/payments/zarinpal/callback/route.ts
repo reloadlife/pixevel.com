@@ -13,7 +13,10 @@ import { zarinpalProvider } from "@/lib/payments/zarinpal";
  *
  * Idempotency: we only act on a payment whose status is still UNPAID or
  * AUTHORIZED. If the payment was already PAID or FAILED (e.g. a duplicate
- * redirect), we skip the transition and redirect the browser normally.
+ * redirect), we skip the transition and reflect the known outcome.
+ *
+ * On a resolved outcome we redirect to `/payment/result?orderId=…&status=…`
+ * (success | failed). The result page links back to the order detail page.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -22,9 +25,14 @@ export async function GET(req: NextRequest) {
   const authority = searchParams.get("Authority") ?? searchParams.get("authority") ?? "";
   const status = searchParams.get("Status") ?? searchParams.get("status") ?? "NOK";
 
-  // Always redirect to the order page so the user ends up somewhere meaningful.
+  // Always redirect to a meaningful page.
   const fallbackRedirect = (path: string) =>
     NextResponse.redirect(new URL(path, req.nextUrl.origin));
+
+  // The payment result page presents success/failure/pending state and links
+  // back to the order. We funnel every resolved outcome through it.
+  const resultPage = (resultStatus: "success" | "failed" | "pending") =>
+    fallbackRedirect(`/payment/result?orderId=${orderId}&status=${resultStatus}`);
 
   if (!orderId) {
     return fallbackRedirect("/");
@@ -52,20 +60,25 @@ export async function GET(req: NextRequest) {
       return fallbackRedirect(orderPage);
     }
 
-    // Idempotency guard: only process UNPAID / AUTHORIZED payments.
+    // Idempotency guard: only process UNPAID / AUTHORIZED payments. If the
+    // payment was already resolved (duplicate redirect), reflect its known
+    // outcome on the result page rather than re-running the transition.
     if (payment.status !== "UNPAID" && payment.status !== "AUTHORIZED") {
-      return fallbackRedirect(orderPage);
+      return resultPage(payment.status === "PAID" ? "success" : "failed");
     }
 
     const result = await zarinpalProvider.verify(payment, { authority, status });
 
     if (result.status === "PAID") {
       await confirmPayment(orderId, { reference: result.reference });
-    } else {
-      await failPayment(orderId);
+      return resultPage("success");
     }
+
+    await failPayment(orderId);
+    return resultPage("failed");
   } catch (err) {
-    // Log but do not crash — always redirect so the user reaches the order page.
+    // Log but do not crash — fall back to the order page so the user still
+    // reaches something meaningful.
     console.error("[zarinpal/callback] error:", err);
   }
 

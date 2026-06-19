@@ -2,10 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import type { CartView } from "@/lib/cart";
+import { formatToman } from "@/lib/format";
 
 type PaymentMethod = "ZARINPAL" | "CARD_TO_CARD" | "MANUAL";
+
+interface AppliedCoupon {
+  code: string;
+  discountAmount: number;
+}
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: "ZARINPAL", label: "زرین‌پال" },
@@ -162,11 +169,15 @@ function ReceiptStep({
 export function CheckoutClient({
   cart,
   hasPhysical,
+  hasDigital = false,
   defaultShipping,
+  defaultEmail = "",
 }: {
   cart: CartView;
   hasPhysical: boolean;
+  hasDigital?: boolean;
   defaultShipping?: ShippingFields;
+  defaultEmail?: string;
 }) {
   const router = useRouter();
   const [method, setMethod] = useState<PaymentMethod>("MANUAL");
@@ -174,14 +185,69 @@ export function CheckoutClient({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Capture fields
+  const [customerEmail, setCustomerEmail] = useState(defaultEmail);
+  const [isGift, setIsGift] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [giftMessage, setGiftMessage] = useState("");
+
+  // Coupon state
+  const [couponInput, setCouponInput] = useState("");
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
+  const [couponPending, setCouponPending] = useState(false);
+
   // Card-to-card receipt step state
   const [receiptStep, setReceiptStep] = useState<{
     orderId: string;
     instructions: CardInstructions;
   } | null>(null);
 
+  // Live totals — server stays authoritative; this is a convenience preview.
+  const subtotal = cart.subtotal;
+  const discount = appliedCoupon?.discountAmount ?? 0;
+  const total = Math.max(0, subtotal - discount);
+
   function updateShipping(field: keyof ShippingFields, value: string) {
     setShipping((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function applyCoupon() {
+    const code = couponInput.trim();
+    if (!code) {
+      toast.error("کد تخفیف را وارد کنید.");
+      return;
+    }
+
+    setCouponPending(true);
+    try {
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, subtotal }),
+      });
+      const payload = await res.json();
+
+      if (!res.ok) {
+        setAppliedCoupon(null);
+        toast.error(payload?.error?.message ?? "کد تخفیف معتبر نیست.");
+        return;
+      }
+
+      const { code: canonicalCode, discountAmount } = payload.data;
+      setAppliedCoupon({ code: canonicalCode, discountAmount });
+      setCouponInput(canonicalCode);
+      toast.success(`کد تخفیف اعمال شد: ${formatToman(discountAmount)} تخفیف`);
+    } catch {
+      toast.error("خطا در بررسی کد تخفیف. لطفاً مجدداً تلاش کنید.");
+    } finally {
+      setCouponPending(false);
+    }
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCouponInput("");
+    toast("کد تخفیف حذف شد.");
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -196,6 +262,23 @@ export function CheckoutClient({
         body.shipping = shipping;
       }
 
+      const trimmedEmail = customerEmail.trim();
+      if (trimmedEmail) {
+        body.customerEmail = trimmedEmail;
+      }
+
+      if (isGift) {
+        body.gift = {
+          isGift: true,
+          recipientEmail: recipientEmail.trim() || undefined,
+          giftMessage: giftMessage.trim() || undefined,
+        };
+      }
+
+      if (appliedCoupon) {
+        body.couponCode = appliedCoupon.code;
+      }
+
       const res = await fetch("/api/orders", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -205,9 +288,17 @@ export function CheckoutClient({
       const payload = await res.json();
 
       if (!res.ok) {
-        setError(payload?.error?.message ?? "خطا در ثبت سفارش.");
+        const message = payload?.error?.message ?? "خطا در ثبت سفارش.";
+        setError(message);
+        toast.error(message);
+        // A coupon may have been exhausted/expired between preview and submit.
+        if (payload?.error?.code === "INVALID_COUPON") {
+          setAppliedCoupon(null);
+        }
         return;
       }
+
+      toast.success("سفارش با موفقیت ثبت شد.");
 
       const { orderId, payment } = payload.data;
 
@@ -220,7 +311,9 @@ export function CheckoutClient({
         router.push(`/account/orders/${orderId}`);
       }
     } catch {
-      setError("خطا در ارتباط با سرور. لطفاً مجدداً تلاش کنید.");
+      const message = "خطا در ارتباط با سرور. لطفاً مجدداً تلاش کنید.";
+      setError(message);
+      toast.error(message);
     } finally {
       setPending(false);
     }
@@ -233,6 +326,160 @@ export function CheckoutClient({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8" dir="rtl">
+      {/* Buyer email */}
+      <section>
+        <h2 className="mb-4 text-lg font-black">ایمیل خریدار</h2>
+        <div>
+          <label
+            htmlFor="buyer-email"
+            className="mb-1 block text-sm font-bold text-muted-foreground"
+          >
+            ایمیل
+          </label>
+          <input
+            id="buyer-email"
+            type="email"
+            required={hasDigital}
+            value={customerEmail}
+            onChange={(e) => setCustomerEmail(e.target.value)}
+            className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
+            placeholder="name@example.com"
+            dir="ltr"
+            inputMode="email"
+            autoComplete="email"
+          />
+          <p className="mt-2 text-xs leading-6 text-muted-foreground">
+            کد خرید به این ایمیل ارسال می‌شود.
+          </p>
+        </div>
+      </section>
+
+      {/* Gift */}
+      <section>
+        <label className="flex cursor-pointer items-center gap-3">
+          <input
+            type="checkbox"
+            checked={isGift}
+            onChange={(e) => setIsGift(e.target.checked)}
+            className="size-4 accent-gold"
+          />
+          <span className="text-lg font-black">این خرید هدیه است</span>
+        </label>
+
+        {isGift ? (
+          <div className="mt-4 space-y-4 border-r-2 border-gold/40 pr-4">
+            <p className="text-xs leading-6 text-muted-foreground">
+              کد خرید به جای شما، به ایمیل گیرنده ارسال می‌شود.
+            </p>
+            <div>
+              <label
+                htmlFor="recipient-email"
+                className="mb-1 block text-sm font-bold text-muted-foreground"
+              >
+                ایمیل گیرنده
+              </label>
+              <input
+                id="recipient-email"
+                type="email"
+                required={isGift}
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
+                placeholder="recipient@example.com"
+                dir="ltr"
+                inputMode="email"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="gift-message"
+                className="mb-1 block text-sm font-bold text-muted-foreground"
+              >
+                پیام هدیه (اختیاری)
+              </label>
+              <textarea
+                id="gift-message"
+                value={giftMessage}
+                onChange={(e) => setGiftMessage(e.target.value)}
+                rows={3}
+                maxLength={500}
+                className="w-full resize-none border border-border bg-card px-4 py-3 text-sm outline-none focus:border-gold"
+                placeholder="پیام شما برای گیرنده هدیه…"
+              />
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      {/* Coupon */}
+      <section>
+        <h2 className="mb-4 text-lg font-black">کد تخفیف</h2>
+        {appliedCoupon ? (
+          <div className="flex items-center justify-between border border-gold/40 bg-gold/5 px-4 py-3">
+            <div className="flex flex-col gap-1">
+              <span className="font-mono text-sm font-black text-gold" dir="ltr">
+                {appliedCoupon.code}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatToman(appliedCoupon.discountAmount)} تخفیف اعمال شد
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={removeCoupon}
+              className="text-sm font-bold text-destructive hover:underline"
+            >
+              حذف
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={couponInput}
+              onChange={(e) => setCouponInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applyCoupon();
+                }
+              }}
+              className="h-11 flex-1 border border-border bg-card px-4 text-sm outline-none focus:border-gold"
+              placeholder="کد تخفیف را وارد کنید"
+              dir="ltr"
+            />
+            <button
+              type="button"
+              onClick={applyCoupon}
+              disabled={couponPending || !couponInput.trim()}
+              className="h-11 shrink-0 rounded-full bg-foreground px-6 text-sm font-black text-background transition hover:brightness-110 disabled:opacity-50"
+            >
+              {couponPending ? "…" : "اعمال"}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* Order totals — server stays authoritative; this preview reflects coupon. */}
+      <section className="border-t border-border pt-6">
+        <div className="space-y-2 text-sm">
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>جمع جزء</span>
+            <span>{formatToman(subtotal)}</span>
+          </div>
+          {discount > 0 ? (
+            <div className="flex items-center justify-between text-gold">
+              <span>تخفیف</span>
+              <span dir="ltr">−{formatToman(discount)}</span>
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-black">
+            <span>جمع کل</span>
+            <span className="text-gold">{formatToman(total)}</span>
+          </div>
+        </div>
+      </section>
+
       {/* Payment method */}
       <section>
         <h2 className="mb-4 text-lg font-black">روش پرداخت</h2>

@@ -90,12 +90,18 @@ type ProductRow = {
   fitFa: string;
   careFa: string;
   status: string;
+  fulfillmentType: string;
   categoryId: string;
   tagIds: string[];
   tags: TagOption[];
   images: ProductImageRecord[];
   variants: ProductVariantRow[];
 };
+
+const FULFILLMENT_OPTIONS = [
+  { value: "DIGITAL", label: "دیجیتال" },
+  { value: "PHYSICAL", label: "فیزیکی" },
+];
 
 type ColorOption = {
   id: string;
@@ -142,6 +148,7 @@ type ImageRow = {
 
 type VariantEditRow = ProductVariantRow & {
   stockToAdd: string;
+  stockCodes: string;
 };
 
 type VariantOption = {
@@ -235,6 +242,14 @@ function availableStock(variant: ProductVariantRow) {
   return variant.inventoryUnits.filter((unit) => unit.status === "AVAILABLE").length;
 }
 
+// Parse a "one code per line" textarea into a trimmed, blank-free string array.
+function parseCodes(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function editFormFromProduct(product: ProductRow | null) {
   return {
     titleFa: product?.titleFa ?? "",
@@ -244,6 +259,7 @@ function editFormFromProduct(product: ProductRow | null) {
     fitFa: product?.fitFa ?? "",
     careFa: product?.careFa ?? "",
     status: product?.status ?? "ACTIVE",
+    fulfillmentType: product?.fulfillmentType ?? "DIGITAL",
   };
 }
 
@@ -275,7 +291,7 @@ function imageRowsFromProduct(product: ProductRow | null) {
 }
 
 function variantRowsFromProduct(product: ProductRow | null) {
-  return product?.variants.map((variant) => ({ ...variant, stockToAdd: "" })) ?? [];
+  return product?.variants.map((variant) => ({ ...variant, stockToAdd: "", stockCodes: "" })) ?? [];
 }
 
 export function ProductManagement({
@@ -348,7 +364,10 @@ export function ProductManagement({
     compareAtAmount: "",
     stockPerVariant: "10",
     status: "ACTIVE",
+    fulfillmentType: "DIGITAL",
   });
+  // Real sellable codes (gift-card / CD keys) per variant key, "one code per line".
+  const [stockCodesByVariantKey, setStockCodesByVariantKey] = useState<Record<string, string>>({});
   const [editForm, setEditForm] = useState(editFormFromProduct(initialEditingProduct));
 
   const editingProduct = products.find((product) => product.id === editingProductId) ?? null;
@@ -694,6 +713,12 @@ export function ProductManagement({
           .filter((material) => material.label),
         sizes: sizes.map((size) => size.value.trim()).filter(Boolean),
         stockPerVariant: Number(normalizePriceValue(form.stockPerVariant) || 0),
+        fulfillmentType: form.fulfillmentType,
+        stockCodesByVariantKey: Object.fromEntries(
+          Object.entries(stockCodesByVariantKey)
+            .map(([key, raw]) => [key, parseCodes(raw)] as const)
+            .filter(([, codes]) => codes.length > 0),
+        ),
         images: imageRows
           .map((image, index) => ({
             url: image.url.trim(),
@@ -739,12 +764,15 @@ export function ProductManagement({
       fitFa: product.fitFa,
       careFa: product.careFa,
       status: product.status,
+      fulfillmentType: product.fulfillmentType ?? "DIGITAL",
     });
     setEditSelectedCategoryId(product.categoryId);
     setEditSelectedTags(product.tags);
     setEditTagQuery("");
     setEditImageRows(product.images.map(imageRowFromRecord));
-    setEditVariants(product.variants.map((variant) => ({ ...variant, stockToAdd: "" })));
+    setEditVariants(
+      product.variants.map((variant) => ({ ...variant, stockToAdd: "", stockCodes: "" })),
+    );
 
     requestAnimationFrame(() => {
       document.getElementById("product-edit-panel")?.scrollIntoView({
@@ -784,6 +812,7 @@ export function ProductManagement({
         fitFa: editForm.fitFa,
         careFa: editForm.careFa,
         status: editForm.status,
+        fulfillmentType: editForm.fulfillmentType,
         categoryId: editSelectedCategoryId || null,
         tagIds: editSelectedTags.filter((tag) => !tag.isNew).map((tag) => tag.id),
         newTags: editSelectedTags.filter((tag) => tag.isNew).map((tag) => tag.titleFa),
@@ -816,6 +845,7 @@ export function ProductManagement({
           compareAtAmount: variant.compareAtAmount || null,
           isDefault: variant.isDefault,
           stockToAdd: Number(normalizePriceValue(variant.stockToAdd) || 0),
+          stockCodes: parseCodes(variant.stockCodes),
         })),
       }),
     });
@@ -994,6 +1024,11 @@ export function ProductManagement({
               value={form.status}
               onChange={(value) => setField("status", value)}
             />
+            <FulfillmentSelect
+              label="نوع تحویل"
+              value={form.fulfillmentType}
+              onChange={(value) => setField("fulfillmentType", value)}
+            />
             <TagPicker
               selectedTags={selectedTags}
               tagQuery={tagQuery}
@@ -1024,7 +1059,7 @@ export function ProductManagement({
               onChange={(value) => setField("compareAtAmount", value)}
             />
             <Input
-              label="موجودی هر تنوع"
+              label="موجودی هر تنوع (تعداد، در صورت نبود کد)"
               value={form.stockPerVariant}
               onChange={(value) => setField("stockPerVariant", value)}
               dir="ltr"
@@ -1202,12 +1237,29 @@ export function ProductManagement({
           </div>
 
           <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
-            <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها</p>
-            <div className="flex flex-wrap gap-2">
+            <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها و کدها</p>
+            <p className="mb-3 text-xs text-zinc-500">
+              برای هر تنوع می‌توانید کدهای واقعی (کارت هدیه / لایسنس) را وارد کنید؛ هر خط یک کد. اگر
+              کدی وارد نشود، به اندازه «موجودی هر تنوع» کد خودکار ساخته می‌شود.
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
               {variantPreview.map((item) => (
-                <span key={item.id} className="bg-white px-2 py-1 text-xs font-bold">
-                  {item.label}
-                </span>
+                <div key={item.id} className="border border-zinc-200 bg-white p-2">
+                  <span className="mb-1 block text-xs font-bold">{item.label}</span>
+                  <textarea
+                    value={stockCodesByVariantKey[item.id] ?? ""}
+                    onChange={(event) =>
+                      setStockCodesByVariantKey((current) => ({
+                        ...current,
+                        [item.id]: event.target.value,
+                      }))
+                    }
+                    rows={3}
+                    dir="ltr"
+                    placeholder={"CODE-AAAA-BBBB\nCODE-CCCC-DDDD"}
+                    className="w-full resize-y border border-zinc-300 bg-white p-2 font-mono text-xs outline-none focus:border-zinc-950"
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -1256,6 +1308,11 @@ export function ProductManagement({
               label="وضعیت"
               value={editForm.status}
               onChange={(value) => setEditField("status", value)}
+            />
+            <FulfillmentSelect
+              label="نوع تحویل"
+              value={editForm.fulfillmentType}
+              onChange={(value) => setEditField("fulfillmentType", value)}
             />
             <TagPicker
               selectedTags={editSelectedTags}
@@ -1341,7 +1398,7 @@ export function ProductManagement({
                         dir="ltr"
                       />
                       <Input
-                        label="افزودن موجودی"
+                        label="افزودن موجودی (تعداد)"
                         value={variant.stockToAdd}
                         onChange={(value) => updateEditVariant(variant.id, { stockToAdd: value })}
                         dir="ltr"
@@ -1434,6 +1491,12 @@ export function ProductManagement({
                         }
                       />
                     </div>
+                    <Textarea
+                      label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
+                      value={variant.stockCodes}
+                      onChange={(value) => updateEditVariant(variant.id, { stockCodes: value })}
+                      dir="ltr"
+                    />
                     <p className="text-xs font-bold text-zinc-500">
                       {availableStock(variant)} واحد موجود از {variant.inventoryUnits.length} واحد
                     </p>
@@ -2177,6 +2240,33 @@ function StatusSelect({
         {STATUS_OPTIONS.map((status) => (
           <option key={status.value} value={status.value}>
             {status.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function FulfillmentSelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-2 block text-sm font-bold">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
+      >
+        {FULFILLMENT_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>

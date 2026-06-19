@@ -22,10 +22,12 @@ export default async function CheckoutPage() {
   const anonymousId = cookieStore.get(CART_COOKIE)?.value ?? null;
   const cart = await getCartView({ user, anonymousId });
   const hasPhysical = cart.items.some((item) => item.fulfillmentType === "PHYSICAL");
+  const hasDigital = cart.items.some((item) => item.fulfillmentType === "DIGITAL");
 
   const profile = await getDb().query.users.findFirst({
     where: eq(users.id, user.id),
     columns: {
+      email: true,
       fullName: true,
       defaultAddressLine: true,
       defaultCity: true,
@@ -97,16 +99,16 @@ export default async function CheckoutPage() {
               </div>
             ))}
           </div>
-
-          {/* Total */}
-          <div className="mt-4 flex items-center justify-between border-t border-border pt-4 text-lg font-black">
-            <span>جمع کل</span>
-            <span className="text-gold">{formatToman(cart.subtotal)}</span>
-          </div>
         </section>
 
-        {/* Client handles payment method, address form, submit */}
-        <CheckoutClient cart={cart} hasPhysical={hasPhysical} defaultShipping={defaultShipping} />
+        {/* Client handles coupon, totals, email/gift capture, payment, submit */}
+        <CheckoutClient
+          cart={cart}
+          hasPhysical={hasPhysical}
+          hasDigital={hasDigital}
+          defaultShipping={defaultShipping}
+          defaultEmail={profile?.email ?? ""}
+        />
       </div>
     </main>
   );

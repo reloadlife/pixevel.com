@@ -49,6 +49,10 @@ export async function POST(request: Request) {
       return apiError("INVALID_SLUG", "اسلاگ محصول معتبر نیست.");
     }
 
+    if (error instanceof Error && error.message === "INVALID_FULFILLMENT_TYPE") {
+      return apiError("INVALID_FULFILLMENT_TYPE", "نوع تحویل محصول معتبر نیست.");
+    }
+
     if (error instanceof Error && error.message === "INVALID_IMAGE_VARIANT") {
       return apiError("INVALID_IMAGE_VARIANT", "تنوع انتخاب‌شده برای تصویر معتبر نیست.");
     }

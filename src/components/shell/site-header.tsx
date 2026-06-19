@@ -4,13 +4,9 @@ import Link from "next/link";
 
 import type { CurrentUser } from "@/lib/auth";
 import type { Category } from "@/lib/nav-items";
-import { AccountMenu } from "./account-menu";
-import { CartButton } from "./cart-button";
 import { CategoryMegaMenu } from "./category-mega-menu";
+import { HeaderMenus } from "./header-menus";
 import { SpotlightSearch } from "./spotlight-search";
-
-const iconButton =
-  "grid size-9 place-items-center rounded-md text-foreground transition hover:bg-muted";
 
 /**
  * Search-dominant storefront header (Digikala/Torob pattern). Spotlight (⌘K)
@@ -38,10 +34,7 @@ export function SiteHeader({
 
         <SpotlightSearch className="hidden flex-1 sm:flex" />
 
-        <div className="ms-auto flex items-center gap-1 sm:ms-0">
-          <AccountMenu user={user} className={iconButton} />
-          <CartButton className={iconButton} />
-        </div>
+        <HeaderMenus user={user} className="ms-auto sm:ms-0" />
       </div>
 
       <div className="px-4 pb-3 sm:hidden">

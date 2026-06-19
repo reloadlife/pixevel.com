@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,7 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
       return;
     }
     setEditing(false);
+    toast.success("پروفایل با موفقیت ذخیره شد.");
     router.refresh();
   }
 
@@ -106,7 +108,16 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
                 onChange={(e) => set("email", e.target.value)}
                 placeholder="you@example.com"
               />
+              <p className="text-xs text-muted-foreground">برای دریافت کد و رسید خرید</p>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="phone">شماره موبایل</Label>
+            <Input id="phone" dir="ltr" value={profile.phone ?? ""} readOnly disabled />
+            <p className="text-xs text-muted-foreground">
+              تغییر شماره موبایل نیازمند تأیید با کد پیامکی است.
+            </p>
           </div>
 
           <div>

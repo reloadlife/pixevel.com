@@ -2,7 +2,13 @@ import type { orders, payments } from "@/db/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type PaymentMethod = "ZARINPAL" | "CARD_TO_CARD" | "MANUAL";
+export type PaymentMethod =
+  | "ZARINPAL"
+  | "CARD_TO_CARD"
+  | "BEHPARDAKHT"
+  | "SAMAN"
+  | "SNAPPPAY"
+  | "DIGIPAY";
 
 type Order = typeof orders.$inferSelect;
 type Payment = typeof payments.$inferSelect;

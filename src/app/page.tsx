@@ -162,7 +162,7 @@ function ShowcaseBlock({ block }: { block: HomeBlockView }) {
         href={`/products/${product.slug}`}
         className="group grid overflow-hidden bg-foreground text-background md:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]"
       >
-        <div className="relative aspect-[4/5] overflow-hidden bg-muted md:aspect-[16/11]">
+        <div className="relative aspect-4/5 overflow-hidden bg-muted md:aspect-16/11">
           {product.imageUrl ? (
             <img
               src={product.imageUrl}

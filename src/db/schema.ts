@@ -61,6 +61,10 @@ export const paymentStatus = pgEnum("payment_status", [
 
 export const fulfillmentType = pgEnum("fulfillment_type", ["DIGITAL", "PHYSICAL"]);
 
+export const reviewStatus = pgEnum("review_status", ["PENDING", "APPROVED", "REJECTED"]);
+
+export const couponKind = pgEnum("coupon_kind", ["PERCENT", "FIXED"]);
+
 // Exported string-union types (drop-in replacements for the generated Prisma enums).
 export type UserRole = (typeof userRole.enumValues)[number];
 export type ProductStatus = (typeof productStatus.enumValues)[number];
@@ -71,6 +75,8 @@ export type CartStatus = (typeof cartStatus.enumValues)[number];
 export type OrderStatus = (typeof orderStatus.enumValues)[number];
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number];
 export type FulfillmentType = (typeof fulfillmentType.enumValues)[number];
+export type ReviewStatus = (typeof reviewStatus.enumValues)[number];
+export type CouponKind = (typeof couponKind.enumValues)[number];
 
 // Shared timestamp helpers (Prisma defaults: createdAt = now(), updatedAt = @updatedAt).
 const createdAt = timestamp("createdAt", { mode: "date" }).defaultNow().notNull();
@@ -434,6 +440,11 @@ export const orders = pgTable(
     totalAmount: numeric("totalAmount", price).notNull(),
     customerName: text("customerName"),
     customerPhone: text("customerPhone"),
+    customerEmail: text("customerEmail"),
+    recipientEmail: text("recipientEmail"),
+    recipientPhone: text("recipientPhone"),
+    giftMessage: text("giftMessage"),
+    couponCode: text("couponCode"),
     addressLine: text("addressLine"),
     city: text("city"),
     province: text("province"),
@@ -496,6 +507,62 @@ export const payments = pgTable(
   ],
 );
 
+export const productReviews = pgTable(
+  "ProductReview",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("productId")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
+    authorName: text("authorName"),
+    rating: integer("rating").notNull(),
+    titleFa: text("titleFa"),
+    bodyFa: text("bodyFa").notNull(),
+    status: reviewStatus("status").default("APPROVED").notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("ProductReview_productId_status_idx").on(t.productId, t.status),
+    index("ProductReview_userId_idx").on(t.userId),
+    uniqueIndex("ProductReview_productId_userId_key").on(t.productId, t.userId),
+  ],
+);
+
+export const coupons = pgTable(
+  "Coupon",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull().unique(),
+    kind: couponKind("kind").notNull(),
+    value: numeric("value", price).notNull(),
+    isActive: boolean("isActive").default(true).notNull(),
+    minSubtotalAmount: numeric("minSubtotalAmount", price),
+    maxDiscountAmount: numeric("maxDiscountAmount", price),
+    usageLimit: integer("usageLimit"),
+    usedCount: integer("usedCount").default(0).notNull(),
+    startsAt: timestamp("startsAt", { mode: "date" }),
+    expiresAt: timestamp("expiresAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("Coupon_code_idx").on(t.code), index("Coupon_isActive_idx").on(t.isActive)],
+);
+
+export const newsletterSubscribers = pgTable(
+  "NewsletterSubscriber",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull().unique(),
+    isActive: boolean("isActive").default(true).notNull(),
+    unsubscribedAt: timestamp("unsubscribedAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("NewsletterSubscriber_createdAt_idx").on(t.createdAt)],
+);
+
 // --- Relations -------------------------------------------------------------
 
 export const usersRelations = relations(users, ({ many }) => ({
@@ -505,6 +572,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   loginOtps: many(loginOtps),
   inventoryUnits: many(inventoryUnits),
   payments: many(payments),
+  reviews: many(productReviews),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -540,6 +608,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   variants: many(productVariants),
   images: many(productImages),
   homeBlockItems: many(homeBlockItems),
+  reviews: many(productReviews),
 }));
 
 export const productTagsRelations = relations(productTags, ({ one }) => ({
@@ -640,4 +709,12 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
 export const paymentsRelations = relations(payments, ({ one }) => ({
   user: one(users, { fields: [payments.userId], references: [users.id] }),
   order: one(orders, { fields: [payments.orderId], references: [orders.id] }),
+}));
+
+export const productReviewsRelations = relations(productReviews, ({ one }) => ({
+  product: one(products, {
+    fields: [productReviews.productId],
+    references: [products.id],
+  }),
+  user: one(users, { fields: [productReviews.userId], references: [users.id] }),
 }));

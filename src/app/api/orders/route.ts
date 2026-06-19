@@ -14,6 +14,13 @@ interface OrderBody {
     province: string;
     postalCode: string;
   };
+  customerEmail?: string;
+  gift?: {
+    isGift: boolean;
+    recipientEmail?: string;
+    giftMessage?: string;
+  };
+  couponCode?: string;
 }
 
 export async function POST(request: Request) {
@@ -33,12 +40,19 @@ export async function POST(request: Request) {
     const result = await placeOrder(user.id, {
       paymentMethod: body.paymentMethod,
       shipping: body.shipping,
+      customerEmail: body.customerEmail,
+      gift: body.gift,
+      couponCode: body.couponCode,
     });
 
     return apiOk(
       {
         orderId: result.orderId,
         orderNumber: result.orderNumber,
+        subtotalAmount: result.subtotalAmount,
+        discountAmount: result.discountAmount,
+        totalAmount: result.totalAmount,
+        couponCode: result.couponCode,
         payment: result.payment,
       },
       { status: 201 },
@@ -74,6 +88,10 @@ function mapOrderError(err: OrderError): { code: string; message: string; status
         message: "یک یا چند محصول در دسترس نیست.",
         status: 409,
       };
+    case "INVALID_EMAIL":
+      return { code: "INVALID_EMAIL", message: err.message, status: 400 };
+    case "INVALID_COUPON":
+      return { code: "INVALID_COUPON", message: err.message, status: 422 };
     default:
       return { code: "ORDER_ERROR", message: "خطا در ثبت سفارش.", status: 400 };
   }

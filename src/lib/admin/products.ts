@@ -4,6 +4,7 @@ import { and, eq, notInArray } from "drizzle-orm";
 
 import {
   categories,
+  type FulfillmentType,
   inventoryUnits,
   productImages,
   products,
@@ -20,6 +21,116 @@ type OptionInput = {
   hex?: string;
 };
 
+const FULFILLMENT_TYPES = new Set<FulfillmentType>(["DIGITAL", "PHYSICAL"]);
+
+function cleanFulfillmentType(value: unknown): FulfillmentType | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim().toUpperCase();
+
+  if (!FULFILLMENT_TYPES.has(normalized as FulfillmentType)) {
+    throw new Error("INVALID_FULFILLMENT_TYPE");
+  }
+
+  return normalized as FulfillmentType;
+}
+
+/**
+ * Normalize an operator-supplied list of inventory codes (real gift-card codes /
+ * CD keys). Trims, drops blanks, and de-duplicates within the submitted batch
+ * (case-sensitive — codes are secrets and casing can be significant).
+ */
+function normalizeCodes(codes: string[] | undefined): string[] {
+  if (!codes || codes.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of codes) {
+    if (typeof raw !== "string") {
+      continue;
+    }
+
+    const code = raw.trim();
+
+    if (!code || seen.has(code)) {
+      continue;
+    }
+
+    seen.add(code);
+    result.push(code);
+  }
+
+  return result;
+}
+
+export type StockInsertResult = {
+  added: number;
+  skipped: number;
+  requested: number;
+};
+
+type TxLike = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * Insert inventory units for a single variant.
+ *
+ * - When `codes` are provided, one InventoryUnit row is created per real code.
+ *   The UNIQUE(code) constraint is honored gracefully: codes that already exist
+ *   (in this product or anywhere) are skipped and reported, not thrown.
+ * - Otherwise, falls back to auto-generating `quantity` synthetic codes from the
+ *   variant SKU. This path stays only for operators who supply a plain quantity.
+ *
+ * Returns a summary of how many were added vs skipped.
+ */
+export async function addInventoryUnitsForVariant(
+  tx: TxLike,
+  params: { variantId: string; sku: string; codes?: string[]; quantity?: number },
+): Promise<StockInsertResult> {
+  const codes = normalizeCodes(params.codes);
+
+  if (codes.length > 0) {
+    const inserted = await tx
+      .insert(inventoryUnits)
+      .values(codes.map((code) => ({ variantId: params.variantId, code })))
+      .onConflictDoNothing({ target: inventoryUnits.code })
+      .returning({ id: inventoryUnits.id });
+
+    return {
+      added: inserted.length,
+      skipped: codes.length - inserted.length,
+      requested: codes.length,
+    };
+  }
+
+  const quantity = sanitizeStockToAdd(params.quantity);
+
+  if (quantity <= 0) {
+    return { added: 0, skipped: 0, requested: 0 };
+  }
+
+  const inserted = await tx
+    .insert(inventoryUnits)
+    .values(
+      Array.from({ length: quantity }, (_, index) => ({
+        variantId: params.variantId,
+        code: stockCode(params.sku, index),
+      })),
+    )
+    .onConflictDoNothing({ target: inventoryUnits.code })
+    .returning({ id: inventoryUnits.id });
+
+  return {
+    added: inserted.length,
+    skipped: quantity - inserted.length,
+    requested: quantity,
+  };
+}
+
 type ProductCreateInput = {
   titleFa: string;
   slug?: string;
@@ -28,6 +139,7 @@ type ProductCreateInput = {
   fitFa?: string;
   careFa?: string;
   status?: "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
+  fulfillmentType?: FulfillmentType;
   categoryId?: string | null;
   categoryTitleFa?: string;
   categorySlug?: string;
@@ -51,7 +163,14 @@ type ProductCreateInput = {
   colors: OptionInput[];
   materials: OptionInput[];
   sizes: string[];
+  /** Auto-generate this many synthetic codes per variant (fallback when no real codes are supplied). */
   stockPerVariant: number;
+  /**
+   * Real sellable codes (gift-card codes / CD keys) keyed by variant key
+   * (`colorSlug|materialSlug|size`). When present for a variant, one InventoryUnit
+   * is created per code instead of auto-generating `stockPerVariant` units.
+   */
+  stockCodesByVariantKey?: Record<string, string[]>;
 };
 
 type ProductImageInput = {
@@ -82,7 +201,10 @@ type ProductVariantUpdateInput = {
   premiumPriceAmount?: string | null;
   compareAtAmount?: string | null;
   isDefault?: boolean;
+  /** Auto-generate this many synthetic codes (fallback when no real codes are supplied). */
   stockToAdd?: number;
+  /** Real sellable codes to add to this variant (one InventoryUnit per code). */
+  stockCodes?: string[];
 };
 
 type ProductUpdateInput = {
@@ -93,6 +215,7 @@ type ProductUpdateInput = {
   fitFa?: string | null;
   careFa?: string | null;
   status?: "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
+  fulfillmentType?: FulfillmentType;
   categoryId?: string | null;
   categoryTitleFa?: string;
   categorySlug?: string;
@@ -322,6 +445,7 @@ export async function createAdminProduct(input: ProductCreateInput) {
     throw new Error("INVALID_VARIANTS");
   }
 
+  const fulfillment = cleanFulfillmentType(input.fulfillmentType);
   const [category, tags] = await Promise.all([resolveCategory(input), resolveTags(input)]);
   const images = (input.images ?? []).filter((image) => image.url.trim());
   const primaryImage = images.find((image) => image.isPrimary) ?? images[0];
@@ -338,6 +462,7 @@ export async function createAdminProduct(input: ProductCreateInput) {
         fitFa: input.fitFa?.trim() || null,
         careFa: input.careFa?.trim() || null,
         status: input.status ?? "DRAFT",
+        fulfillmentType: fulfillment ?? "DIGITAL",
         categoryId: category?.id ?? null,
         primaryImageUrl: primaryImage?.url.trim() || null,
       })
@@ -382,16 +507,17 @@ export async function createAdminProduct(input: ProductCreateInput) {
             .returning();
 
           isFirstVariant = false;
-          variantIdsByKey.set(variantKey(color.slug, material.slug, size), variant.id);
+          const key = variantKey(color.slug, material.slug, size);
+          variantIdsByKey.set(key, variant.id);
 
-          if (input.stockPerVariant > 0) {
-            await tx.insert(inventoryUnits).values(
-              Array.from({ length: input.stockPerVariant }, (_, index) => ({
-                variantId: variant.id,
-                code: stockCode(sku, index),
-              })),
-            );
-          }
+          const variantCodes = input.stockCodesByVariantKey?.[key];
+
+          await addInventoryUnitsForVariant(tx, {
+            variantId: variant.id,
+            sku,
+            codes: variantCodes,
+            quantity: input.stockPerVariant,
+          });
         }
       }
     }
@@ -435,6 +561,8 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
   if (input.status && !PRODUCT_STATUSES.has(input.status)) {
     throw new Error("INVALID_STATUS");
   }
+
+  const fulfillment = cleanFulfillmentType(input.fulfillmentType);
 
   const shouldUpdateCategory =
     input.categoryId !== undefined ||
@@ -503,6 +631,7 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
       ...(input.fitFa !== undefined ? { fitFa: cleanOptionalText(input.fitFa) } : {}),
       ...(input.careFa !== undefined ? { careFa: cleanOptionalText(input.careFa) } : {}),
       ...(input.status ? { status: input.status } : {}),
+      ...(fulfillment ? { fulfillmentType: fulfillment } : {}),
       ...(shouldUpdateCategory ? { categoryId: category?.id ?? null } : {}),
       ...(normalizedImages
         ? {
@@ -562,7 +691,6 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
           currentVariant.materialNameFa,
         );
         const nextSize = cleanRequiredText(variantPatch.size, currentVariant.size);
-        const stockToAdd = sanitizeStockToAdd(variantPatch.stockToAdd);
 
         await tx
           .update(productVariants)
@@ -601,14 +729,12 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
           })
           .where(eq(productVariants.id, variantPatch.id));
 
-        if (stockToAdd > 0) {
-          await tx.insert(inventoryUnits).values(
-            Array.from({ length: stockToAdd }, (_, index) => ({
-              variantId: variantPatch.id,
-              code: stockCode(nextSku, index),
-            })),
-          );
-        }
+        await addInventoryUnitsForVariant(tx, {
+          variantId: variantPatch.id,
+          sku: nextSku,
+          codes: variantPatch.stockCodes,
+          quantity: variantPatch.stockToAdd,
+        });
       }
     }
 
@@ -705,6 +831,7 @@ export function toAdminProductRow(product: AdminProductRecord) {
     fitFa: product.fitFa ?? "",
     careFa: product.careFa ?? "",
     status: product.status,
+    fulfillmentType: product.fulfillmentType,
     categoryId: product.categoryId ?? "",
     tagIds: product.tags.map((item) => item.tagId),
     tags: product.tags.map((item) => ({

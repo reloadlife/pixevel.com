@@ -9,11 +9,15 @@ type ProductCardData = {
   status: string;
   imageUrl?: string | null;
   price: number;
+  compareAtAmount?: number;
   availableStock: number;
 };
 
 export function ProductCard({ product }: { product: ProductCardData }) {
   const unavailable = product.status !== "ACTIVE" || product.availableStock <= 0;
+  const compareAt = product.compareAtAmount ?? 0;
+  const onSale = compareAt > product.price && product.price > 0;
+  const discountPercent = onSale ? Math.round(((compareAt - product.price) / compareAt) * 100) : 0;
 
   return (
     <Link href={`/products/${product.slug}`} className="product-card-motion group block">
@@ -29,6 +33,11 @@ export function ProductCard({ product }: { product: ProductCardData }) {
             بدون تصویر
           </div>
         )}
+        {onSale && discountPercent > 0 ? (
+          <div className="absolute end-3 top-3 rounded-full bg-destructive px-2 py-0.5 text-xs font-black text-white">
+            {discountPercent}٪ تخفیف
+          </div>
+        ) : null}
         {unavailable ? (
           <div className="absolute inset-x-3 bottom-3 bg-background/92 px-3 py-2 text-center text-xs font-black text-foreground backdrop-blur">
             {product.status !== "ACTIVE" ? "غیرفعال" : "ناموجود"}
@@ -40,7 +49,14 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         {product.summaryFa ? (
           <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{product.summaryFa}</p>
         ) : null}
-        <p className="mt-2 text-sm font-bold">{formatToman(product.price)}</p>
+        <div className="mt-2 flex items-baseline gap-2">
+          <p className="text-sm font-bold">{formatToman(product.price)}</p>
+          {onSale ? (
+            <p className="text-xs font-medium text-muted-foreground line-through">
+              {formatToman(compareAt)}
+            </p>
+          ) : null}
+        </div>
       </div>
     </Link>
   );

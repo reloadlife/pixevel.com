@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { cartItems, carts, orderItems, orders, payments, users } from "@/db/schema";
 import { getUserTier, variantPrice } from "@/lib/catalog";
+import { incrementCouponUsage, validateCoupon } from "@/lib/coupons";
 import { getDb } from "@/lib/db";
 import { getProvider, type PaymentMethod } from "@/lib/payments/provider";
 // Self-register providers so they are always available.
@@ -15,7 +16,9 @@ export type OrderErrorCode =
   | "CART_EMPTY"
   | "SHIPPING_REQUIRED"
   | "OUT_OF_STOCK"
-  | "PRODUCT_UNAVAILABLE";
+  | "PRODUCT_UNAVAILABLE"
+  | "INVALID_EMAIL"
+  | "INVALID_COUPON";
 
 export class OrderError extends Error {
   constructor(
@@ -37,14 +40,38 @@ export interface ShippingInput {
   postalCode: string;
 }
 
+export interface GiftInput {
+  /** When true, codes/receipt are delivered to the recipient. */
+  isGift: boolean;
+  recipientEmail?: string;
+  giftMessage?: string;
+}
+
 export interface PlaceOrderInput {
   paymentMethod: PaymentMethod;
   shipping?: ShippingInput;
+  /** Buyer's email for the purchase receipt / digital codes. */
+  customerEmail?: string;
+  gift?: GiftInput;
+  /** Optional coupon code; re-validated server-side against the real subtotal. */
+  couponCode?: string;
+}
+
+// Pragmatic email shape check — server is authoritative, this just rejects
+// obviously malformed input before we persist it.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isValidEmail(value: string): boolean {
+  return EMAIL_RE.test(value.trim());
 }
 
 export interface PlaceOrderResult {
   orderId: string;
   orderNumber: string;
+  subtotalAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  couponCode: string | null;
   payment: {
     method: PaymentMethod;
     redirectUrl?: string;
@@ -80,11 +107,29 @@ export async function placeOrder(
   input: PlaceOrderInput,
   opts: PlaceOrderOptions = {},
 ): Promise<PlaceOrderResult> {
-  const { paymentMethod, shipping } = input;
+  const { paymentMethod, shipping, gift } = input;
+
+  // ── Capture-field normalization + validation (before any DB work). ──────────
+  const customerEmail = input.customerEmail?.trim() || null;
+  if (customerEmail && !isValidEmail(customerEmail)) {
+    throw new OrderError("INVALID_EMAIL", "ایمیل خریدار معتبر نیست.");
+  }
+
+  const isGift = gift?.isGift === true;
+  const recipientEmail = isGift ? gift?.recipientEmail?.trim() || null : null;
+  if (recipientEmail && !isValidEmail(recipientEmail)) {
+    throw new OrderError("INVALID_EMAIL", "ایمیل گیرنده هدیه معتبر نیست.");
+  }
+  const giftMessage = isGift ? gift?.giftMessage?.trim() || null : null;
+  const requestedCoupon = input.couponCode?.trim() || null;
 
   let orderId: string;
   let orderNumber: string;
   let paymentRow: typeof payments.$inferSelect;
+  let resolvedSubtotal = 0;
+  let resolvedDiscount = 0;
+  let resolvedTotal = 0;
+  let appliedCoupon: string | null = null;
 
   const run = async (tx: any) => {
     // 1. Release expired reservations.
@@ -191,7 +236,27 @@ export async function placeOrder(
       throw new OrderError("SHIPPING_REQUIRED", "اطلاعات ارسال الزامی است.");
     }
 
-    // 7. Insert order.
+    // 7. Coupon: re-validate server-side against the REAL subtotal. The client
+    //    preview is never trusted. Shipping is currently free (0 toman).
+    const shippingToman = 0;
+    let discountToman = 0;
+
+    if (requestedCoupon) {
+      const couponResult = await validateCoupon(requestedCoupon, subtotalToman, tx);
+      if (!couponResult.ok) {
+        throw new OrderError("INVALID_COUPON", couponResult.message);
+      }
+      discountToman = couponResult.discountAmount;
+      appliedCoupon = couponResult.code;
+    }
+
+    const totalToman = Math.max(0, subtotalToman + shippingToman - discountToman);
+
+    resolvedSubtotal = subtotalToman;
+    resolvedDiscount = discountToman;
+    resolvedTotal = totalToman;
+
+    // 8. Insert order.
     orderNumber = generateOrderNumber();
     const [insertedOrder] = await tx
       .insert(orders)
@@ -202,9 +267,14 @@ export async function placeOrder(
         paymentStatus: "UNPAID",
         currency: "IRR",
         subtotalAmount: String(subtotalToman),
-        shippingAmount: "0",
-        totalAmount: String(subtotalToman),
+        shippingAmount: String(shippingToman),
+        discountAmount: String(discountToman),
+        totalAmount: String(totalToman),
         customerPhone: user.phone ?? null,
+        customerEmail,
+        recipientEmail,
+        giftMessage,
+        couponCode: appliedCoupon,
         ...(shipping
           ? {
               customerName: shipping.customerName,
@@ -219,7 +289,17 @@ export async function placeOrder(
 
     orderId = insertedOrder.id;
 
-    // 8. Reserve inventory units per item.
+    // 9. Bump coupon usage atomically inside this transaction. A re-checked
+    //    usageLimit in the UPDATE makes the increment race-safe; if the coupon
+    //    was exhausted between validation and now, reject the order.
+    if (appliedCoupon) {
+      const bumped = await incrementCouponUsage(tx, appliedCoupon);
+      if (!bumped) {
+        throw new OrderError("INVALID_COUPON", "ظرفیت استفاده از این کد تخفیف به پایان رسیده است.");
+      }
+    }
+
+    // 10. Reserve inventory units per item.
     for (const row of pricedRows) {
       try {
         await reserveUnits(tx, row.variantId, row.quantity, { orderId, userId });
@@ -231,7 +311,7 @@ export async function placeOrder(
       }
     }
 
-    // 9. Insert order items.
+    // 11. Insert order items.
     await tx.insert(orderItems).values(
       pricedRows.map((row) => ({
         orderId,
@@ -247,7 +327,7 @@ export async function placeOrder(
       })),
     );
 
-    // 10. Insert payment row.
+    // 12. Insert payment row — charge the discounted total, not the subtotal.
     const [insertedPayment] = await tx
       .insert(payments)
       .values({
@@ -255,14 +335,14 @@ export async function placeOrder(
         orderId,
         status: "UNPAID",
         provider: paymentMethod,
-        amount: String(subtotalToman),
+        amount: String(totalToman),
         currency: "IRR",
       })
       .returning();
 
     paymentRow = insertedPayment;
 
-    // 11. Mark cart as ORDERED.
+    // 13. Mark cart as ORDERED.
     await tx.update(carts).set({ status: "ORDERED" }).where(eq(carts.id, cart.id));
   };
 
@@ -281,6 +361,10 @@ export async function placeOrder(
   return {
     orderId: orderId!,
     orderNumber: orderNumber!,
+    subtotalAmount: resolvedSubtotal,
+    discountAmount: resolvedDiscount,
+    totalAmount: resolvedTotal,
+    couponCode: appliedCoupon,
     payment: {
       method: paymentMethod,
       ...initiateResult,

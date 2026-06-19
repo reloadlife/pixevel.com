@@ -3,8 +3,9 @@ import { cartItems, carts, orderItems, orders, payments, users } from "@/db/sche
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { getDb } from "@/lib/db";
 import { getProvider, type PaymentMethod } from "@/lib/payments/provider";
-// Self-register the MANUAL provider so it is always available.
+// Self-register providers so they are always available.
 import "@/lib/payments/manual";
+import "@/lib/payments/card-to-card";
 import { OutOfStockError, releaseExpiredReservations, reserveUnits } from "./inventory";
 import { generateOrderNumber } from "./order-number";
 

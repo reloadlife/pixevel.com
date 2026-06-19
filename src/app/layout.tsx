@@ -40,9 +40,9 @@ export default async function RootLayout({
       dir="rtl"
       suppressHydrationWarning
       data-premium={isPremium ? "true" : "false"}
-      className={cn("h-full antialiased", vazirmatn.variable, geistMono.variable)}
+      className={cn("antialiased", vazirmatn.variable, geistMono.variable)}
     >
-      <body className="min-h-full bg-background text-foreground">
+      <body className="min-h-dvh overflow-x-clip bg-background text-foreground">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

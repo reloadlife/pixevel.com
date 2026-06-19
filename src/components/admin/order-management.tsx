@@ -12,7 +12,6 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { formatToman } from "@/lib/format";
 
@@ -22,7 +21,7 @@ type LatestPayment = {
   status: string;
   amount: string;
   receiptUrl: string | null;
-  paidAt: string | null;
+  paidAt: Date | string | null;
 };
 
 type OrderRow = {
@@ -35,8 +34,8 @@ type OrderRow = {
   customerName: string | null;
   customerPhone: string | null;
   itemCount: number;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date | string;
+  updatedAt: Date | string;
   latestPayment: LatestPayment | null;
 };
 
@@ -45,7 +44,7 @@ type InventoryUnit = {
   code: string;
   status: string;
   variantId: string;
-  soldAt: string | null;
+  soldAt: Date | string | null;
   variant: {
     id: string;
     sku: string;
@@ -82,9 +81,9 @@ type Payment = {
   receiptUrl: string | null;
   amount: string;
   currency: string;
-  paidAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+  paidAt: Date | string | null;
+  createdAt: Date | string;
+  updatedAt: Date | string;
 };
 
 type OrderDetail = {
@@ -339,7 +338,6 @@ function OrderList({ initialOrders }: { initialOrders: OrderRow[] }) {
 // ─── Order detail ─────────────────────────────────────────────────────────────
 
 function OrderDetail({ initialOrder }: { initialOrder: OrderDetail }) {
-  const _router = useRouter();
   const [order, setOrder] = useState(initialOrder);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

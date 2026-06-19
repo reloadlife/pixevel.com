@@ -59,6 +59,8 @@ export const paymentStatus = pgEnum("payment_status", [
   "REFUNDED",
 ]);
 
+export const fulfillmentType = pgEnum("fulfillment_type", ["DIGITAL", "PHYSICAL"]);
+
 // Exported string-union types (drop-in replacements for the generated Prisma enums).
 export type UserRole = (typeof userRole.enumValues)[number];
 export type ProductStatus = (typeof productStatus.enumValues)[number];
@@ -68,6 +70,7 @@ export type HomeBlockSource = (typeof homeBlockSource.enumValues)[number];
 export type CartStatus = (typeof cartStatus.enumValues)[number];
 export type OrderStatus = (typeof orderStatus.enumValues)[number];
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number];
+export type FulfillmentType = (typeof fulfillmentType.enumValues)[number];
 
 // Shared timestamp helpers (Prisma defaults: createdAt = now(), updatedAt = @updatedAt).
 const createdAt = timestamp("createdAt", { mode: "date" }).defaultNow().notNull();
@@ -184,6 +187,7 @@ export const products = pgTable(
     fitFa: text("fitFa"),
     careFa: text("careFa"),
     status: productStatus("status").default("DRAFT").notNull(),
+    fulfillmentType: fulfillmentType("fulfillmentType").default("DIGITAL").notNull(),
     categoryId: uuid("categoryId").references(() => categories.id, {
       onDelete: "set null",
     }),
@@ -474,6 +478,7 @@ export const payments = pgTable(
     status: paymentStatus("status").default("UNPAID").notNull(),
     provider: text("provider"),
     reference: text("reference"),
+    receiptUrl: text("receiptUrl"),
     amount: numeric("amount", price).notNull(),
     currency: text("currency").default("IRR").notNull(),
     paidAt: timestamp("paidAt", { mode: "date" }),

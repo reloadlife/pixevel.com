@@ -21,7 +21,9 @@
     "setup": "npm run db:push",
     "deploy:prepare": "npm run db:push && npm run build",
     "deploy:server": "bash scripts/deploy-server.sh",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -48,6 +50,8 @@
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite-tsconfig-paths": "6.1.1",
+    "vitest": "3.2.6"
   }
 }

@@ -61,7 +61,7 @@ export function ShowcaseHero({
 
   return (
     <section
-      className="section-fade relative overflow-hidden bg-zinc-950 text-white"
+      className="section-fade relative -mt-14 overflow-hidden bg-zinc-950 text-white"
       style={frozenSize}
       suppressHydrationWarning
     >
@@ -83,7 +83,7 @@ export function ShowcaseHero({
         style={frozenSize}
       >
         <div className="max-w-4xl">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-white/70">Pixevel</p>
+          <p className="text-xs font-black uppercase tracking-[0.32em] text-gold">Pixevel</p>
           <h2 className="mt-4 text-5xl font-black leading-tight sm:text-7xl lg:text-8xl">
             {title}
           </h2>
@@ -95,12 +95,12 @@ export function ShowcaseHero({
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <Link
               href={`/products/${productSlug}`}
-              className="bg-white px-6 py-3 text-sm font-black text-black transition hover:bg-white/88"
+              className="bg-gold px-6 py-3 text-sm font-black text-luxe transition hover:bg-gold-strong"
             >
               مشاهده محصول
             </Link>
-            <span className="text-sm font-bold text-white/82">
-              از {formatToman(price)}
+            <span className="text-sm font-bold text-luxe-muted">
+              از <span className="text-gold">{formatToman(price)}</span>
             </span>
           </div>
         </div>

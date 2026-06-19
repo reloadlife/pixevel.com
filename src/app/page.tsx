@@ -102,7 +102,10 @@ function SectionHeader({ block }: { block: HomeBlockView }) {
           <p className="mt-1 text-sm text-muted-foreground">{block.subtitleFa}</p>
         ) : null}
       </div>
-      <Link href="/products" className="text-sm font-bold underline underline-offset-4">
+      <Link
+        href="/products"
+        className="text-sm font-bold text-foreground/70 underline decoration-gold/60 decoration-2 underline-offset-4 transition hover:text-foreground"
+      >
         همه محصولات
       </Link>
     </div>

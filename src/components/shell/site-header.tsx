@@ -36,7 +36,7 @@ export function SiteHeader({
           </span>
         </Link>
 
-        <SpotlightSearch className="hidden flex-1 sm:block" />
+        <SpotlightSearch className="hidden flex-1 sm:flex" />
 
         <div className="ms-auto flex items-center gap-1 sm:ms-0">
           <AccountMenu user={user} className={iconButton} />

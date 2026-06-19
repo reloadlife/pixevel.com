@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getCurrentUser } from "@/lib/auth";
@@ -44,12 +45,16 @@ export default async function AccountPage() {
               <p className="text-sm text-muted-foreground">هنوز سفارشی ثبت نشده است.</p>
             ) : (
               orders.map((order) => (
-                <div key={order.id} className="border border-border p-3 text-sm">
+                <Link
+                  key={order.id}
+                  href={`/account/orders/${order.id}`}
+                  className="block border border-border p-3 text-sm transition-colors hover:bg-muted"
+                >
                   <p className="font-black">{order.orderNumber}</p>
                   <p className="text-muted-foreground">
                     {formatToman(order.totalAmount.toString())}
                   </p>
-                </div>
+                </Link>
               ))
             )}
           </div>

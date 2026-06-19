@@ -23,10 +23,7 @@ function resolveStaticFile(segments: string[]) {
   return null;
 }
 
-export async function GET(
-  _request: Request,
-  context: { params: Promise<{ path: string[] }> }
-) {
+export async function GET(_request: Request, context: { params: Promise<{ path: string[] }> }) {
   const { path: segments } = await context.params;
   const filePath = resolveStaticFile(segments);
 
@@ -42,7 +39,8 @@ export async function GET(
     }
 
     const file = await readFile(filePath);
-    const contentType = CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
+    const contentType =
+      CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? "application/octet-stream";
 
     return new Response(new Uint8Array(file), {
       headers: {

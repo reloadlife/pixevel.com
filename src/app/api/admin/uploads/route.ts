@@ -24,14 +24,16 @@ const ALLOWED_IMAGE_TYPES = new Map([
 
 function cleanBaseName(name: string) {
   const parsed = path.parse(name);
-  return parsed.name
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 48) || "image";
+  return (
+    parsed.name
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 48) || "image"
+  );
 }
 
 async function renderWebp(bytes: Buffer, quality: number) {

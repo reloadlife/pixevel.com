@@ -11,10 +11,7 @@ type UserPatchPayload = {
   fullName?: string | null;
 };
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {
@@ -49,11 +46,7 @@ export async function PATCH(
 
   const [user] =
     Object.keys(updateData).length > 0
-      ? await getDb()
-          .update(users)
-          .set(updateData)
-          .where(eq(users.id, id))
-          .returning(returnColumns)
+      ? await getDb().update(users).set(updateData).where(eq(users.id, id)).returning(returnColumns)
       : await getDb().select(returnColumns).from(users).where(eq(users.id, id));
 
   if (!user) {

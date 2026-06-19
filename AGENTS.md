@@ -28,6 +28,17 @@ Backend and frontend live together in the same Next.js app:
 
 Use Drizzle ORM with PostgreSQL for persistence (schema in `src/db/schema.ts`, client via `getDb()` in `src/lib/db.ts`, migrations managed with drizzle-kit). Keep schema changes deliberate and compatible with the deployment flow.
 
+## Linting And Formatting
+
+[Biome](https://biomejs.dev) is the single tool for both linting and formatting. Config lives in `biome.json`. ESLint and Prettier are not used and must not be reintroduced.
+
+- `npm run lint` — lint only (`biome lint`).
+- `npm run format` — format in place (`biome format --write`).
+- `npm run check` — lint + format + organize imports, applied in place (`biome check --write`).
+- CI runs `biome ci` (`.github/workflows/ci.yml`). Keep it green: zero errors. Pre-existing a11y findings are downgraded to warnings.
+
+Never run ESLint, `next lint` (removed in Next 16), Prettier, or a standalone `tsc` / `tsc --noEmit`. Type checking happens automatically inside `next build` via TypeScript — there is no separate typecheck command. Editor integration (Biome as default formatter, format on save) is committed in `.vscode/settings.json`.
+
 ## API Standards
 
 Design APIs as stable product-facing contracts, not one-off page helpers.

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -34,7 +34,7 @@ export function UserManagement({ initialUsers }: { initialUsers: AdminUser[] }) 
     }
 
     setUsers((current) =>
-      current.map((item) => (item.id === user.id ? { ...item, ...result.data.user } : item))
+      current.map((item) => (item.id === user.id ? { ...item, ...result.data.user } : item)),
     );
   }
 

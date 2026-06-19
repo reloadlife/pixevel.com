@@ -5,9 +5,7 @@ export function formatToman(value: number | string | null | undefined) {
 }
 
 export function toFaNumber(value: number | string) {
-  return new Intl.NumberFormat("fa-IR", { useGrouping: false }).format(
-    Number(value)
-  );
+  return new Intl.NumberFormat("fa-IR", { useGrouping: false }).format(Number(value));
 }
 
 export function decimalToNumber(value: unknown) {

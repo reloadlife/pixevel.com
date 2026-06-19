@@ -1,8 +1,7 @@
-/* eslint-disable @next/next/no-img-element -- Product media can be admin-entered URLs until a CDN allowlist exists. */
 "use client";
 
-import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { formatToman, toFaNumber } from "@/lib/format";

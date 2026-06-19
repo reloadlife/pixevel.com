@@ -1,8 +1,4 @@
-import {
-  formatDeliveryError,
-  resolveTimeoutMs,
-  type OtpDeliveryResult,
-} from "@/lib/sms/delivery";
+import { formatDeliveryError, type OtpDeliveryResult, resolveTimeoutMs } from "@/lib/sms/delivery";
 
 type TelegramLoginOtpParams = {
   phone: string;
@@ -51,12 +47,9 @@ export async function sendTelegramLoginOtp({
   code,
   host,
 }: TelegramLoginOtpParams): Promise<OtpDeliveryResult<TelegramLoginOtpPayload>> {
-  const botToken =
-    process.env.TELEGRAM_LOGIN_OTP_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
+  const botToken = process.env.TELEGRAM_LOGIN_OTP_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
   const chatId =
-    process.env.TELEGRAM_LOGIN_OTP_CHAT_ID ||
-    process.env.TELEGRAM_CHAT_ID ||
-    "-1003860300440";
+    process.env.TELEGRAM_LOGIN_OTP_CHAT_ID || process.env.TELEGRAM_CHAT_ID || "-1003860300440";
 
   if (!botToken || !chatId) {
     return {
@@ -80,7 +73,7 @@ export async function sendTelegramLoginOtp({
       }),
       cache: "no-store",
       signal: AbortSignal.timeout(
-        resolveTimeoutMs(process.env.TELEGRAM_LOGIN_OTP_TIMEOUT_MS, 10_000)
+        resolveTimeoutMs(process.env.TELEGRAM_LOGIN_OTP_TIMEOUT_MS, 10_000),
       ),
     });
 

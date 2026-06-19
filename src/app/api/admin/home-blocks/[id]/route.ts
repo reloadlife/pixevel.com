@@ -1,18 +1,15 @@
-import { apiError, apiOk, readJson } from "@/lib/api";
 import {
   deleteAdminHomeBlock,
+  type HomeBlockInput,
   toAdminHomeBlockRow,
   updateAdminHomeBlock,
-  type HomeBlockInput,
 } from "@/lib/admin/home-blocks";
+import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 
 type HomeBlockPatchPayload = Partial<HomeBlockInput>;
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {
@@ -50,10 +47,7 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  _request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {

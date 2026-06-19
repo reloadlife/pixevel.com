@@ -2,11 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
-import {
-  orders as ordersTable,
-  products as productsTable,
-  users as usersTable,
-} from "@/db/schema";
+import { orders as ordersTable, products as productsTable, users as usersTable } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 
@@ -43,35 +39,48 @@ export default async function AdminPage() {
         <Stat title="سفارش‌ها" value={orderCount} />
       </div>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Link href="/admin/products" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
+        <Link
+          href="/admin/products"
+          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
+        >
           <h2 className="text-lg font-black">مدیریت محصولات</h2>
           <p className="mt-2 text-sm leading-7 text-zinc-500">
             جستجو، فیلتر، ویرایش وضعیت و ورود به صفحه ویرایش محصول.
           </p>
         </Link>
-        <Link href="/admin/products/new" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
+        <Link
+          href="/admin/products/new"
+          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
+        >
           <h2 className="text-lg font-black">افزودن محصول</h2>
           <p className="mt-2 text-sm leading-7 text-zinc-500">
             ساخت محصول، تولید تنوع‌ها و ایجاد موجودی دقیق.
           </p>
         </Link>
-        <Link href="/admin/homepage" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
+        <Link
+          href="/admin/homepage"
+          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
+        >
           <h2 className="text-lg font-black">بلاک‌های صفحه خانه</h2>
           <p className="mt-2 text-sm leading-7 text-zinc-500">
             ساخت ویترین بزرگ و گالری‌های داینامیک یا دستی.
           </p>
         </Link>
-        <Link href="/admin/watermarks" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
+        <Link
+          href="/admin/watermarks"
+          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
+        >
           <h2 className="text-lg font-black">تصاویر واترمارک</h2>
           <p className="mt-2 text-sm leading-7 text-zinc-500">
             آپلود PNGهای واترمارک برای استفاده روی تصاویر محصول.
           </p>
         </Link>
-        <Link href="/admin/categories" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
+        <Link
+          href="/admin/categories"
+          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
+        >
           <h2 className="text-lg font-black">مدیریت دسته‌ها</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            ساخت و ویرایش دسته‌های تو در تو.
-          </p>
+          <p className="mt-2 text-sm leading-7 text-zinc-500">ساخت و ویرایش دسته‌های تو در تو.</p>
         </Link>
         <Link href="/admin/tags" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
           <h2 className="text-lg font-black">مدیریت تگ‌ها</h2>

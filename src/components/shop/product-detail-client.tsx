@@ -1,9 +1,8 @@
-/* eslint-disable @next/next/no-img-element -- Product media can be admin-entered URLs until a CDN allowlist exists. */
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { ShoppingBag } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { formatToman, toFaNumber } from "@/lib/format";
@@ -55,16 +54,14 @@ export function ProductDetailClient({ product }: { product: ProductDetail }) {
       return product.images;
     }
 
-    const hasVariantImages = product.images.some(
-      (image) => image.variantId === selectedVariant.id
-    );
+    const hasVariantImages = product.images.some((image) => image.variantId === selectedVariant.id);
 
     if (!hasVariantImages) {
       return product.images;
     }
 
     const variantImages = product.images.filter(
-      (image) => !image.variantId || image.variantId === selectedVariant.id
+      (image) => !image.variantId || image.variantId === selectedVariant.id,
     );
 
     return variantImages.length > 0 ? variantImages : product.images;
@@ -74,7 +71,7 @@ export function ProductDetailClient({ product }: { product: ProductDetail }) {
       visibleImages.length
         ? visibleImages
         : [{ id: "empty", url: "", altFa: null, variantId: null }],
-    [visibleImages]
+    [visibleImages],
   );
   const canAdd = product.status === "ACTIVE" && Boolean(selectedVariant?.availableStock);
   const addButtonLabel = canAdd ? "افزودن به سبد" : "قابل افزودن نیست";
@@ -161,9 +158,15 @@ export function ProductDetailClient({ product }: { product: ProductDetail }) {
               className="aspect-[3/4] min-w-full snap-center overflow-hidden bg-muted sm:min-w-0"
             >
               {image.url ? (
-                <img src={image.url} alt={image.altFa ?? product.titleFa} className="h-full w-full object-cover" />
+                <img
+                  src={image.url}
+                  alt={image.altFa ?? product.titleFa}
+                  className="h-full w-full object-cover"
+                />
               ) : (
-                <div className="grid h-full place-items-center text-muted-foreground">بدون تصویر</div>
+                <div className="grid h-full place-items-center text-muted-foreground">
+                  بدون تصویر
+                </div>
               )}
             </div>
           ))}
@@ -196,7 +199,9 @@ export function ProductDetailClient({ product }: { product: ProductDetail }) {
       </div>
 
       <section className="lg:sticky lg:top-8 lg:self-start">
-        <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">Pixevel</p>
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
+          Pixevel
+        </p>
         <h1 className="mt-3 text-4xl font-black leading-tight">{product.titleFa}</h1>
         {product.summaryFa ? (
           <p className="mt-3 leading-8 text-muted-foreground">{product.summaryFa}</p>
@@ -221,9 +226,7 @@ export function ProductDetailClient({ product }: { product: ProductDetail }) {
                   }`}
                 >
                   <span className="font-bold">{variant.titleFa}</span>
-                  <span className="text-xs">
-                    {stockLabel(variant.availableStock)}
-                  </span>
+                  <span className="text-xs">{stockLabel(variant.availableStock)}</span>
                 </button>
               ))}
             </div>
@@ -239,16 +242,22 @@ export function ProductDetailClient({ product }: { product: ProductDetail }) {
               <ShoppingBag className="size-5" />
               {pending ? "در حال افزودن…" : addButtonLabel}
             </Button>
-            {error ? (
-              <p className="mt-2 text-sm font-bold text-destructive">{error}</p>
-            ) : null}
+            {error ? <p className="mt-2 text-sm font-bold text-destructive">{error}</p> : null}
           </div>
         </div>
 
         <div className="mt-8 space-y-5 border-t border-border pt-6 text-sm leading-8 text-muted-foreground">
           {product.descriptionFa ? <p>{product.descriptionFa}</p> : null}
-          {product.fitFa ? <p><strong className="text-foreground">فیت:</strong> {product.fitFa}</p> : null}
-          {product.careFa ? <p><strong className="text-foreground">نگهداری:</strong> {product.careFa}</p> : null}
+          {product.fitFa ? (
+            <p>
+              <strong className="text-foreground">فیت:</strong> {product.fitFa}
+            </p>
+          ) : null}
+          {product.careFa ? (
+            <p>
+              <strong className="text-foreground">نگهداری:</strong> {product.careFa}
+            </p>
+          ) : null}
         </div>
       </section>
     </div>

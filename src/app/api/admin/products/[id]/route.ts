@@ -1,11 +1,8 @@
-import { apiError, apiOk, readJson } from "@/lib/api";
 import { toAdminProductRow, updateAdminProduct } from "@/lib/admin/products";
+import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {
@@ -50,7 +47,7 @@ export async function PATCH(
     if (error instanceof Error && error.message === "DUPLICATE_SHOWCASE_IMAGE") {
       return apiError(
         "DUPLICATE_SHOWCASE_IMAGE",
-        "برای هر محصول فقط یک تصویر بلاک خانه عادی و یک تصویر بلاک خانه پریمیوم مجاز است."
+        "برای هر محصول فقط یک تصویر بلاک خانه عادی و یک تصویر بلاک خانه پریمیوم مجاز است.",
       );
     }
 

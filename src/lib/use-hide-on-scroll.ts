@@ -17,10 +17,7 @@ export function useHideOnScroll(): boolean {
       frame = null;
 
       const currentY = Math.max(0, window.scrollY);
-      const maxY = Math.max(
-        0,
-        document.documentElement.scrollHeight - window.innerHeight
-      );
+      const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
       const delta = currentY - lastY;
       const nearTop = currentY < TOP_REVEAL_OFFSET;
       const nearBottom = currentY > maxY - BOTTOM_REVEAL_OFFSET;

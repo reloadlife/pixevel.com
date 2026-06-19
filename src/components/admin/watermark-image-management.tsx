@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
 import { Loader2, Save, Upload } from "lucide-react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -41,7 +41,7 @@ export function WatermarkImageManagement({
 
   function updateImageTitle(id: string, titleFa: string) {
     setImages((current) =>
-      current.map((image) => (image.id === id ? { ...image, titleFa } : image))
+      current.map((image) => (image.id === id ? { ...image, titleFa } : image)),
     );
   }
 
@@ -62,7 +62,7 @@ export function WatermarkImageManagement({
       }
 
       setImages((current) =>
-        current.map((item) => (item.id === image.id ? result.data.image : item))
+        current.map((item) => (item.id === image.id ? result.data.image : item)),
       );
     } finally {
       setSavingTitleId("");
@@ -78,7 +78,9 @@ export function WatermarkImageManagement({
 
     try {
       const body = new FormData();
-      Array.from(files).forEach((file) => body.append("files", file));
+      Array.from(files).forEach((file) => {
+        body.append("files", file);
+      });
 
       const response = await fetch("/api/admin/watermark-images", {
         method: "POST",
@@ -126,7 +128,11 @@ export function WatermarkImageManagement({
               disabled={uploading}
               onClick={() => fileInputRef.current?.click()}
             >
-              {uploading ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              {uploading ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Upload className="size-4" />
+              )}
               آپلود PNG
             </Button>
           </div>
@@ -141,9 +147,11 @@ export function WatermarkImageManagement({
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {images.map((image) => (
-              <div key={image.id} className="grid min-w-0 gap-3 border border-zinc-200 bg-white p-3">
+              <div
+                key={image.id}
+                className="grid min-w-0 gap-3 border border-zinc-200 bg-white p-3"
+              >
                 <div className="grid aspect-[4/3] place-items-center overflow-hidden bg-zinc-50">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={image.url}
                     alt={image.titleFa || image.originalName}
@@ -180,9 +188,7 @@ export function WatermarkImageManagement({
                 </div>
                 <div className="flex flex-wrap gap-2 text-[11px] font-black text-zinc-600">
                   <span className="bg-zinc-100 px-2 py-1">
-                    {image.width && image.height
-                      ? `${image.width}×${image.height}`
-                      : "PNG"}
+                    {image.width && image.height ? `${image.width}×${image.height}` : "PNG"}
                   </span>
                   <span className="bg-zinc-100 px-2 py-1">{formatBytes(image.sizeBytes)}</span>
                   <span className="bg-zinc-100 px-2 py-1">{image.mimeType}</span>

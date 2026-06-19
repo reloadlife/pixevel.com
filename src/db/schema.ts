@@ -15,27 +15,11 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-/**
- * Drizzle schema for Pixevel.
- *
- * Ported 1:1 from the previous Prisma schema. Notable mapping decisions:
- * - Primary keys are DB-generated UUIDs (`gen_random_uuid()` via `defaultRandom()`),
- *   replacing Prisma's app-side `cuid()`.
- * - Prisma `Decimal(12,2)` -> `numeric({ precision: 12, scale: 2 })`, which Drizzle
- *   reads back as a string (callers already normalise via `decimalToNumber`).
- * - `@updatedAt` -> `.defaultNow().$onUpdate(() => new Date())`.
- */
-
 // --- Enums -----------------------------------------------------------------
 
 export const userRole = pgEnum("user_role", ["CUSTOMER", "ADMIN"]);
 
-export const productStatus = pgEnum("product_status", [
-  "DRAFT",
-  "ACTIVE",
-  "DISABLED",
-  "ARCHIVED",
-]);
+export const productStatus = pgEnum("product_status", ["DRAFT", "ACTIVE", "DISABLED", "ARCHIVED"]);
 
 export const inventoryStatus = pgEnum("inventory_status", [
   "AVAILABLE",
@@ -129,10 +113,7 @@ export const sessions = pgTable(
     createdAt,
     updatedAt,
   },
-  (t) => [
-    index("Session_userId_idx").on(t.userId),
-    index("Session_expiresAt_idx").on(t.expiresAt),
-  ],
+  (t) => [index("Session_userId_idx").on(t.userId), index("Session_expiresAt_idx").on(t.expiresAt)],
 );
 
 export const loginOtps = pgTable(
@@ -259,11 +240,7 @@ export const productVariants = pgTable(
   },
   (t) => [
     index("ProductVariant_productId_idx").on(t.productId),
-    index("ProductVariant_color_material_size_idx").on(
-      t.colorSlug,
-      t.materialSlug,
-      t.size,
-    ),
+    index("ProductVariant_color_material_size_idx").on(t.colorSlug, t.materialSlug, t.size),
   ],
 );
 
@@ -309,10 +286,9 @@ export const productImages = pgTable(
     showcasePremium: boolean("showcasePremium").default(false).notNull(),
     sortOrder: integer("sortOrder").default(0).notNull(),
     watermarkEnabled: boolean("watermarkEnabled").default(false).notNull(),
-    watermarkImageId: uuid("watermarkImageId").references(
-      () => watermarkImages.id,
-      { onDelete: "set null" },
-    ),
+    watermarkImageId: uuid("watermarkImageId").references(() => watermarkImages.id, {
+      onDelete: "set null",
+    }),
     watermarkX: integer("watermarkX").default(0).notNull(),
     watermarkY: integer("watermarkY").default(0).notNull(),
     watermarkSize: integer("watermarkSize").default(120).notNull(),
@@ -565,19 +541,16 @@ export const productTagsRelations = relations(productTags, ({ one }) => ({
   tag: one(tags, { fields: [productTags.tagId], references: [tags.id] }),
 }));
 
-export const productVariantsRelations = relations(
-  productVariants,
-  ({ one, many }) => ({
-    product: one(products, {
-      fields: [productVariants.productId],
-      references: [products.id],
-    }),
-    images: many(productImages),
-    inventoryUnits: many(inventoryUnits),
-    cartItems: many(cartItems),
-    orderItems: many(orderItems),
+export const productVariantsRelations = relations(productVariants, ({ one, many }) => ({
+  product: one(products, {
+    fields: [productVariants.productId],
+    references: [products.id],
   }),
-);
+  images: many(productImages),
+  inventoryUnits: many(inventoryUnits),
+  cartItems: many(cartItems),
+  orderItems: many(orderItems),
+}));
 
 export const inventoryUnitsRelations = relations(inventoryUnits, ({ one }) => ({
   variant: one(productVariants, {

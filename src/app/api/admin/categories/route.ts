@@ -1,9 +1,9 @@
-import { apiError, apiOk, readJson } from "@/lib/api";
 import {
   createAdminCategory,
   listAdminCategories,
   toAdminCategoryOption,
 } from "@/lib/admin/taxonomy";
+import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 
 export async function GET() {

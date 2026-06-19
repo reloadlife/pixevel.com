@@ -2,10 +2,7 @@ import { redirect } from "next/navigation";
 
 import { AdminShell } from "@/components/admin/admin-shell";
 import { CategoryManagement } from "@/components/admin/taxonomy-management";
-import {
-  listAdminCategories,
-  toAdminCategoryOption,
-} from "@/lib/admin/taxonomy";
+import { listAdminCategories, toAdminCategoryOption } from "@/lib/admin/taxonomy";
 import { getCurrentUser } from "@/lib/auth";
 
 export default async function AdminCategoriesPage() {

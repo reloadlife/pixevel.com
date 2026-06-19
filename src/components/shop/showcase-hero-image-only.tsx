@@ -61,7 +61,6 @@ export function ShowcaseHeroImageOnly({
       suppressHydrationWarning
     >
       {imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={imageUrl}
           alt={productTitle}

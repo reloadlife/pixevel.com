@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
 import {
   Check,
   ImageIcon,
@@ -12,6 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { type ReactNode, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -130,7 +130,7 @@ export function HomeBlockManagement({
 
   const productsById = useMemo(
     () => new Map(initialProducts.map((product) => [product.id, product])),
-    [initialProducts]
+    [initialProducts],
   );
 
   const selectedProducts = useMemo(
@@ -138,7 +138,7 @@ export function HomeBlockManagement({
       selectedProductIds
         .map((id) => productsById.get(id))
         .filter((product): product is ProductOption => Boolean(product)),
-    [productsById, selectedProductIds]
+    [productsById, selectedProductIds],
   );
 
   const filteredProducts = useMemo(() => {
@@ -153,7 +153,7 @@ export function HomeBlockManagement({
         [product.titleFa, product.slug, product.status, product.categoryTitleFa ?? ""]
           .join(" ")
           .toLowerCase()
-          .includes(query)
+          .includes(query),
       )
       .slice(0, 80);
   }, [initialProducts, productSearch]);
@@ -166,7 +166,7 @@ export function HomeBlockManagement({
     setSelectedProductIds((current) =>
       current.includes(productId)
         ? current.filter((id) => id !== productId)
-        : [...current, productId]
+        : [...current, productId],
     );
   }
 
@@ -194,9 +194,13 @@ export function HomeBlockManagement({
       sortOrder: String(block.sortOrder),
       maxItems: String(block.maxItems),
     });
-    setSelectedProductIds(block.source === "MANUAL" ? block.items.map((item) => item.product.id) : []);
+    setSelectedProductIds(
+      block.source === "MANUAL" ? block.items.map((item) => item.product.id) : [],
+    );
     setPickerOpen(false);
-    document.getElementById("home-block-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    document
+      .getElementById("home-block-form")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async function refreshBlocks() {
@@ -225,7 +229,7 @@ export function HomeBlockManagement({
             tagId: form.source === "DYNAMIC" ? form.tagId || null : null,
             productIds: form.source === "MANUAL" ? selectedProductIds : [],
           }),
-        }
+        },
       );
       const result = await response.json();
 
@@ -260,7 +264,7 @@ export function HomeBlockManagement({
       }
 
       setBlocks((current) =>
-        current.map((item) => (item.id === block.id ? result.data.block : item))
+        current.map((item) => (item.id === block.id ? result.data.block : item)),
       );
     } catch {
       alert("وضعیت بلاک ذخیره نشد.");
@@ -314,8 +318,16 @@ export function HomeBlockManagement({
           ) : null}
         </div>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Input label="عنوان" value={form.titleFa} onChange={(value) => setField("titleFa", value)} />
-          <Input label="زیرعنوان" value={form.subtitleFa} onChange={(value) => setField("subtitleFa", value)} />
+          <Input
+            label="عنوان"
+            value={form.titleFa}
+            onChange={(value) => setField("titleFa", value)}
+          />
+          <Input
+            label="زیرعنوان"
+            value={form.subtitleFa}
+            onChange={(value) => setField("subtitleFa", value)}
+          />
           <Select label="نوع نمایش" value={form.type} onChange={(value) => setField("type", value)}>
             <option value="LEFT_TO_RIGHT_GALLERY">گالری افقی</option>
             <option value="SHOWCASE">نمایش بزرگ</option>
@@ -324,7 +336,11 @@ export function HomeBlockManagement({
             <option value="SHOWCASE_HERO_NO_PRODUCT_INFO">هیروی تصویری بدون اطلاعات محصول</option>
             <option value="FULLSCREEN_HORIZONTAL_GALLERY">گالری تمام‌صفحه افقی</option>
           </Select>
-          <Select label="منبع محصولات" value={form.source} onChange={(value) => setField("source", value)}>
+          <Select
+            label="منبع محصولات"
+            value={form.source}
+            onChange={(value) => setField("source", value)}
+          >
             <option value="MANUAL">دستی</option>
             <option value="DYNAMIC">داینامیک</option>
           </Select>
@@ -333,7 +349,12 @@ export function HomeBlockManagement({
             <div className="lg:col-span-2">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="block text-sm font-bold">محصولات دستی</span>
-                <Button type="button" size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setPickerOpen(true)}
+                >
                   <PackagePlus className="size-3.5" />
                   انتخاب محصول
                 </Button>
@@ -365,7 +386,11 @@ export function HomeBlockManagement({
             </div>
           ) : (
             <>
-              <Select label="دسته‌بندی" value={form.categoryId} onChange={(value) => setField("categoryId", value)}>
+              <Select
+                label="دسته‌بندی"
+                value={form.categoryId}
+                onChange={(value) => setField("categoryId", value)}
+              >
                 <option value="">همه دسته‌ها</option>
                 {initialCategories.map((category) => (
                   <option key={category.id} value={category.id}>
@@ -387,14 +412,28 @@ export function HomeBlockManagement({
             </>
           )}
 
-          <Select label="مرتب‌سازی" value={form.sortKey} onChange={(value) => setField("sortKey", value)}>
+          <Select
+            label="مرتب‌سازی"
+            value={form.sortKey}
+            onChange={(value) => setField("sortKey", value)}
+          >
             <option value="newest">جدیدترین</option>
             <option value="price_asc">ارزان‌ترین</option>
             <option value="price_desc">گران‌ترین</option>
             <option value="stock_desc">موجودی بیشتر</option>
           </Select>
-          <Input label="ترتیب نمایش" value={form.sortOrder} onChange={(value) => setField("sortOrder", value)} dir="ltr" />
-          <Input label="حداکثر آیتم" value={form.maxItems} onChange={(value) => setField("maxItems", value)} dir="ltr" />
+          <Input
+            label="ترتیب نمایش"
+            value={form.sortOrder}
+            onChange={(value) => setField("sortOrder", value)}
+            dir="ltr"
+          />
+          <Input
+            label="حداکثر آیتم"
+            value={form.maxItems}
+            onChange={(value) => setField("maxItems", value)}
+            dir="ltr"
+          />
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Button className="h-11 px-6 font-black" onClick={saveBlock} disabled={saving}>
@@ -440,12 +479,17 @@ export function HomeBlockManagement({
                 <p className="mt-1 text-xs text-zinc-500">
                   {block.source === "MANUAL"
                     ? `${block.items.length.toLocaleString("fa-IR")} محصول دستی`
-                    : [block.category?.titleFa, block.tag?.titleFa, block.sortKey].filter(Boolean).join(" / ")}
+                    : [block.category?.titleFa, block.tag?.titleFa, block.sortKey]
+                        .filter(Boolean)
+                        .join(" / ")}
                 </p>
                 {block.source === "MANUAL" && block.items.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {block.items.map((item) => (
-                      <span key={item.id} className="bg-zinc-50 px-2 py-1 text-xs font-bold text-zinc-700">
+                      <span
+                        key={item.id}
+                        className="bg-zinc-50 px-2 py-1 text-xs font-bold text-zinc-700"
+                      >
                         {item.product.titleFa}
                       </span>
                     ))}
@@ -529,7 +573,13 @@ function ProductPickerModal({
               {selectedIds.length.toLocaleString("fa-IR")} محصول انتخاب شده
             </p>
           </div>
-          <Button type="button" size="icon-lg" variant="outline" onClick={onClose} aria-label="بستن">
+          <Button
+            type="button"
+            size="icon-lg"
+            variant="outline"
+            onClick={onClose}
+            aria-label="بستن"
+          >
             <X className="size-4" />
           </Button>
         </div>
@@ -564,8 +614,11 @@ function ProductPickerModal({
                 >
                   <div className="aspect-square overflow-hidden bg-zinc-100">
                     {product.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={product.imageUrl} alt={product.titleFa} className="h-full w-full object-cover" />
+                      <img
+                        src={product.imageUrl}
+                        alt={product.titleFa}
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       <div className="grid h-full place-items-center text-zinc-400">
                         <ImageIcon className="size-5" />

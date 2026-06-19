@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 
 import { productImages, products } from "@/db/schema";
-import { apiError, apiOk, readJson } from "@/lib/api";
 import { renderProductImageWatermark } from "@/lib/admin/image-watermarks";
+import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 
@@ -77,10 +77,7 @@ function toProductImageRow(image: {
   };
 }
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {
@@ -143,7 +140,10 @@ export async function PATCH(
   const watermarkImageId = (body.watermarkImageId ?? image.watermarkImageId ?? "").trim();
 
   if (x === null || y === null || size === null || opacity === null) {
-    return apiError("INVALID_WATERMARK_NUMBER", "مقدارهای X، Y، اندازه و شفافیت باید عدد صحیح باشند.");
+    return apiError(
+      "INVALID_WATERMARK_NUMBER",
+      "مقدارهای X، Y، اندازه و شفافیت باید عدد صحیح باشند.",
+    );
   }
 
   if (size < 8) {
@@ -186,7 +186,7 @@ export async function PATCH(
     ) {
       return apiError(
         "UNSUPPORTED_IMAGE_URL",
-        "واترمارک فقط روی تصاویر آپلودشده داخلی قابل اعمال است."
+        "واترمارک فقط روی تصاویر آپلودشده داخلی قابل اعمال است.",
       );
     }
 

@@ -1,4 +1,3 @@
-/* eslint-disable @next/next/no-img-element -- Product media can be admin-entered URLs until a CDN allowlist exists. */
 import Link from "next/link";
 
 import { formatToman } from "@/lib/format";

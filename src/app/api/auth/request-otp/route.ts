@@ -3,7 +3,7 @@ import { apiError, apiOk, readJson } from "@/lib/api";
 import { getDb } from "@/lib/db";
 import { generateOtpCode, hashOtp } from "@/lib/otp";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
-import { type OtpDeliveryStatus } from "@/lib/sms/delivery";
+import type { OtpDeliveryStatus } from "@/lib/sms/delivery";
 import { sendKavenegarOtp } from "@/lib/sms/kavenegar";
 import { sendTelegramLoginOtp } from "@/lib/sms/telegram";
 
@@ -37,19 +37,20 @@ export async function POST(request: Request) {
   ]);
   const providerStatus = resolveProviderStatus([sms.status, telegram.status]);
   const sent = hasDeliveredOtp([sms.status, telegram.status]);
-  const providerMessage = [
-    `kavenegar: ${sms.message}`,
-    `telegram: ${telegram.message}`,
-  ].join(" | ");
+  const providerMessage = [`kavenegar: ${sms.message}`, `telegram: ${telegram.message}`].join(
+    " | ",
+  );
 
-  await getDb().insert(loginOtps).values({
-    phone,
-    codeHash: hashOtp(phone, code),
-    expiresAt: new Date(Date.now() + 5 * 60_000),
-    provider: "kavenegar+telegram",
-    providerStatus,
-    providerMessage,
-    providerPayload: {
+  await getDb()
+    .insert(loginOtps)
+    .values({
+      phone,
+      codeHash: hashOtp(phone, code),
+      expiresAt: new Date(Date.now() + 5 * 60_000),
+      provider: "kavenegar+telegram",
+      providerStatus,
+      providerMessage,
+      providerPayload: {
         kavenegar: {
           status: sms.status,
           message: sms.message,
@@ -61,15 +62,13 @@ export async function POST(request: Request) {
           payload: telegram.payload,
         },
       },
-  });
+    });
 
   return apiOk({
     phone,
     sent,
     expiresInSeconds: 300,
-    ...(process.env.NODE_ENV !== "production" && !sent
-      ? { debugCode: code }
-      : {}),
+    ...(process.env.NODE_ENV !== "production" && !sent ? { debugCode: code } : {}),
   });
 }
 

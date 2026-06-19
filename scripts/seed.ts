@@ -201,7 +201,7 @@ async function main() {
       .values({
         slug: category.slug,
         titleFa: category.titleFa,
-        parentId: category.parentSlug ? categoryIdBySlug.get(category.parentSlug) ?? null : null,
+        parentId: category.parentSlug ? (categoryIdBySlug.get(category.parentSlug) ?? null) : null,
         sortOrder: category.sortOrder,
       })
       .returning({ id: schema.categories.id });
@@ -244,7 +244,7 @@ async function main() {
       product.tagSlugs
         .map((slug) => tagIdBySlug.get(slug))
         .filter((id): id is string => Boolean(id))
-        .map((tagId) => ({ productId: productRow.id, tagId }))
+        .map((tagId) => ({ productId: productRow.id, tagId })),
     );
 
     // One showcase image per product (used by gallery + showcase blocks).
@@ -284,7 +284,7 @@ async function main() {
         Array.from({ length: STOCK_PER_DENOM }, (_, n) => ({
           variantId: variantRow.id,
           code: stockCode(sku, n),
-        }))
+        })),
       );
       unitCount += STOCK_PER_DENOM;
     }
@@ -325,7 +325,7 @@ async function main() {
   });
 
   console.log(
-    `Done. ${PRODUCTS.length} products, ${variantCount} variants, ${unitCount} inventory units, ${TAGS.length} tags, ${CATEGORIES.length} categories, 2 home blocks.`
+    `Done. ${PRODUCTS.length} products, ${variantCount} variants, ${unitCount} inventory units, ${TAGS.length} tags, ${CATEGORIES.length} categories, 2 home blocks.`,
   );
 }
 

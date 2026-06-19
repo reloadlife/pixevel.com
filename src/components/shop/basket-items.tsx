@@ -1,9 +1,8 @@
-/* eslint-disable @next/next/no-img-element -- Product media can be admin-entered URLs until a CDN allowlist exists. */
 "use client";
 
-import { useState } from "react";
-import Link from "next/link";
 import { Minus, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
 
 import type { CartView } from "@/lib/cart";
 import { formatToman, toFaNumber } from "@/lib/format";
@@ -99,7 +98,7 @@ export function BasketItems({
                       disabled={busy}
                       onClick={() =>
                         run(item.variantId, () =>
-                          mutate("PATCH", item.variantId, item.quantity - 1)
+                          mutate("PATCH", item.variantId, item.quantity - 1),
                         )
                       }
                       className="grid size-8 place-items-center border border-border disabled:opacity-50"
@@ -115,7 +114,7 @@ export function BasketItems({
                       disabled={busy || item.quantity >= item.availableStock}
                       onClick={() =>
                         run(item.variantId, () =>
-                          mutate("PATCH", item.variantId, item.quantity + 1)
+                          mutate("PATCH", item.variantId, item.quantity + 1),
                         )
                       }
                       className="grid size-8 place-items-center border border-border disabled:opacity-50"
@@ -129,9 +128,7 @@ export function BasketItems({
                       type="button"
                       aria-label="حذف"
                       disabled={busy}
-                      onClick={() =>
-                        run(item.variantId, () => mutate("DELETE", item.variantId))
-                      }
+                      onClick={() => run(item.variantId, () => mutate("DELETE", item.variantId))}
                       className="text-muted-foreground hover:text-destructive disabled:opacity-50"
                     >
                       <Trash2 className="size-5" />

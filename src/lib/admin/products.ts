@@ -6,9 +6,9 @@ import {
   categories,
   inventoryUnits,
   productImages,
+  products,
   productTags,
   productVariants,
-  products,
   tags as tagsTable,
 } from "@/db/schema";
 import { getDb } from "@/lib/db";
@@ -210,7 +210,9 @@ function sanitizeStockToAdd(value: number | undefined) {
   return Math.floor(value);
 }
 
-function assertSingleShowcaseImages(images: Array<{ showcasePublic?: boolean; showcasePremium?: boolean }>) {
+function assertSingleShowcaseImages(
+  images: Array<{ showcasePublic?: boolean; showcasePremium?: boolean }>,
+) {
   if (images.filter((image) => image.showcasePublic).length > 1) {
     throw new Error("DUPLICATE_SHOWCASE_IMAGE");
   }
@@ -246,7 +248,9 @@ async function ensureCategory(titleFa?: string, slug?: string) {
   return category;
 }
 
-async function resolveCategory(input: Pick<ProductCreateInput, "categoryId" | "categoryTitleFa" | "categorySlug">) {
+async function resolveCategory(
+  input: Pick<ProductCreateInput, "categoryId" | "categoryTitleFa" | "categorySlug">,
+) {
   if (input.categoryId) {
     const category = await getDb().query.categories.findFirst({
       where: (item, { eq }) => eq(item.id, input.categoryId as string),
@@ -263,9 +267,7 @@ async function resolveCategory(input: Pick<ProductCreateInput, "categoryId" | "c
 }
 
 async function ensureTags(tags: string[]) {
-  const uniqueTags = Array.from(
-    new Set(tags.map((tag) => tag.trim()).filter(Boolean))
-  );
+  const uniqueTags = Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
 
   return Promise.all(
     uniqueTags.map(async (tag) => {
@@ -286,7 +288,7 @@ async function ensureTags(tags: string[]) {
         .returning();
 
       return row;
-    })
+    }),
   );
 }
 
@@ -320,10 +322,7 @@ export async function createAdminProduct(input: ProductCreateInput) {
     throw new Error("INVALID_VARIANTS");
   }
 
-  const [category, tags] = await Promise.all([
-    resolveCategory(input),
-    resolveTags(input),
-  ]);
+  const [category, tags] = await Promise.all([resolveCategory(input), resolveTags(input)]);
   const images = (input.images ?? []).filter((image) => image.url.trim());
   const primaryImage = images.find((image) => image.isPrimary) ?? images[0];
   assertSingleShowcaseImages(images);
@@ -349,7 +348,7 @@ export async function createAdminProduct(input: ProductCreateInput) {
         tags.map((tag) => ({
           productId: product.id,
           tagId: tag.id,
-        }))
+        })),
       );
     }
 
@@ -390,7 +389,7 @@ export async function createAdminProduct(input: ProductCreateInput) {
               Array.from({ length: input.stockPerVariant }, (_, index) => ({
                 variantId: variant.id,
                 code: stockCode(sku, index),
-              }))
+              })),
             );
           }
         }
@@ -418,7 +417,7 @@ export async function createAdminProduct(input: ProductCreateInput) {
             showcasePremium: Boolean(image.showcasePremium),
             sortOrder: image.sortOrder ?? index,
           };
-        })
+        }),
       );
     }
 
@@ -455,8 +454,7 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
     input.titleFa !== undefined
       ? cleanRequiredText(input.titleFa, current.titleFa)
       : current.titleFa;
-  const nextSlug =
-    input.slug !== undefined ? slugify(input.slug || nextTitle) : current.slug;
+  const nextSlug = input.slug !== undefined ? slugify(input.slug || nextTitle) : current.slug;
 
   if (!nextSlug) {
     throw new Error("INVALID_SLUG");
@@ -509,8 +507,8 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
       ...(normalizedImages
         ? {
             primaryImageUrl:
-              (normalizedImages.find((image) => image.isPrimary) ?? normalizedImages[0])
-                ?.url ?? null,
+              (normalizedImages.find((image) => image.isPrimary) ?? normalizedImages[0])?.url ??
+              null,
           }
         : {}),
     };
@@ -529,7 +527,7 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
             tags.map((tag) => ({
               productId: id,
               tagId: tag.id,
-            }))
+            })),
           )
           .onConflictDoNothing();
       }
@@ -557,11 +555,11 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
         const nextTitleFa = cleanRequiredText(variantPatch.titleFa, currentVariant.titleFa);
         const nextColorNameFa = cleanRequiredText(
           variantPatch.colorNameFa,
-          currentVariant.colorNameFa
+          currentVariant.colorNameFa,
         );
         const nextMaterialNameFa = cleanRequiredText(
           variantPatch.materialNameFa,
-          currentVariant.materialNameFa
+          currentVariant.materialNameFa,
         );
         const nextSize = cleanRequiredText(variantPatch.size, currentVariant.size);
         const stockToAdd = sanitizeStockToAdd(variantPatch.stockToAdd);
@@ -588,7 +586,7 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
             size: nextSize,
             publicPriceAmount: cleanRequiredPrice(
               variantPatch.publicPriceAmount,
-              currentVariant.publicPriceAmount
+              currentVariant.publicPriceAmount,
             ),
             ...(variantPatch.registeredPriceAmount !== undefined
               ? { registeredPriceAmount: cleanOptionalPrice(variantPatch.registeredPriceAmount) }
@@ -608,7 +606,7 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
             Array.from({ length: stockToAdd }, (_, index) => ({
               variantId: variantPatch.id,
               code: stockCode(nextSku, index),
-            }))
+            })),
           );
         }
       }
@@ -624,10 +622,7 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
         await tx
           .delete(productImages)
           .where(
-            and(
-              eq(productImages.productId, id),
-              notInArray(productImages.id, submittedImageIds)
-            )
+            and(eq(productImages.productId, id), notInArray(productImages.id, submittedImageIds)),
           );
       } else {
         await tx.delete(productImages).where(eq(productImages.productId, id));

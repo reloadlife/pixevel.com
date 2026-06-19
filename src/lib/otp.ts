@@ -7,7 +7,5 @@ export function generateOtpCode() {
 export function hashOtp(phone: string, code: string) {
   const secret = process.env.SESSION_SECRET || "pixevel-development-secret";
 
-  return createHmac("sha256", secret)
-    .update(`${phone}:${code}`)
-    .digest("hex");
+  return createHmac("sha256", secret).update(`${phone}:${code}`).digest("hex");
 }

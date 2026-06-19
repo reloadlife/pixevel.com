@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm";
 
 import { watermarkImages } from "@/db/schema";
-import { apiError, apiOk, readJson } from "@/lib/api";
 import { toAdminWatermarkImageRow } from "@/lib/admin/watermark-images";
+import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 
@@ -10,10 +10,7 @@ type WatermarkImagePatchBody = {
   titleFa?: string | null;
 };
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {

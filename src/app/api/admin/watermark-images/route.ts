@@ -5,11 +5,8 @@ import path from "node:path";
 import sharp from "sharp";
 
 import { watermarkImages } from "@/db/schema";
+import { listAdminWatermarkImages, toAdminWatermarkImageRow } from "@/lib/admin/watermark-images";
 import { apiError, apiOk } from "@/lib/api";
-import {
-  listAdminWatermarkImages,
-  toAdminWatermarkImageRow,
-} from "@/lib/admin/watermark-images";
 import { requireAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 
@@ -122,8 +119,5 @@ export async function POST(request: Request) {
     uploadedImages.push(image);
   }
 
-  return apiOk(
-    { images: uploadedImages.map(toAdminWatermarkImageRow) },
-    { status: 201 }
-  );
+  return apiOk({ images: uploadedImages.map(toAdminWatermarkImageRow) }, { status: 201 });
 }

@@ -1,14 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import {
-  useMemo,
-  useRef,
-  useState,
-  type Dispatch,
-  type ReactNode,
-  type SetStateAction,
-} from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -23,6 +14,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import Link from "next/link";
+import {
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -226,11 +226,7 @@ function variantOptionSlug(slug: string, label: string, index: number) {
 }
 
 function variantOptionKey(colorSlug: string, materialSlug: string, size: string) {
-  return [
-    colorSlug,
-    materialSlug,
-    slugifyForVariantKey(size) || size.trim().toLowerCase(),
-  ]
+  return [colorSlug, materialSlug, slugifyForVariantKey(size) || size.trim().toLowerCase()]
     .join("|")
     .toLowerCase();
 }
@@ -299,7 +295,7 @@ export function ProductManagement({
 }) {
   const initialEditingProduct =
     mode === "edit"
-      ? initialProducts.find((product) => product.id === initialEditingProductId) ?? null
+      ? (initialProducts.find((product) => product.id === initialEditingProductId) ?? null)
       : null;
   const [products, setProducts] = useState(initialProducts);
   const [categories] = useState(initialCategories);
@@ -312,11 +308,19 @@ export function ProductManagement({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [editingProductId, setEditingProductId] = useState(initialEditingProduct?.id ?? "");
-  const [editSelectedCategoryId, setEditSelectedCategoryId] = useState(initialEditingProduct?.categoryId ?? "");
-  const [editSelectedTags, setEditSelectedTags] = useState<SelectedTag[]>(initialEditingProduct?.tags ?? []);
+  const [editSelectedCategoryId, setEditSelectedCategoryId] = useState(
+    initialEditingProduct?.categoryId ?? "",
+  );
+  const [editSelectedTags, setEditSelectedTags] = useState<SelectedTag[]>(
+    initialEditingProduct?.tags ?? [],
+  );
   const [editTagQuery, setEditTagQuery] = useState("");
-  const [editImageRows, setEditImageRows] = useState<ImageRow[]>(imageRowsFromProduct(initialEditingProduct));
-  const [editVariants, setEditVariants] = useState<VariantEditRow[]>(variantRowsFromProduct(initialEditingProduct));
+  const [editImageRows, setEditImageRows] = useState<ImageRow[]>(
+    imageRowsFromProduct(initialEditingProduct),
+  );
+  const [editVariants, setEditVariants] = useState<VariantEditRow[]>(
+    variantRowsFromProduct(initialEditingProduct),
+  );
   const [editSaving, setEditSaving] = useState(false);
   const [editUploading, setEditUploading] = useState(false);
   const [watermarkingImageId, setWatermarkingImageId] = useState("");
@@ -330,9 +334,7 @@ export function ProductManagement({
   const [materials, setMaterials] = useState<TextOption[]>([
     { id: "material-leather", label: "چرم", slug: "leather" },
   ]);
-  const [sizes, setSizes] = useState<SizeOption[]>([
-    { id: "size-m", value: "M" },
-  ]);
+  const [sizes, setSizes] = useState<SizeOption[]>([{ id: "size-m", value: "M" }]);
   const [form, setForm] = useState({
     titleFa: "",
     slug: "",
@@ -367,17 +369,15 @@ export function ProductManagement({
         slug: variantOptionSlug(material.slug.trim(), material.label.trim(), index),
       }))
       .filter((material) => material.label);
-    const cleanSizes = sizes
-      .map((size) => size.value.trim())
-      .filter(Boolean);
+    const cleanSizes = sizes.map((size) => size.value.trim()).filter(Boolean);
 
     return cleanColors.flatMap((color) =>
       cleanMaterials.flatMap((material) =>
         cleanSizes.map((size) => ({
           id: variantOptionKey(color.slug, material.slug, size),
           label: `${color.label} / ${material.label} / ${size}`,
-        }))
-      )
+        })),
+      ),
     );
   }, [colors, materials, sizes]);
 
@@ -420,10 +420,7 @@ export function ProductManagement({
           return false;
         }
 
-        return (
-          tag.titleFa.toLowerCase().includes(query) ||
-          tag.slug.toLowerCase().includes(query)
-        );
+        return tag.titleFa.toLowerCase().includes(query) || tag.slug.toLowerCase().includes(query);
       })
       .slice(0, 8);
   }
@@ -431,7 +428,7 @@ export function ProductManagement({
   function selectTagFor(
     tag: TagOption,
     setSelected: Dispatch<SetStateAction<SelectedTag[]>>,
-    setQuery: Dispatch<SetStateAction<string>>
+    setQuery: Dispatch<SetStateAction<string>>,
   ) {
     setSelected((current) => {
       if (current.some((item) => item.id === tag.id && !item.isNew)) {
@@ -446,7 +443,7 @@ export function ProductManagement({
   async function createOrSelectTagFor(
     query: string,
     setQuery: Dispatch<SetStateAction<string>>,
-    setSelected: Dispatch<SetStateAction<SelectedTag[]>>
+    setSelected: Dispatch<SetStateAction<SelectedTag[]>>,
   ) {
     const cleanQuery = query.trim();
 
@@ -454,9 +451,7 @@ export function ProductManagement({
       return;
     }
 
-    const existingTag = tags.find(
-      (tag) => tag.titleFa === cleanQuery || tag.slug === cleanQuery
-    );
+    const existingTag = tags.find((tag) => tag.titleFa === cleanQuery || tag.slug === cleanQuery);
 
     if (existingTag) {
       selectTagFor(existingTag, setSelected, setQuery);
@@ -478,15 +473,12 @@ export function ProductManagement({
     setTags((current) =>
       current.some((tag) => tag.id === result.data.tag.id)
         ? current
-        : [...current, result.data.tag].sort((a, b) => a.titleFa.localeCompare(b.titleFa, "fa"))
+        : [...current, result.data.tag].sort((a, b) => a.titleFa.localeCompare(b.titleFa, "fa")),
     );
     selectTagFor(result.data.tag, setSelected, setQuery);
   }
 
-  function removeSelectedTagFor(
-    id: string,
-    setSelected: Dispatch<SetStateAction<SelectedTag[]>>
-  ) {
+  function removeSelectedTagFor(id: string, setSelected: Dispatch<SetStateAction<SelectedTag[]>>) {
     setSelected((current) => current.filter((tag) => tag.id !== id));
   }
 
@@ -518,11 +510,7 @@ export function ProductManagement({
     ]);
   }
 
-  function updateImageRow(
-    id: string,
-    patch: Partial<ImageRow>,
-    target: UploadTarget = "create"
-  ) {
+  function updateImageRow(id: string, patch: Partial<ImageRow>, target: UploadTarget = "create") {
     const setRows = target === "edit" ? setEditImageRows : setImageRows;
 
     setRows((current) =>
@@ -537,7 +525,7 @@ export function ProductManagement({
         }
 
         return image.id === id ? { ...image, ...patch } : image;
-      })
+      }),
     );
   }
 
@@ -567,9 +555,7 @@ export function ProductManagement({
       const next = current.filter((image) => image.id !== id);
 
       if (next.length > 0 && !next.some((image) => image.isPrimary)) {
-        return next.map((image, index) =>
-          index === 0 ? { ...image, isPrimary: true } : image
-        );
+        return next.map((image, index) => (index === 0 ? { ...image, isPrimary: true } : image));
       }
 
       return next;
@@ -585,7 +571,7 @@ export function ProductManagement({
 
   function updateColor(id: string, patch: Partial<ColorOption>) {
     setColors((current) =>
-      current.map((color) => (color.id === id ? { ...color, ...patch } : color))
+      current.map((color) => (color.id === id ? { ...color, ...patch } : color)),
     );
   }
 
@@ -594,17 +580,12 @@ export function ProductManagement({
   }
 
   function addMaterial() {
-    setMaterials((current) => [
-      ...current,
-      { id: createId("material"), label: "", slug: "" },
-    ]);
+    setMaterials((current) => [...current, { id: createId("material"), label: "", slug: "" }]);
   }
 
   function updateMaterial(id: string, patch: Partial<TextOption>) {
     setMaterials((current) =>
-      current.map((material) =>
-        material.id === id ? { ...material, ...patch } : material
-      )
+      current.map((material) => (material.id === id ? { ...material, ...patch } : material)),
     );
   }
 
@@ -617,9 +598,7 @@ export function ProductManagement({
   }
 
   function updateSize(id: string, value: string) {
-    setSizes((current) =>
-      current.map((size) => (size.id === id ? { ...size, value } : size))
-    );
+    setSizes((current) => current.map((size) => (size.id === id ? { ...size, value } : size)));
   }
 
   function removeSize(id: string) {
@@ -638,7 +617,9 @@ export function ProductManagement({
 
     try {
       const body = new FormData();
-      Array.from(files).forEach((file) => body.append("files", file));
+      Array.from(files).forEach((file) => {
+        body.append("files", file);
+      });
 
       const response = await fetch("/api/admin/uploads", {
         method: "POST",
@@ -781,7 +762,7 @@ export function ProductManagement({
         }
 
         return variant.id === id ? { ...variant, ...patch } : variant;
-      })
+      }),
     );
   }
 
@@ -848,7 +829,7 @@ export function ProductManagement({
 
     const updatedProduct = result.data.product as ProductRow;
     setProducts((current) =>
-      current.map((product) => (product.id === updatedProduct.id ? updatedProduct : product))
+      current.map((product) => (product.id === updatedProduct.id ? updatedProduct : product)),
     );
     startEditingProduct(updatedProduct);
   }
@@ -856,8 +837,8 @@ export function ProductManagement({
   function replaceEditedImage(updatedImage: ProductImageRecord) {
     setEditImageRows((current) =>
       current.map((image) =>
-        image.persistedId === updatedImage.id ? imageRowFromRecord(updatedImage) : image
-      )
+        image.persistedId === updatedImage.id ? imageRowFromRecord(updatedImage) : image,
+      ),
     );
     setProducts((current) =>
       current.map((product) =>
@@ -865,14 +846,14 @@ export function ProductManagement({
           ? {
               ...product,
               images: product.images.map((image) =>
-                image.id === updatedImage.id ? updatedImage : image
+                image.id === updatedImage.id ? updatedImage : image,
               ),
             }
-          : product
-      )
+          : product,
+      ),
     );
     setPreviewImage((current) =>
-      current?.persistedId === updatedImage.id ? imageRowFromRecord(updatedImage) : current
+      current?.persistedId === updatedImage.id ? imageRowFromRecord(updatedImage) : current,
     );
   }
 
@@ -977,7 +958,7 @@ export function ProductManagement({
 
     const updatedProduct = result.data.product as ProductRow;
     setProducts((current) =>
-      current.map((item) => (item.id === product.id ? updatedProduct : item))
+      current.map((item) => (item.id === product.id ? updatedProduct : item)),
     );
 
     if (editingProductId === product.id) {
@@ -988,204 +969,254 @@ export function ProductManagement({
   return (
     <div className="grid min-w-0 gap-6">
       {showCreate ? (
-      <section className="min-w-0 border border-zinc-200 bg-white p-4">
-        <h2 className="text-lg font-black">افزودن محصول</h2>
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Input label="نام محصول" value={form.titleFa} onChange={(value) => setField("titleFa", value)} />
-          <Input label="اسلاگ" value={form.slug} onChange={(value) => setField("slug", value)} dir="ltr" />
-          <CategorySelect
-            label="دسته‌بندی"
-            categories={categories}
-            value={selectedCategoryId}
-            onChange={setSelectedCategoryId}
-          />
-          <StatusSelect label="وضعیت" value={form.status} onChange={(value) => setField("status", value)} />
-          <TagPicker
-            selectedTags={selectedTags}
-            tagQuery={tagQuery}
-            suggestions={tagSuggestions}
-            onQueryChange={setTagQuery}
-            onCreate={() => createOrSelectTagFor(tagQuery, setTagQuery, setSelectedTags)}
-            onSelect={(tag) => selectTagFor(tag, setSelectedTags, setTagQuery)}
-            onRemove={(id) => removeSelectedTagFor(id, setSelectedTags)}
-          />
-          <PriceInput label="قیمت عمومی" value={form.publicPriceAmount} onChange={(value) => setField("publicPriceAmount", value)} />
-          <PriceInput label="قیمت کاربران" value={form.registeredPriceAmount} onChange={(value) => setField("registeredPriceAmount", value)} />
-          <PriceInput label="قیمت پریمیوم" value={form.premiumPriceAmount} onChange={(value) => setField("premiumPriceAmount", value)} />
-          <PriceInput label="قیمت قبل" value={form.compareAtAmount} onChange={(value) => setField("compareAtAmount", value)} />
-          <Input label="موجودی هر تنوع" value={form.stockPerVariant} onChange={(value) => setField("stockPerVariant", value)} dir="ltr" />
-          <Textarea label="خلاصه" value={form.summaryFa} onChange={(value) => setField("summaryFa", value)} />
-          <Textarea label="توضیحات" value={form.descriptionFa} onChange={(value) => setField("descriptionFa", value)} />
-          <Textarea label="فیت" value={form.fitFa} onChange={(value) => setField("fitFa", value)} />
-          <Textarea label="نگهداری" value={form.careFa} onChange={(value) => setField("careFa", value)} />
+        <section className="min-w-0 border border-zinc-200 bg-white p-4">
+          <h2 className="text-lg font-black">افزودن محصول</h2>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <Input
+              label="نام محصول"
+              value={form.titleFa}
+              onChange={(value) => setField("titleFa", value)}
+            />
+            <Input
+              label="اسلاگ"
+              value={form.slug}
+              onChange={(value) => setField("slug", value)}
+              dir="ltr"
+            />
+            <CategorySelect
+              label="دسته‌بندی"
+              categories={categories}
+              value={selectedCategoryId}
+              onChange={setSelectedCategoryId}
+            />
+            <StatusSelect
+              label="وضعیت"
+              value={form.status}
+              onChange={(value) => setField("status", value)}
+            />
+            <TagPicker
+              selectedTags={selectedTags}
+              tagQuery={tagQuery}
+              suggestions={tagSuggestions}
+              onQueryChange={setTagQuery}
+              onCreate={() => createOrSelectTagFor(tagQuery, setTagQuery, setSelectedTags)}
+              onSelect={(tag) => selectTagFor(tag, setSelectedTags, setTagQuery)}
+              onRemove={(id) => removeSelectedTagFor(id, setSelectedTags)}
+            />
+            <PriceInput
+              label="قیمت عمومی"
+              value={form.publicPriceAmount}
+              onChange={(value) => setField("publicPriceAmount", value)}
+            />
+            <PriceInput
+              label="قیمت کاربران"
+              value={form.registeredPriceAmount}
+              onChange={(value) => setField("registeredPriceAmount", value)}
+            />
+            <PriceInput
+              label="قیمت پریمیوم"
+              value={form.premiumPriceAmount}
+              onChange={(value) => setField("premiumPriceAmount", value)}
+            />
+            <PriceInput
+              label="قیمت قبل"
+              value={form.compareAtAmount}
+              onChange={(value) => setField("compareAtAmount", value)}
+            />
+            <Input
+              label="موجودی هر تنوع"
+              value={form.stockPerVariant}
+              onChange={(value) => setField("stockPerVariant", value)}
+              dir="ltr"
+            />
+            <Textarea
+              label="خلاصه"
+              value={form.summaryFa}
+              onChange={(value) => setField("summaryFa", value)}
+            />
+            <Textarea
+              label="توضیحات"
+              value={form.descriptionFa}
+              onChange={(value) => setField("descriptionFa", value)}
+            />
+            <Textarea
+              label="فیت"
+              value={form.fitFa}
+              onChange={(value) => setField("fitFa", value)}
+            />
+            <Textarea
+              label="نگهداری"
+              value={form.careFa}
+              onChange={(value) => setField("careFa", value)}
+            />
 
-          <div className="lg:col-span-2">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-black">رنگ‌ها</h3>
-              <Button type="button" size="sm" variant="outline" onClick={addColor}>
-                <Plus className="size-3.5" />
-                رنگ جدید
-              </Button>
-            </div>
-            <div className="grid gap-3">
-              {colors.map((color) => (
-                <div
-                  key={color.id}
-                  className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[1fr_1fr_160px_auto]"
-                >
-                  <Input
-                    label="نام رنگ"
-                    value={color.label}
-                    onChange={(value) => updateColor(color.id, { label: value })}
-                  />
-                  <Input
-                    label="اسلاگ رنگ"
-                    value={color.slug}
-                    onChange={(value) => updateColor(color.id, { slug: value })}
-                    dir="ltr"
-                  />
-                  <label className="block min-w-0">
-                    <span className="mb-2 block text-sm font-bold">کد رنگ</span>
-                    <div className="flex h-11 min-w-0 items-center gap-2 border border-zinc-300 bg-white px-2">
-                      <input
-                        type="color"
-                        value={color.hex}
-                        onChange={(event) => updateColor(color.id, { hex: event.target.value })}
-                        className="size-8 cursor-pointer border-0 bg-transparent p-0"
-                        aria-label="انتخاب رنگ"
-                      />
-                      <input
-                        value={color.hex}
-                        onChange={(event) => updateColor(color.id, { hex: event.target.value })}
-                        className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
-                        dir="ltr"
-                      />
+            <div className="lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">رنگ‌ها</h3>
+                <Button type="button" size="sm" variant="outline" onClick={addColor}>
+                  <Plus className="size-3.5" />
+                  رنگ جدید
+                </Button>
+              </div>
+              <div className="grid gap-3">
+                {colors.map((color) => (
+                  <div
+                    key={color.id}
+                    className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[1fr_1fr_160px_auto]"
+                  >
+                    <Input
+                      label="نام رنگ"
+                      value={color.label}
+                      onChange={(value) => updateColor(color.id, { label: value })}
+                    />
+                    <Input
+                      label="اسلاگ رنگ"
+                      value={color.slug}
+                      onChange={(value) => updateColor(color.id, { slug: value })}
+                      dir="ltr"
+                    />
+                    <label className="block min-w-0">
+                      <span className="mb-2 block text-sm font-bold">کد رنگ</span>
+                      <div className="flex h-11 min-w-0 items-center gap-2 border border-zinc-300 bg-white px-2">
+                        <input
+                          type="color"
+                          value={color.hex}
+                          onChange={(event) => updateColor(color.id, { hex: event.target.value })}
+                          className="size-8 cursor-pointer border-0 bg-transparent p-0"
+                          aria-label="انتخاب رنگ"
+                        />
+                        <input
+                          value={color.hex}
+                          onChange={(event) => updateColor(color.id, { hex: event.target.value })}
+                          className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
+                          dir="ltr"
+                        />
+                      </div>
+                    </label>
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        size="icon-lg"
+                        variant="outline"
+                        onClick={() => removeColor(color.id)}
+                        disabled={colors.length === 1}
+                        aria-label="حذف رنگ"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
                     </div>
-                  </label>
-                  <div className="flex items-end">
-                    <Button
-                      type="button"
-                      size="icon-lg"
-                      variant="outline"
-                      onClick={() => removeColor(color.id)}
-                      disabled={colors.length === 1}
-                      aria-label="حذف رنگ"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
                   </div>
-                </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">جنس‌ها</h3>
+                <Button type="button" size="sm" variant="outline" onClick={addMaterial}>
+                  <Plus className="size-3.5" />
+                  جنس جدید
+                </Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {materials.map((material) => (
+                  <div
+                    key={material.id}
+                    className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[1fr_1fr_auto]"
+                  >
+                    <Input
+                      label="نام جنس"
+                      value={material.label}
+                      onChange={(value) => updateMaterial(material.id, { label: value })}
+                    />
+                    <Input
+                      label="اسلاگ جنس"
+                      value={material.slug}
+                      onChange={(value) => updateMaterial(material.id, { slug: value })}
+                      dir="ltr"
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        size="icon-lg"
+                        variant="outline"
+                        onClick={() => removeMaterial(material.id)}
+                        disabled={materials.length === 1}
+                        aria-label="حذف جنس"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">سایزها</h3>
+                <Button type="button" size="sm" variant="outline" onClick={addSize}>
+                  <Plus className="size-3.5" />
+                  سایز جدید
+                </Button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {sizes.map((size) => (
+                  <div key={size.id} className="grid grid-cols-[1fr_auto] gap-2">
+                    <Input
+                      label="سایز"
+                      value={size.value}
+                      onChange={(value) => updateSize(size.id, value)}
+                      dir="ltr"
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        size="icon-lg"
+                        variant="outline"
+                        onClick={() => removeSize(size.id)}
+                        disabled={sizes.length === 1}
+                        aria-label="حذف سایز"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <ImageRowsEditor
+              title="تصاویر محصول"
+              rows={imageRows}
+              variantOptions={variantPreview}
+              assignmentField="variantKey"
+              uploading={uploading}
+              onUpload={(files) => uploadImages(files, "create")}
+              onAdd={() => addImageRow(undefined, "create")}
+              onUpdate={(id, patch) => updateImageRow(id, patch, "create")}
+              onMove={(id, direction) => moveImageRow(id, direction, "create")}
+              onRemove={(id) => removeImageRow(id, "create")}
+              onOpenPreview={setPreviewImage}
+            />
+          </div>
+
+          <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
+            <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها</p>
+            <div className="flex flex-wrap gap-2">
+              {variantPreview.map((item) => (
+                <span key={item.id} className="bg-white px-2 py-1 text-xs font-bold">
+                  {item.label}
+                </span>
               ))}
             </div>
           </div>
 
-          <div className="lg:col-span-2">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-black">جنس‌ها</h3>
-              <Button type="button" size="sm" variant="outline" onClick={addMaterial}>
-                <Plus className="size-3.5" />
-                جنس جدید
-              </Button>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {materials.map((material) => (
-                <div
-                  key={material.id}
-                  className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[1fr_1fr_auto]"
-                >
-                  <Input
-                    label="نام جنس"
-                    value={material.label}
-                    onChange={(value) => updateMaterial(material.id, { label: value })}
-                  />
-                  <Input
-                    label="اسلاگ جنس"
-                    value={material.slug}
-                    onChange={(value) => updateMaterial(material.id, { slug: value })}
-                    dir="ltr"
-                  />
-                  <div className="flex items-end">
-                    <Button
-                      type="button"
-                      size="icon-lg"
-                      variant="outline"
-                      onClick={() => removeMaterial(material.id)}
-                      disabled={materials.length === 1}
-                      aria-label="حذف جنس"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="lg:col-span-2">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-black">سایزها</h3>
-              <Button type="button" size="sm" variant="outline" onClick={addSize}>
-                <Plus className="size-3.5" />
-                سایز جدید
-              </Button>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {sizes.map((size) => (
-                <div key={size.id} className="grid grid-cols-[1fr_auto] gap-2">
-                  <Input
-                    label="سایز"
-                    value={size.value}
-                    onChange={(value) => updateSize(size.id, value)}
-                    dir="ltr"
-                  />
-                  <div className="flex items-end">
-                    <Button
-                      type="button"
-                      size="icon-lg"
-                      variant="outline"
-                      onClick={() => removeSize(size.id)}
-                      disabled={sizes.length === 1}
-                      aria-label="حذف سایز"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <ImageRowsEditor
-            title="تصاویر محصول"
-            rows={imageRows}
-            variantOptions={variantPreview}
-            assignmentField="variantKey"
-            uploading={uploading}
-            onUpload={(files) => uploadImages(files, "create")}
-            onAdd={() => addImageRow(undefined, "create")}
-            onUpdate={(id, patch) => updateImageRow(id, patch, "create")}
-            onMove={(id, direction) => moveImageRow(id, direction, "create")}
-            onRemove={(id) => removeImageRow(id, "create")}
-            onOpenPreview={setPreviewImage}
-          />
-        </div>
-
-        <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
-          <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها</p>
-          <div className="flex flex-wrap gap-2">
-            {variantPreview.map((item) => (
-              <span key={item.id} className="bg-white px-2 py-1 text-xs font-bold">
-                {item.label}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <Button className="mt-4 h-11 px-6 font-black" onClick={createProduct} disabled={saving}>
-          {saving ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-          ساخت محصول
-        </Button>
-      </section>
+          <Button className="mt-4 h-11 px-6 font-black" onClick={createProduct} disabled={saving}>
+            {saving ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+            ساخت محصول
+          </Button>
+        </section>
       ) : null}
 
       {showEdit && editingProduct ? (
@@ -1204,28 +1235,59 @@ export function ProductManagement({
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <Input label="نام محصول" value={editForm.titleFa} onChange={(value) => setEditField("titleFa", value)} />
-            <Input label="اسلاگ" value={editForm.slug} onChange={(value) => setEditField("slug", value)} dir="ltr" />
+            <Input
+              label="نام محصول"
+              value={editForm.titleFa}
+              onChange={(value) => setEditField("titleFa", value)}
+            />
+            <Input
+              label="اسلاگ"
+              value={editForm.slug}
+              onChange={(value) => setEditField("slug", value)}
+              dir="ltr"
+            />
             <CategorySelect
               label="دسته‌بندی"
               categories={categories}
               value={editSelectedCategoryId}
               onChange={setEditSelectedCategoryId}
             />
-            <StatusSelect label="وضعیت" value={editForm.status} onChange={(value) => setEditField("status", value)} />
+            <StatusSelect
+              label="وضعیت"
+              value={editForm.status}
+              onChange={(value) => setEditField("status", value)}
+            />
             <TagPicker
               selectedTags={editSelectedTags}
               tagQuery={editTagQuery}
               suggestions={editTagSuggestions}
               onQueryChange={setEditTagQuery}
-              onCreate={() => createOrSelectTagFor(editTagQuery, setEditTagQuery, setEditSelectedTags)}
+              onCreate={() =>
+                createOrSelectTagFor(editTagQuery, setEditTagQuery, setEditSelectedTags)
+              }
               onSelect={(tag) => selectTagFor(tag, setEditSelectedTags, setEditTagQuery)}
               onRemove={(id) => removeSelectedTagFor(id, setEditSelectedTags)}
             />
-            <Textarea label="خلاصه" value={editForm.summaryFa} onChange={(value) => setEditField("summaryFa", value)} />
-            <Textarea label="توضیحات" value={editForm.descriptionFa} onChange={(value) => setEditField("descriptionFa", value)} />
-            <Textarea label="فیت" value={editForm.fitFa} onChange={(value) => setEditField("fitFa", value)} />
-            <Textarea label="نگهداری" value={editForm.careFa} onChange={(value) => setEditField("careFa", value)} />
+            <Textarea
+              label="خلاصه"
+              value={editForm.summaryFa}
+              onChange={(value) => setEditField("summaryFa", value)}
+            />
+            <Textarea
+              label="توضیحات"
+              value={editForm.descriptionFa}
+              onChange={(value) => setEditField("descriptionFa", value)}
+            />
+            <Textarea
+              label="فیت"
+              value={editForm.fitFa}
+              onChange={(value) => setEditField("fitFa", value)}
+            />
+            <Textarea
+              label="نگهداری"
+              value={editForm.careFa}
+              onChange={(value) => setEditField("careFa", value)}
+            />
 
             <ImageRowsEditor
               title="تصاویر محصول"
@@ -1252,13 +1314,14 @@ export function ProductManagement({
             <div className="lg:col-span-2">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-black">تنوع‌ها</h3>
-                <span className="text-xs font-bold text-zinc-500">
-                  {editVariants.length} تنوع
-                </span>
+                <span className="text-xs font-bold text-zinc-500">{editVariants.length} تنوع</span>
               </div>
               <div className="grid gap-3">
                 {editVariants.map((variant) => (
-                  <div key={variant.id} className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3">
+                  <div
+                    key={variant.id}
+                    className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3"
+                  >
                     <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_120px_auto]">
                       <Input
                         label="عنوان تنوع"
@@ -1311,13 +1374,17 @@ export function ProductManagement({
                           <input
                             type="color"
                             value={variant.colorHex || "#000000"}
-                            onChange={(event) => updateEditVariant(variant.id, { colorHex: event.target.value })}
+                            onChange={(event) =>
+                              updateEditVariant(variant.id, { colorHex: event.target.value })
+                            }
                             className="size-8 cursor-pointer border-0 bg-transparent p-0"
                             aria-label="انتخاب رنگ"
                           />
                           <input
                             value={variant.colorHex}
-                            onChange={(event) => updateEditVariant(variant.id, { colorHex: event.target.value })}
+                            onChange={(event) =>
+                              updateEditVariant(variant.id, { colorHex: event.target.value })
+                            }
                             className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
                             dir="ltr"
                           />
@@ -1326,7 +1393,9 @@ export function ProductManagement({
                       <Input
                         label="نام جنس"
                         value={variant.materialNameFa}
-                        onChange={(value) => updateEditVariant(variant.id, { materialNameFa: value })}
+                        onChange={(value) =>
+                          updateEditVariant(variant.id, { materialNameFa: value })
+                        }
                       />
                       <Input
                         label="اسلاگ جنس"
@@ -1339,22 +1408,30 @@ export function ProductManagement({
                       <PriceInput
                         label="قیمت عمومی"
                         value={variant.publicPriceAmount}
-                        onChange={(value) => updateEditVariant(variant.id, { publicPriceAmount: value })}
+                        onChange={(value) =>
+                          updateEditVariant(variant.id, { publicPriceAmount: value })
+                        }
                       />
                       <PriceInput
                         label="قیمت کاربران"
                         value={variant.registeredPriceAmount}
-                        onChange={(value) => updateEditVariant(variant.id, { registeredPriceAmount: value })}
+                        onChange={(value) =>
+                          updateEditVariant(variant.id, { registeredPriceAmount: value })
+                        }
                       />
                       <PriceInput
                         label="قیمت پریمیوم"
                         value={variant.premiumPriceAmount}
-                        onChange={(value) => updateEditVariant(variant.id, { premiumPriceAmount: value })}
+                        onChange={(value) =>
+                          updateEditVariant(variant.id, { premiumPriceAmount: value })
+                        }
                       />
                       <PriceInput
                         label="قیمت قبل"
                         value={variant.compareAtAmount}
-                        onChange={(value) => updateEditVariant(variant.id, { compareAtAmount: value })}
+                        onChange={(value) =>
+                          updateEditVariant(variant.id, { compareAtAmount: value })
+                        }
                       />
                     </div>
                     <p className="text-xs font-bold text-zinc-500">
@@ -1366,7 +1443,11 @@ export function ProductManagement({
             </div>
           </div>
 
-          <Button className="mt-4 h-11 px-6 font-black" onClick={saveProductEdits} disabled={editSaving}>
+          <Button
+            className="mt-4 h-11 px-6 font-black"
+            onClick={saveProductEdits}
+            disabled={editSaving}
+          >
             {editSaving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
             ذخیره تغییرات
           </Button>
@@ -1374,82 +1455,100 @@ export function ProductManagement({
       ) : null}
 
       {showList ? (
-      <section className="min-w-0 overflow-hidden border border-zinc-200 bg-white">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4">
-          <div>
-            <h2 className="text-lg font-black">محصولات</h2>
-            <p className="mt-1 text-xs font-bold text-zinc-500">
-              {filteredProducts.length.toLocaleString("fa-IR")} از {products.length.toLocaleString("fa-IR")} محصول
-            </p>
+        <section className="min-w-0 overflow-hidden border border-zinc-200 bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4">
+            <div>
+              <h2 className="text-lg font-black">محصولات</h2>
+              <p className="mt-1 text-xs font-bold text-zinc-500">
+                {filteredProducts.length.toLocaleString("fa-IR")} از{" "}
+                {products.length.toLocaleString("fa-IR")} محصول
+              </p>
+            </div>
+            <ActionLink href="/admin/products/new">
+              <Plus className="size-3.5" />
+              افزودن محصول
+            </ActionLink>
           </div>
-          <ActionLink href="/admin/products/new">
-            <Plus className="size-3.5" />
-            افزودن محصول
-          </ActionLink>
-        </div>
-        <div className="grid min-w-0 gap-3 border-b border-zinc-200 bg-zinc-50 p-4 md:grid-cols-[minmax(0,1fr)_280px]">
-          <label className="block min-w-0">
-            <span className="mb-2 flex items-center gap-1 text-sm font-bold">
-              <Search className="size-3.5" />
-              جستجوی نام محصول
-            </span>
-            <input
-              value={productSearchQuery}
-              onChange={(event) => setProductSearchQuery(event.target.value)}
-              className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
-              placeholder="نام محصول یا اسلاگ"
+          <div className="grid min-w-0 gap-3 border-b border-zinc-200 bg-zinc-50 p-4 md:grid-cols-[minmax(0,1fr)_280px]">
+            <label className="block min-w-0">
+              <span className="mb-2 flex items-center gap-1 text-sm font-bold">
+                <Search className="size-3.5" />
+                جستجوی نام محصول
+              </span>
+              <input
+                value={productSearchQuery}
+                onChange={(event) => setProductSearchQuery(event.target.value)}
+                className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
+                placeholder="نام محصول یا اسلاگ"
+              />
+            </label>
+            <CategorySelect
+              label="فیلتر دسته‌بندی"
+              categories={categories}
+              value={productCategoryFilter}
+              onChange={setProductCategoryFilter}
+              emptyLabel="همه دسته‌ها"
             />
-          </label>
-          <CategorySelect
-            label="فیلتر دسته‌بندی"
-            categories={categories}
-            value={productCategoryFilter}
-            onChange={setProductCategoryFilter}
-            emptyLabel="همه دسته‌ها"
-          />
-        </div>
-        <div className="divide-y divide-zinc-100">
-          {filteredProducts.length === 0 ? (
-            <div className="p-6 text-sm font-bold text-zinc-500">
-              محصولی با این فیلترها پیدا نشد.
-            </div>
-          ) : null}
-          {filteredProducts.map((product) => (
-            <div key={product.id} className="grid min-w-0 gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-black">{product.titleFa}</h3>
-                  <span className="bg-zinc-100 px-2 py-1 text-xs font-black">{product.status}</span>
+          </div>
+          <div className="divide-y divide-zinc-100">
+            {filteredProducts.length === 0 ? (
+              <div className="p-6 text-sm font-bold text-zinc-500">
+                محصولی با این فیلترها پیدا نشد.
+              </div>
+            ) : null}
+            {filteredProducts.map((product) => (
+              <div
+                key={product.id}
+                className="grid min-w-0 gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-black">{product.titleFa}</h3>
+                    <span className="bg-zinc-100 px-2 py-1 text-xs font-black">
+                      {product.status}
+                    </span>
+                  </div>
+                  <p className="mt-1 break-all text-xs text-zinc-500" dir="ltr">
+                    /products/{product.slug}
+                  </p>
+                  <p className="mt-2 text-sm text-zinc-600">
+                    {product.variants.length} تنوع،{" "}
+                    {product.variants.reduce((sum, variant) => sum + availableStock(variant), 0)}{" "}
+                    واحد موجود، {product.images.length} تصویر
+                  </p>
+                  <ProductImageStrip images={product.images} />
                 </div>
-                <p className="mt-1 break-all text-xs text-zinc-500" dir="ltr">
-                  /products/{product.slug}
-                </p>
-                <p className="mt-2 text-sm text-zinc-600">
-                  {product.variants.length} تنوع،{" "}
-                  {product.variants.reduce((sum, variant) => sum + availableStock(variant), 0)}{" "}
-                  واحد موجود، {product.images.length} تصویر
-                </p>
-                <ProductImageStrip images={product.images} />
+                <div className="flex flex-wrap gap-2 lg:justify-end">
+                  <ActionLink href={`/admin/products/${product.id}/edit`}>
+                    <Pencil className="size-3.5" />
+                    ویرایش
+                  </ActionLink>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateStatus(product, "ACTIVE")}
+                  >
+                    فعال
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateStatus(product, "DISABLED")}
+                  >
+                    غیرفعال
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => updateStatus(product, "DRAFT")}
+                  >
+                    پیش‌نویس
+                  </Button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2 lg:justify-end">
-                <ActionLink href={`/admin/products/${product.id}/edit`}>
-                  <Pencil className="size-3.5" />
-                  ویرایش
-                </ActionLink>
-                <Button size="sm" variant="outline" onClick={() => updateStatus(product, "ACTIVE")}>
-                  فعال
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => updateStatus(product, "DISABLED")}>
-                  غیرفعال
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => updateStatus(product, "DRAFT")}>
-                  پیش‌نویس
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
       ) : null}
       {previewImage ? (
         <div
@@ -1478,7 +1577,6 @@ export function ProductManagement({
             </div>
             <div className="grid max-h-[82dvh] min-h-0 place-items-center overflow-auto bg-zinc-100">
               {previewImage.url ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={previewImage.url}
                   alt={previewImage.altFa || "پیش‌نمایش تصویر"}
@@ -1510,7 +1608,6 @@ function ProductImageStrip({ images }: { images: ProductImageRecord[] }) {
           {sortedImages.map((image) => (
             <div key={image.id} className="shrink-0">
               <div className="relative h-20 w-16 overflow-hidden border border-zinc-200 bg-zinc-100">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={image.url}
                   alt={image.altFa || "تصویر محصول"}
@@ -1557,13 +1654,7 @@ function ProductImageStrip({ images }: { images: ProductImageRecord[] }) {
   );
 }
 
-function ActionLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
+function ActionLink({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link
       href={href}
@@ -1716,7 +1807,11 @@ function ImageRowsEditor({
             disabled={uploading}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? <Loader2 className="size-3.5 animate-spin" /> : <ImagePlus className="size-3.5" />}
+            {uploading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <ImagePlus className="size-3.5" />
+            )}
             <span>{uploading ? "آپلود" : "انتخاب فایل"}</span>
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={onAdd}>
@@ -1744,12 +1839,13 @@ function ImageRowsEditor({
                 aria-label="پیش‌نمایش تصویر"
               >
                 {image.url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={image.url} alt={image.altFa || "تصویر محصول"} className="h-full w-full object-cover" />
+                  <img
+                    src={image.url}
+                    alt={image.altFa || "تصویر محصول"}
+                    className="h-full w-full object-cover"
+                  />
                 ) : (
-                  <div className="grid h-full place-items-center text-xs text-zinc-400">
-                    تصویر
-                  </div>
+                  <div className="grid h-full place-items-center text-xs text-zinc-400">تصویر</div>
                 )}
                 {image.url ? (
                   <span className="absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 bg-white/90 px-1.5 py-1 text-[10px] font-black text-zinc-950 opacity-0 transition group-hover:opacity-100">
@@ -1897,9 +1993,7 @@ function WatermarkControls({
   onRemove: () => void;
 }) {
   const canApply =
-    Boolean(image.persistedId) &&
-    image.watermarkEnabled &&
-    Boolean(image.watermarkImageId);
+    Boolean(image.persistedId) && image.watermarkEnabled && Boolean(image.watermarkImageId);
 
   return (
     <div className="grid min-w-0 gap-3 border-t border-zinc-200 pt-3 lg:col-span-8">
@@ -1922,9 +2016,7 @@ function WatermarkControls({
             واترمارک
           </label>
           {image.watermarkEnabled ? (
-            <span className="bg-zinc-200 px-2 py-1 text-[11px] font-black text-zinc-700">
-              PNG
-            </span>
+            <span className="bg-zinc-200 px-2 py-1 text-[11px] font-black text-zinc-700">PNG</span>
           ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1935,7 +2027,11 @@ function WatermarkControls({
             disabled={loading || !canApply}
             onClick={onApply}
           >
-            {loading ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+            {loading ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Upload className="size-3.5" />
+            )}
             اعمال
           </Button>
           <Button

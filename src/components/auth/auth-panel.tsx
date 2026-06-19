@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, Phone, ShieldCheck } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -73,8 +73,7 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
         </div>
         <h1 className="text-2xl font-black">ورود با موبایل</h1>
         <p className="mt-2 text-sm leading-7 text-muted-foreground">
-          برای ورود به حساب، شماره موبایل خود را وارد کنید و کد تایید پیامکی را
-          بزنید.
+          برای ورود به حساب، شماره موبایل خود را وارد کنید و کد تایید پیامکی را بزنید.
         </p>
       </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { Eye, EyeOff, Loader2, Plus, Save } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -23,11 +23,7 @@ type TagOption = {
   isVisible: boolean;
 };
 
-export function CategoryManagement({
-  initialCategories,
-}: {
-  initialCategories: CategoryOption[];
-}) {
+export function CategoryManagement({ initialCategories }: { initialCategories: CategoryOption[] }) {
   const [categories, setCategories] = useState(initialCategories);
   const [savingCategory, setSavingCategory] = useState(false);
   const [categoryForm, setCategoryForm] = useState({
@@ -39,9 +35,7 @@ export function CategoryManagement({
 
   function updateCategoryLocal(id: string, patch: Partial<CategoryOption>) {
     setCategories((current) =>
-      current.map((category) =>
-        category.id === id ? { ...category, ...patch } : category
-      )
+      current.map((category) => (category.id === id ? { ...category, ...patch } : category)),
     );
   }
 
@@ -142,14 +136,25 @@ export function CategoryManagement({
             dir="ltr"
           />
         </div>
-        <Button className="mt-4 h-10 px-5 font-black" onClick={createCategory} disabled={savingCategory}>
-          {savingCategory ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+        <Button
+          className="mt-4 h-10 px-5 font-black"
+          onClick={createCategory}
+          disabled={savingCategory}
+        >
+          {savingCategory ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Plus className="size-4" />
+          )}
           ساخت دسته
         </Button>
 
         <div className="mt-6 divide-y divide-zinc-100 border border-zinc-200">
           {categories.map((category) => (
-            <div key={category.id} className="grid gap-3 p-3 text-sm xl:grid-cols-[1.2fr_1fr_1fr_90px_auto]">
+            <div
+              key={category.id}
+              className="grid gap-3 p-3 text-sm xl:grid-cols-[1.2fr_1fr_1fr_90px_auto]"
+            >
               <Input
                 label="نام"
                 value={category.titleFa}
@@ -209,7 +214,11 @@ export function CategoryManagement({
                     patchCategory(category, { isVisible: !category.isVisible });
                   }}
                 >
-                  {category.isVisible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  {category.isVisible ? (
+                    <EyeOff className="size-3.5" />
+                  ) : (
+                    <Eye className="size-3.5" />
+                  )}
                   {category.isVisible ? "مخفی" : "نمایش"}
                 </Button>
               </div>
@@ -230,9 +239,7 @@ export function TagManagement({ initialTags }: { initialTags: TagOption[] }) {
   });
 
   function updateTagLocal(id: string, patch: Partial<TagOption>) {
-    setTags((current) =>
-      current.map((tag) => (tag.id === id ? { ...tag, ...patch } : tag))
-    );
+    setTags((current) => current.map((tag) => (tag.id === id ? { ...tag, ...patch } : tag)));
   }
 
   async function refreshTags() {

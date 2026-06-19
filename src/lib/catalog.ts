@@ -53,7 +53,7 @@ export function variantPrice(
     registeredPriceAmount?: unknown;
     premiumPriceAmount?: unknown;
   },
-  tier: UserTier
+  tier: UserTier,
 ) {
   if (tier === "PREMIUM" && variant.premiumPriceAmount != null) {
     return decimalToNumber(variant.premiumPriceAmount);
@@ -80,13 +80,8 @@ function mapImage(image: CatalogImage) {
   };
 }
 
-function visibleImages<T extends CatalogImage>(
-  images: T[],
-  tier: UserTier
-) {
-  return images
-    .filter((image) => tier === "PREMIUM" || !image.vipImage)
-    .map(mapImage);
+function visibleImages<T extends CatalogImage>(images: T[], tier: UserTier) {
+  return images.filter((image) => tier === "PREMIUM" || !image.vipImage).map(mapImage);
 }
 
 function mapVariant(variant: CatalogVariant, tier: UserTier) {
@@ -134,18 +129,12 @@ function randomProduct(products: ListingProduct[]) {
 }
 
 function shouldResolveSingleRandomProduct(blockType: string) {
-  return [
-    "SHOWCASE",
-    "SHOWCASE_RANDOM",
-    "SHOWCASE_HERO",
-    "SHOWCASE_HERO_NO_PRODUCT_INFO",
-  ].includes(blockType);
+  return ["SHOWCASE", "SHOWCASE_RANDOM", "SHOWCASE_HERO", "SHOWCASE_HERO_NO_PRODUCT_INFO"].includes(
+    blockType,
+  );
 }
 
-function selectedShowcaseImage(
-  images: ReturnType<typeof mapImage>[],
-  tier: UserTier
-) {
+function selectedShowcaseImage(images: ReturnType<typeof mapImage>[], tier: UserTier) {
   const publicImage = images.find((image) => image.showcasePublic) ?? null;
 
   if (tier === "PREMIUM") {
@@ -157,7 +146,7 @@ function selectedShowcaseImage(
 
 function prioritizeImage(
   images: ReturnType<typeof mapImage>[],
-  image: ReturnType<typeof mapImage> | null
+  image: ReturnType<typeof mapImage> | null,
 ) {
   if (!image) {
     return images;
@@ -181,9 +170,7 @@ function sortBlockProducts(products: ListingProduct[], sortKey: string) {
     return sorted.sort((a, b) => b.availableStock - a.availableStock);
   }
 
-  return sorted.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  return sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 export async function getProductsForListing(user: { isPremium: boolean } | null) {
@@ -298,10 +285,7 @@ export async function getProductForDetail(slug: string) {
             },
           },
         },
-        orderBy: (variant, { asc, desc }) => [
-          desc(variant.isDefault),
-          asc(variant.createdAt),
-        ],
+        orderBy: (variant, { asc, desc }) => [desc(variant.isDefault), asc(variant.createdAt)],
       },
     },
   });
@@ -313,7 +297,10 @@ export async function getProductForDetail(slug: string) {
   return product;
 }
 
-function relatedProductsForDetail(product: NonNullable<Awaited<ReturnType<typeof getProductForDetail>>>, products: ListingProduct[]) {
+function relatedProductsForDetail(
+  product: NonNullable<Awaited<ReturnType<typeof getProductForDetail>>>,
+  products: ListingProduct[],
+) {
   const tagIds = new Set(product.tags.map((item) => item.tag.id));
   const currentProductSeen = new Set([product.id]);
   const productCreatedAt = (listingProduct: ListingProduct) =>
@@ -323,15 +310,13 @@ function relatedProductsForDetail(product: NonNullable<Awaited<ReturnType<typeof
     product.categoryId == null
       ? []
       : products
-          .filter(
-            (item) =>
-              item.id !== product.id &&
-              item.category?.id === product.categoryId
-          )
+          .filter((item) => item.id !== product.id && item.category?.id === product.categoryId)
           .sort((a, b) => productCreatedAt(b) - productCreatedAt(a))
           .slice(0, 15);
 
-  sameCategory.forEach((item) => currentProductSeen.add(item.id));
+  sameCategory.forEach((item) => {
+    currentProductSeen.add(item.id);
+  });
 
   const similarTags =
     tagIds.size === 0
@@ -339,15 +324,9 @@ function relatedProductsForDetail(product: NonNullable<Awaited<ReturnType<typeof
       : products
           .map((item) => ({
             product: item,
-            score: item.tags.reduce(
-              (sum, tag) => sum + (tagIds.has(tag.id) ? 1 : 0),
-              0
-            ),
+            score: item.tags.reduce((sum, tag) => sum + (tagIds.has(tag.id) ? 1 : 0), 0),
           }))
-          .filter(
-            (item) =>
-              item.score > 0 && !currentProductSeen.has(item.product.id)
-          )
+          .filter((item) => item.score > 0 && !currentProductSeen.has(item.product.id))
           .sort((a, b) => {
             if (b.score !== a.score) {
               return b.score - a.score;
@@ -361,10 +340,7 @@ function relatedProductsForDetail(product: NonNullable<Awaited<ReturnType<typeof
   return [...sameCategory, ...similarTags].slice(0, 30);
 }
 
-export async function getProductDetailView(
-  slug: string,
-  user: { isPremium: boolean } | null
-) {
+export async function getProductDetailView(slug: string, user: { isPremium: boolean } | null) {
   const product = await getProductForDetail(slug);
 
   if (!product) {
@@ -448,10 +424,9 @@ export async function getHomepageView(user: { isPremium: boolean } | null) {
       subtitleFa: block.subtitleFa,
       type: block.type,
       sortKey: block.sortKey,
-      products:
-        shouldResolveSingleRandomProduct(block.type)
-          ? randomProduct(visibleProducts)
-          : visibleProducts,
+      products: shouldResolveSingleRandomProduct(block.type)
+        ? randomProduct(visibleProducts)
+        : visibleProducts,
     };
   });
 }

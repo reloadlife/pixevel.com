@@ -58,10 +58,7 @@ async function resolveCart(identity: CartIdentity, create: boolean) {
       return existing ?? null;
     }
 
-    const [created] = await db
-      .insert(carts)
-      .values({ userId: identity.user.id })
-      .returning();
+    const [created] = await db.insert(carts).values({ userId: identity.user.id }).returning();
     return created;
   }
 
@@ -184,8 +181,7 @@ export async function addToCart(
   const unitPrice = variantPrice(variant, tier);
 
   const existing = await db.query.cartItems.findFirst({
-    where: (item, { and, eq }) =>
-      and(eq(item.cartId, cart.id), eq(item.variantId, variantId)),
+    where: (item, { and, eq }) => and(eq(item.cartId, cart.id), eq(item.variantId, variantId)),
   });
 
   const nextQuantity = Math.min((existing?.quantity ?? 0) + qty, stock);
@@ -235,10 +231,7 @@ export async function setItemQuantity(
   return getCartView(identity);
 }
 
-export async function removeItem(
-  identity: CartIdentity,
-  variantId: string,
-): Promise<CartView> {
+export async function removeItem(identity: CartIdentity, variantId: string): Promise<CartView> {
   const db = getDb();
   const cart = await resolveCart(identity, false);
 
@@ -262,8 +255,7 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
   const db = getDb();
 
   const anonCart = await db.query.carts.findFirst({
-    where: (cart, { and, eq }) =>
-      and(eq(cart.anonymousId, anonymousId), eq(cart.status, "ACTIVE")),
+    where: (cart, { and, eq }) => and(eq(cart.anonymousId, anonymousId), eq(cart.status, "ACTIVE")),
     with: { items: true },
   });
 
@@ -276,10 +268,7 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
   });
 
   if (!userCart) {
-    await db
-      .update(carts)
-      .set({ userId, anonymousId: null })
-      .where(eq(carts.id, anonCart.id));
+    await db.update(carts).set({ userId, anonymousId: null }).where(eq(carts.id, anonCart.id));
     return;
   }
 

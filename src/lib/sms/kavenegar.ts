@@ -1,8 +1,4 @@
-import {
-  formatDeliveryError,
-  resolveTimeoutMs,
-  type OtpDeliveryResult,
-} from "@/lib/sms/delivery";
+import { formatDeliveryError, type OtpDeliveryResult, resolveTimeoutMs } from "@/lib/sms/delivery";
 
 type KavenegarLookupResponse = Array<{
   messageid?: number;
@@ -21,7 +17,7 @@ type KavenegarPayload = {
 
 export async function sendKavenegarOtp(
   phone: string,
-  code: string
+  code: string,
 ): Promise<OtpDeliveryResult<KavenegarPayload>> {
   const apiKey = process.env.KAVENEGAR_TOKEN;
   const template = process.env.KAVENEGAR_OTP_TEMPLATE ?? "cancelappointmentotp";
@@ -42,19 +38,14 @@ export async function sendKavenegarOtp(
   });
 
   try {
-    const response = await fetch(
-      `https://api.kavenegar.com/v1/${apiKey}/verify/lookup.json`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body,
-        signal: AbortSignal.timeout(
-          resolveTimeoutMs(process.env.KAVENEGAR_TIMEOUT_MS, 10_000)
-        ),
-      }
-    );
+    const response = await fetch(`https://api.kavenegar.com/v1/${apiKey}/verify/lookup.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
+      signal: AbortSignal.timeout(resolveTimeoutMs(process.env.KAVENEGAR_TIMEOUT_MS, 10_000)),
+    });
 
     let payload: KavenegarPayload;
     try {
@@ -78,9 +69,7 @@ export async function sendKavenegarOtp(
     const firstEntry = payload.entries?.[0];
 
     return {
-      status: firstEntry?.status && [4, 5].includes(firstEntry.status)
-        ? "pending"
-        : "sent",
+      status: firstEntry?.status && [4, 5].includes(firstEntry.status) ? "pending" : "sent",
       message: firstEntry?.statustext ?? payload.return?.message ?? "SMS sent.",
       payload,
     };

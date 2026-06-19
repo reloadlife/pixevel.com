@@ -42,7 +42,7 @@ async function buildOpacityMask(width: number, height: number, opacity: number) 
   return Buffer.from(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
       <rect width="100%" height="100%" fill="rgba(255,255,255,${alpha})"/>
-    </svg>`
+    </svg>`,
   );
 }
 
@@ -103,8 +103,7 @@ function resolvePosition({
   baseSize: number;
   overlaySize: number;
 }) {
-  const rawPosition =
-    offset < 0 ? baseSize - overlaySize + Math.round(offset) : Math.round(offset);
+  const rawPosition = offset < 0 ? baseSize - overlaySize + Math.round(offset) : Math.round(offset);
 
   return Math.round(clamp(rawPosition, 0, Math.max(0, baseSize - overlaySize)));
 }

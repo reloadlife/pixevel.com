@@ -21,7 +21,7 @@ export function apiError(code: string, message: string, status = 400) {
       ok: false,
       error: { code, message },
     } satisfies ApiFailure,
-    { status }
+    { status },
   );
 }
 

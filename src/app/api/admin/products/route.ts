@@ -1,9 +1,5 @@
+import { createAdminProduct, listAdminProducts, toAdminProductRow } from "@/lib/admin/products";
 import { apiError, apiOk, readJson } from "@/lib/api";
-import {
-  createAdminProduct,
-  listAdminProducts,
-  toAdminProductRow,
-} from "@/lib/admin/products";
 import { requireAdmin } from "@/lib/auth";
 
 export async function GET() {
@@ -42,7 +38,7 @@ export async function POST(request: Request) {
           status: product.status,
         },
       },
-      { status: 201 }
+      { status: 201 },
     );
   } catch (error) {
     if (error instanceof Error && error.message === "INVALID_VARIANTS") {
@@ -60,7 +56,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "DUPLICATE_SHOWCASE_IMAGE") {
       return apiError(
         "DUPLICATE_SHOWCASE_IMAGE",
-        "برای هر محصول فقط یک تصویر بلاک خانه عادی و یک تصویر بلاک خانه پریمیوم مجاز است."
+        "برای هر محصول فقط یک تصویر بلاک خانه عادی و یک تصویر بلاک خانه پریمیوم مجاز است.",
       );
     }
 

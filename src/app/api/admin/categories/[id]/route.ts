@@ -1,11 +1,8 @@
+import { updateAdminCategory } from "@/lib/admin/taxonomy";
 import { apiError, apiOk, readJson } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
-import { updateAdminCategory } from "@/lib/admin/taxonomy";
 
-export async function PATCH(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const admin = await requireAdmin();
 
   if (!admin) {

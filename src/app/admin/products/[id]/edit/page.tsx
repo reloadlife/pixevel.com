@@ -4,15 +4,12 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { ProductManagement } from "@/components/admin/product-management";
 import { getAdminProduct, toAdminProductRow } from "@/lib/admin/products";
 import {
-  listAdminWatermarkImages,
-  toAdminWatermarkImageRow,
-} from "@/lib/admin/watermark-images";
-import {
   listAdminCategories,
   listAdminTags,
   toAdminCategoryOption,
   toAdminTagOption,
 } from "@/lib/admin/taxonomy";
+import { listAdminWatermarkImages, toAdminWatermarkImageRow } from "@/lib/admin/watermark-images";
 import { getCurrentUser } from "@/lib/auth";
 
 export default async function EditAdminProductPage({

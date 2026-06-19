@@ -28,6 +28,20 @@ The schema lives in `src/db/schema.ts`; the client is created by `getDb()` in
 `drizzle.config.ts` holds the kit configuration (dialect, schema path, output
 dir, and `DATABASE_URL` credentials).
 
+## Code Quality
+
+[Biome](https://biomejs.dev) handles both linting and formatting (config in
+`biome.json`). ESLint and Prettier are not used.
+
+| Command            | Description                                            |
+| ------------------ | ----------------------------------------------------- |
+| `npm run lint`     | Lint only (`biome lint`).                              |
+| `npm run format`   | Format files in place (`biome format --write`).       |
+| `npm run check`    | Lint + format + organize imports (`biome check --write`). |
+
+CI runs `biome ci` on every push and pull request. Type checking runs as part of
+`next build` (no separate `tsc` step).
+
 ## Deployment
 
 `docker compose` builds three targets from the `Dockerfile`: `app` (the Next.js

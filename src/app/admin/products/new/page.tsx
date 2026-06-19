@@ -21,10 +21,7 @@ export default async function NewAdminProductPage() {
     redirect("/admin");
   }
 
-  const [categories, tags] = await Promise.all([
-    listAdminCategories(),
-    listAdminTags(),
-  ]);
+  const [categories, tags] = await Promise.all([listAdminCategories(), listAdminTags()]);
 
   return (
     <AdminShell user={user}>

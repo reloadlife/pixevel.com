@@ -50,10 +50,13 @@ function uniqueClean(values: string[] | undefined) {
 }
 
 function hasOwn(input: object, field: keyof HomeBlockInput) {
-  return Object.prototype.hasOwnProperty.call(input, field);
+  return Object.hasOwn(input, field);
 }
 
-function normalizeHomeBlockType(value: HomeBlockInput["type"] | undefined, fallback: HomeBlockInput["type"]) {
+function normalizeHomeBlockType(
+  value: HomeBlockInput["type"] | undefined,
+  fallback: HomeBlockInput["type"],
+) {
   const type = value ?? fallback;
 
   if (!type || !HOME_BLOCK_TYPES.has(type)) {
@@ -65,7 +68,7 @@ function normalizeHomeBlockType(value: HomeBlockInput["type"] | undefined, fallb
 
 function normalizeHomeBlockSource(
   value: HomeBlockInput["source"] | undefined,
-  fallback: HomeBlockInput["source"]
+  fallback: HomeBlockInput["source"],
 ) {
   const source = value ?? fallback;
 
@@ -204,7 +207,7 @@ export async function createAdminHomeBlock(input: HomeBlockInput) {
           blockId: block.id,
           productId: product.id,
           sortOrder: index,
-        }))
+        })),
       );
     }
 
@@ -293,7 +296,7 @@ export async function updateAdminHomeBlock(id: string, input: HomeBlockUpdateInp
           blockId: id,
           productId: product.id,
           sortOrder: index,
-        }))
+        })),
       );
     }
 

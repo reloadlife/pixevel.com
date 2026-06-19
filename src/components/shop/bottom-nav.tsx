@@ -1,13 +1,12 @@
 "use client";
 
+import { Home, LayoutDashboard, Search, ShoppingBag, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, LayoutDashboard, Search, ShoppingBag, UserRound } from "lucide-react";
-
-import type { CurrentUser } from "@/lib/auth";
 import { useCart } from "@/components/shop/cart-provider";
-import { useHideOnScroll } from "@/lib/use-hide-on-scroll";
+import type { CurrentUser } from "@/lib/auth";
 import { toFaNumber } from "@/lib/format";
+import { useHideOnScroll } from "@/lib/use-hide-on-scroll";
 
 const navItems = [
   { href: "/", label: "خانه", icon: Home },
@@ -46,8 +45,7 @@ export function BottomNav({ user }: { user: CurrentUser | null }) {
         {items.map((item) => {
           const Icon = item.icon;
           const href = item.label === "حساب" && user ? "/account" : item.href;
-          const isActive =
-            href === "/" ? pathname === "/" : pathname.startsWith(href);
+          const isActive = href === "/" ? pathname === "/" : pathname.startsWith(href);
           const showBadge = item.label === "سبد" && cartCount > 0;
 
           return (

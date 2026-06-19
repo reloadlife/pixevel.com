@@ -1,8 +1,7 @@
-/* eslint-disable @next/next/no-img-element -- Product media can be admin-entered URLs until a CDN allowlist exists. */
 "use client";
 
-import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 
 import { formatToman, toFaNumber } from "@/lib/format";
@@ -39,7 +38,7 @@ export function ShowcaseRandomGallery({
       product.images.length
         ? product.images
         : [{ id: "empty", url: product.imageUrl ?? "", altFa: product.titleFa }],
-    [product.imageUrl, product.images, product.titleFa]
+    [product.imageUrl, product.images, product.titleFa],
   );
 
   function handleGalleryScroll() {
@@ -77,9 +76,7 @@ export function ShowcaseRandomGallery({
       <div className="mb-5 flex items-end justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black sm:text-3xl">{titleFa}</h2>
-          {subtitleFa ? (
-            <p className="mt-1 text-sm text-muted-foreground">{subtitleFa}</p>
-          ) : null}
+          {subtitleFa ? <p className="mt-1 text-sm text-muted-foreground">{subtitleFa}</p> : null}
         </div>
         <Link href="/products" className="text-sm font-bold underline underline-offset-4">
           همه محصولات
@@ -161,9 +158,7 @@ export function ShowcaseRandomGallery({
 
         <div className="flex flex-col justify-end p-5 sm:p-8">
           <p className="text-xs font-black uppercase tracking-[0.24em] opacity-60">Showcase</p>
-          <h3 className="mt-3 text-3xl font-black leading-tight sm:text-5xl">
-            {product.titleFa}
-          </h3>
+          <h3 className="mt-3 text-3xl font-black leading-tight sm:text-5xl">{product.titleFa}</h3>
           {product.summaryFa ? (
             <p className="mt-3 leading-8 opacity-72">{product.summaryFa}</p>
           ) : null}

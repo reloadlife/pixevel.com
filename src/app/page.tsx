@@ -7,6 +7,7 @@ import { ProductCard } from "@/components/shop/product-card";
 import { ShowcaseHero } from "@/components/shop/showcase-hero";
 import { ShowcaseHeroImageOnly } from "@/components/shop/showcase-hero-image-only";
 import { ShowcaseRandomGallery } from "@/components/shop/showcase-random-gallery";
+import { TopBar } from "@/components/shop/top-bar";
 import { getCurrentUser } from "@/lib/auth";
 import { formatToman } from "@/lib/format";
 import { getHomepageView } from "@/lib/catalog";
@@ -25,7 +26,8 @@ export default async function Home() {
   const blocks = await getHomepageView(user);
 
   return (
-    <main className="min-h-dvh bg-background pb-24 text-foreground">
+    <main className="min-h-dvh bg-background pb-24 pt-14 text-foreground">
+      <TopBar user={user} />
       <div className="space-y-12">
         {blocks.map((block) => {
           if (block.products.length === 0) {

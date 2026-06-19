@@ -11,8 +11,7 @@ export type ProductListingOptions = {
   page?: number;
   pageSize?: number;
   // Optional transaction/db override — used in tests to share the rollback tx.
-  // biome-ignore lint/suspicious/noExplicitAny: intentionally permissive for test tx compatibility
-  _db?: any;
+  _db?: ReturnType<typeof getDb>;
 };
 
 type UserTier = "PUBLIC" | "REGISTERED" | "PREMIUM";

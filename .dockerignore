@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.next
+artifacts
+node_modules
+npm-debug.log*
+.env
+.env.*
+!.env.example
+Dockerfile
+README.md

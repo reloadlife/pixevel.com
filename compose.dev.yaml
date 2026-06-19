@@ -1,0 +1,23 @@
+# Local development database only — no app build.
+# Usage: docker compose -f compose.dev.yaml up -d   (or: npm run db:up)
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pixevel-postgres-dev
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pixevel}
+      POSTGRES_USER: ${POSTGRES_USER:-pixevel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pixevel_password}
+    volumes:
+      - pixevel-postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pixevel-postgres-dev-data:

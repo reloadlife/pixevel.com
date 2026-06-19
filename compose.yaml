@@ -1,0 +1,68 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    image: pixevel-web:latest
+    container_name: pixevel-web
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pixevel}:${POSTGRES_PASSWORD:-pixevel_password}@postgres:5432/${POSTGRES_DB:-pixevel}?schema=public
+    ports:
+      - "${HOST_PORT:-3050}:3000"
+    volumes:
+      - ./statics:/app/statics
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migrator
+    image: pixevel-migrate:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pixevel}:${POSTGRES_PASSWORD:-pixevel_password}@postgres:5432/${POSTGRES_DB:-pixevel}?schema=public
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: pixevel-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-pixevel}
+      POSTGRES_USER: ${POSTGRES_USER:-pixevel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pixevel_password}
+    volumes:
+      - pixevel-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pixevel-postgres-data:

@@ -1,0 +1,50 @@
+name: Deploy Pixevel
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: pixevel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to production server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PIXEVEL_SSH_HOST }}
+          username: ${{ secrets.PIXEVEL_SSH_USER }}
+          key: ${{ secrets.PIXEVEL_SSH_KEY }}
+          port: ${{ secrets.PIXEVEL_SSH_PORT || '22' }}
+          script_stop: true
+          script: |
+            APP_DIR="${{ secrets.PIXEVEL_APP_DIR }}"
+            if [ -z "$APP_DIR" ]; then
+              APP_DIR="/root/pixevel"
+            fi
+
+            export APP_DIR
+            export BRANCH="${{ github.ref_name }}"
+            export HOST_PORT="${{ secrets.PIXEVEL_HOST_PORT || '3050' }}"
+
+            git config --global --add safe.directory "$APP_DIR"
+            cd "$APP_DIR"
+
+            if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+              git stash push --include-untracked -m "pre-deploy-${BRANCH}-$(date -u +%Y%m%dT%H%M%SZ)"
+            fi
+
+            git fetch origin "$BRANCH"
+            if [ "$(git branch --show-current)" != "$BRANCH" ]; then
+              git checkout "$BRANCH"
+            fi
+            git pull --ff-only origin "$BRANCH"
+
+            bash scripts/deploy-server.sh

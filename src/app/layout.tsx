@@ -5,6 +5,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { CartProvider } from "@/components/shop/cart-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import { getCurrentUser } from "@/lib/auth";
+import { listCategories } from "@/lib/catalog";
 import { cn } from "@/lib/utils";
 
 import "./globals.css";
@@ -31,7 +32,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const user = await getCurrentUser();
+  const [user, categories] = await Promise.all([getCurrentUser(), listCategories()]);
   const isPremium = Boolean(user?.isPremium);
 
   return (
@@ -50,7 +51,9 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <CartProvider>
-            <AppShell user={user}>{children}</AppShell>
+            <AppShell user={user} categories={categories}>
+              {children}
+            </AppShell>
           </CartProvider>
         </ThemeProvider>
       </body>

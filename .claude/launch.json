@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pixevel-dev",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["x", "next", "dev"],
+      "autoPort": true,
+      "port": 4000
+    }
+  ]
+}

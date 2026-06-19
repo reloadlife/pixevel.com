@@ -6,11 +6,11 @@ Pixevel is a Persian-first, RTL, mobile-first e-commerce store built with Next.j
 ## Getting Started
 
 ```bash
-npm install
+bun install
 cp .env.example .env   # set DATABASE_URL, SESSION_SECRET, etc.
-npm run db:up          # start the local Postgres container
-npm run db:push        # sync the Drizzle schema to the database
-npm run dev            # http://localhost:4000
+bun run db:up          # start the local Postgres container
+bun run db:push        # sync the Drizzle schema to the database
+bun run dev            # http://localhost:4000
 ```
 
 ## Database (Drizzle)
@@ -20,10 +20,10 @@ The schema lives in `src/db/schema.ts`; the client is created by `getDb()` in
 
 | Command              | Description                                             |
 | -------------------- | ------------------------------------------------------- |
-| `npm run db:push`    | Push the schema directly to the DB (dev / deploy).      |
-| `npm run db:generate`| Generate SQL migration files into `./drizzle`.          |
-| `npm run db:migrate` | Apply generated migrations.                             |
-| `npm run db:studio`  | Open Drizzle Studio.                                    |
+| `bun run db:push`    | Push the schema directly to the DB (dev / deploy).      |
+| `bun run db:generate`| Generate SQL migration files into `./drizzle`.          |
+| `bun run db:migrate` | Apply generated migrations.                             |
+| `bun run db:studio`  | Open Drizzle Studio.                                    |
 
 `drizzle.config.ts` holds the kit configuration (dialect, schema path, output
 dir, and `DATABASE_URL` credentials).
@@ -35,9 +35,9 @@ dir, and `DATABASE_URL` credentials).
 
 | Command            | Description                                            |
 | ------------------ | ----------------------------------------------------- |
-| `npm run lint`     | Lint only (`biome lint`).                              |
-| `npm run format`   | Format files in place (`biome format --write`).       |
-| `npm run check`    | Lint + format + organize imports (`biome check --write`). |
+| `bun run lint`     | Lint only (`biome lint`).                              |
+| `bun run format`   | Format files in place (`biome format --write`).       |
+| `bun run check`    | Lint + format + organize imports (`biome check --write`). |
 
 CI runs `biome ci` on every push and pull request. Type checking runs as part of
 `next build` (no separate `tsc` step).

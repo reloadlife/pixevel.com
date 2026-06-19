@@ -9,20 +9,23 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates openssl \
   && rm -rf /var/lib/apt/lists/*
 
+# Bun is the package manager and build runner; node remains for the standalone runtime.
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+
 FROM base AS deps
 
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 FROM deps AS migrator
 
 COPY . .
-CMD ["npm", "run", "db:push"]
+CMD ["bun", "run", "db:push"]
 
 FROM deps AS builder
 
 COPY . .
-RUN npm run build
+RUN bun run build
 
 FROM base AS runner
 

@@ -1,5 +1,5 @@
 # Local development database only — no app build.
-# Usage: docker compose -f compose.dev.yaml up -d   (or: npm run db:up)
+# Usage: docker compose -f compose.dev.yaml up -d   (or: bun run db:up)
 services:
   postgres:
     image: postgres:17-alpine

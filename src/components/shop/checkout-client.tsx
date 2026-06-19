@@ -159,10 +159,18 @@ function ReceiptStep({
 
 // ─── Checkout Form ────────────────────────────────────────────────────────────
 
-export function CheckoutClient({ cart, hasPhysical }: { cart: CartView; hasPhysical: boolean }) {
+export function CheckoutClient({
+  cart,
+  hasPhysical,
+  defaultShipping,
+}: {
+  cart: CartView;
+  hasPhysical: boolean;
+  defaultShipping?: ShippingFields;
+}) {
   const router = useRouter();
   const [method, setMethod] = useState<PaymentMethod>("MANUAL");
-  const [shipping, setShipping] = useState<ShippingFields>(EMPTY_SHIPPING);
+  const [shipping, setShipping] = useState<ShippingFields>(defaultShipping ?? EMPTY_SHIPPING);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

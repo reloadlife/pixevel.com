@@ -1,79 +1,171 @@
+import { eq } from "drizzle-orm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ProfileCard } from "@/components/account/profile-card";
+import { Card } from "@/components/ui/card";
+import { users } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
+import {
+  orderStatusMeta,
+  paymentStatusMeta,
+  type StatusTone,
+  toneClass,
+} from "@/lib/status-labels";
+import { cn } from "@/lib/utils";
+
+function faDate(value: Date | string): string {
+  return new Date(value).toLocaleDateString("fa-IR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function StatusBadge({ label, tone }: { label: string; tone: StatusTone }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold",
+        toneClass(tone),
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function SectionCard({
+  title,
+  count,
+  emptyText,
+  children,
+}: {
+  title: string;
+  count: number;
+  emptyText: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center justify-between border-b px-5 py-4">
+        <h2 className="font-black">{title}</h2>
+        {count > 0 ? <span className="text-xs text-muted-foreground">{count} مورد</span> : null}
+      </div>
+      {count === 0 ? (
+        <p className="px-5 py-10 text-center text-sm text-muted-foreground">{emptyText}</p>
+      ) : (
+        <div className="divide-y">{children}</div>
+      )}
+    </Card>
+  );
+}
 
 export default async function AccountPage() {
-  const user = await getCurrentUser();
-
-  if (!user) {
+  const sessionUser = await getCurrentUser();
+  if (!sessionUser) {
     redirect("/login?redirect=/account");
   }
 
   const db = getDb();
-  const [orders, payments] = await Promise.all([
+  const [profile, orders, payments] = await Promise.all([
+    db.query.users.findFirst({
+      where: eq(users.id, sessionUser.id),
+      columns: {
+        fullName: true,
+        email: true,
+        phone: true,
+        isPremium: true,
+        createdAt: true,
+        defaultAddressLine: true,
+        defaultCity: true,
+        defaultProvince: true,
+        defaultPostalCode: true,
+      },
+    }),
     db.query.orders.findMany({
-      where: (order, { eq }) => eq(order.userId, user.id),
+      where: (order, { eq: eqOp }) => eqOp(order.userId, sessionUser.id),
       orderBy: (order, { desc }) => [desc(order.createdAt)],
       limit: 20,
     }),
     db.query.payments.findMany({
-      where: (payment, { eq }) => eq(payment.userId, user.id),
+      where: (payment, { eq: eqOp }) => eqOp(payment.userId, sessionUser.id),
       orderBy: (payment, { desc }) => [desc(payment.createdAt)],
       limit: 20,
     }),
   ]);
 
+  if (!profile) {
+    redirect("/login?redirect=/account");
+  }
+
   return (
-    <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14">
-      <header className="mb-8">
-        <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
-          Pixevel Account
-        </p>
-        <h1 className="mt-3 text-4xl font-black">حساب کاربری</h1>
-        <p className="mt-2 text-sm text-muted-foreground" dir="ltr">
-          {user.phone}
-        </p>
-      </header>
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="border border-border bg-card p-4">
-          <h2 className="font-black">تاریخچه سفارش‌ها</h2>
-          <div className="mt-4 space-y-3">
-            {orders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">هنوز سفارشی ثبت نشده است.</p>
-            ) : (
-              orders.map((order) => (
+    <main className="bg-background px-4 pb-10 pt-4 text-foreground sm:px-8 lg:px-14">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <ProfileCard profile={profile} />
+
+        <div className="grid gap-5 lg:grid-cols-2">
+          <SectionCard title="سفارش‌ها" count={orders.length} emptyText="هنوز سفارشی ثبت نشده است.">
+            {orders.map((order) => {
+              const meta = orderStatusMeta(order.status);
+              return (
                 <Link
                   key={order.id}
                   href={`/account/orders/${order.id}`}
-                  className="block border border-border p-3 text-sm transition-colors hover:bg-muted"
+                  className="flex items-center justify-between gap-3 px-5 py-3.5 transition hover:bg-muted/50"
                 >
-                  <p className="font-black">{order.orderNumber}</p>
-                  <p className="text-muted-foreground">
-                    {formatToman(order.totalAmount.toString())}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="font-black" dir="ltr">
+                      {order.orderNumber}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {faDate(order.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <StatusBadge label={meta.label} tone={meta.tone} />
+                    <span className="text-sm font-bold">
+                      {formatToman(order.totalAmount.toString())}
+                    </span>
+                  </div>
                 </Link>
-              ))
-            )}
-          </div>
-        </section>
-        <section className="border border-border bg-card p-4">
-          <h2 className="font-black">تاریخچه پرداخت‌ها</h2>
-          <div className="mt-4 space-y-3">
-            {payments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">هنوز پرداختی ثبت نشده است.</p>
-            ) : (
-              payments.map((payment) => (
-                <div key={payment.id} className="border border-border p-3 text-sm">
-                  <p className="font-black">{payment.status}</p>
-                  <p className="text-muted-foreground">{formatToman(payment.amount.toString())}</p>
+              );
+            })}
+          </SectionCard>
+
+          <SectionCard
+            title="پرداخت‌ها"
+            count={payments.length}
+            emptyText="هنوز پرداختی ثبت نشده است."
+          >
+            {payments.map((payment) => {
+              const meta = paymentStatusMeta(payment.status);
+              return (
+                <div
+                  key={payment.id}
+                  className="flex items-center justify-between gap-3 px-5 py-3.5"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-muted-foreground">
+                      {payment.provider ?? "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {faDate(payment.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <StatusBadge label={meta.label} tone={meta.tone} />
+                    <span className="text-sm font-bold">
+                      {formatToman(payment.amount.toString())}
+                    </span>
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
-        </section>
+              );
+            })}
+          </SectionCard>
+        </div>
       </div>
     </main>
   );

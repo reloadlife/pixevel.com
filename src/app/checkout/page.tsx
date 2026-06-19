@@ -1,10 +1,13 @@
+import { eq } from "drizzle-orm";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { CheckoutClient } from "@/components/shop/checkout-client";
+import { users } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { CART_COOKIE, getCartView } from "@/lib/cart";
+import { getDb } from "@/lib/db";
 import { formatToman, toFaNumber } from "@/lib/format";
 
 export const metadata = { title: "تکمیل سفارش | Pixevel" };
@@ -20,12 +23,27 @@ export default async function CheckoutPage() {
   const cart = await getCartView({ user, anonymousId });
   const hasPhysical = cart.items.some((item) => item.fulfillmentType === "PHYSICAL");
 
+  const profile = await getDb().query.users.findFirst({
+    where: eq(users.id, user.id),
+    columns: {
+      fullName: true,
+      defaultAddressLine: true,
+      defaultCity: true,
+      defaultProvince: true,
+      defaultPostalCode: true,
+    },
+  });
+  const defaultShipping = {
+    customerName: profile?.fullName ?? "",
+    addressLine: profile?.defaultAddressLine ?? "",
+    city: profile?.defaultCity ?? "",
+    province: profile?.defaultProvince ?? "",
+    postalCode: profile?.defaultPostalCode ?? "",
+  };
+
   if (cart.items.length === 0) {
     return (
-      <main
-        dir="rtl"
-        className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14"
-      >
+      <main dir="rtl" className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14">
         <div className="mx-auto max-w-2xl border border-border bg-card p-8 text-center">
           <p className="text-muted-foreground">سبد خرید شما خالی است.</p>
           <Link
@@ -40,10 +58,7 @@ export default async function CheckoutPage() {
   }
 
   return (
-    <main
-      dir="rtl"
-      className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14"
-    >
+    <main dir="rtl" className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14">
       {/* Page header — gold/luxe style consistent with top-bar */}
       <header className="mb-8">
         <p className="text-xs font-black uppercase tracking-[0.24em] text-gold">Pixevel Checkout</p>
@@ -91,7 +106,7 @@ export default async function CheckoutPage() {
         </section>
 
         {/* Client handles payment method, address form, submit */}
-        <CheckoutClient cart={cart} hasPhysical={hasPhysical} />
+        <CheckoutClient cart={cart} hasPhysical={hasPhysical} defaultShipping={defaultShipping} />
       </div>
     </main>
   );

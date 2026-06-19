@@ -1,8 +1,19 @@
+import { and, ilike, ne, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 
 import type { ProductStatus } from "@/db/schema";
+import { categories, productTags, tags } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { decimalToNumber } from "@/lib/format";
+
+export type ProductListingOptions = {
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  // Optional transaction/db override — used in tests to share the rollback tx.
+  // biome-ignore lint/suspicious/noExplicitAny: intentionally permissive for test tx compatibility
+  _db?: any;
+};
 
 type UserTier = "PUBLIC" | "REGISTERED" | "PREMIUM";
 type CatalogImage = {
@@ -173,12 +184,43 @@ function sortBlockProducts(products: ListingProduct[], sortKey: string) {
   return sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
-export async function getProductsForListing(user: { isPremium: boolean } | null) {
+export async function getProductsForListing(
+  user: { isPremium: boolean } | null,
+  opts: ProductListingOptions = {},
+) {
   noStore();
 
+  const { q, _db } = opts;
+  const searchTerm = q?.trim();
+  const db = _db ?? getDb();
+
   const tier = getUserTier(user);
-  const products = await getDb().query.products.findMany({
-    where: (product, { ne }) => ne(product.status, "ARCHIVED"),
+  const products = await db.query.products.findMany({
+    where: (product, { ne: neOp }) => {
+      const archivedFilter = neOp(product.status, "ARCHIVED");
+      if (!searchTerm) return archivedFilter;
+
+      const term = `%${searchTerm}%`;
+      const textMatch = or(
+        ilike(product.titleFa, term),
+        ilike(product.summaryFa, term),
+        // Match tag name via EXISTS subquery
+        sql`EXISTS (
+          SELECT 1 FROM ${productTags} pt
+          JOIN ${tags} t ON t.id = pt."tagId"
+          WHERE pt."productId" = ${product.id}
+            AND t."titleFa" ILIKE ${term}
+        )`,
+        // Match category name via EXISTS subquery
+        sql`EXISTS (
+          SELECT 1 FROM ${categories} c
+          WHERE c.id = ${product.categoryId}
+            AND c."titleFa" ILIKE ${term}
+        )`,
+      );
+
+      return and(archivedFilter, textMatch);
+    },
     with: {
       category: true,
       tags: {

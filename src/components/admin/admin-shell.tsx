@@ -64,6 +64,12 @@ export function AdminShell({ user, children }: { user: CurrentUser; children: Re
               واترمارک‌ها
             </Link>
             <Link
+              href="/admin/orders"
+              className="shrink-0 whitespace-nowrap px-3 py-2 hover:bg-zinc-100 lg:shrink lg:whitespace-normal"
+            >
+              سفارش‌ها
+            </Link>
+            <Link
               href="/admin/users"
               className="shrink-0 whitespace-nowrap px-3 py-2 hover:bg-zinc-100 lg:shrink lg:whitespace-normal"
             >

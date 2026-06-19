@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Vazirmatn } from "next/font/google";
 
+import { CartProvider } from "@/components/shop/cart-provider";
 import { getCurrentUser } from "@/lib/auth";
 
 import "./globals.css";
@@ -36,7 +37,9 @@ export default async function RootLayout({
       data-premium={isPremium ? "true" : "false"}
       className={`${isPremium ? "dark" : ""} ${vazirmatn.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-background text-foreground">{children}</body>
+      <body className="min-h-full bg-background text-foreground">
+        <CartProvider>{children}</CartProvider>
+      </body>
     </html>
   );
 }

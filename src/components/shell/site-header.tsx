@@ -1,24 +1,21 @@
 "use client";
 
-import { LayoutGrid, ShoppingBag } from "lucide-react";
 import Link from "next/link";
 
-import { useCart } from "@/components/shop/cart-provider";
-import { ThemeToggle } from "@/components/shop/theme-toggle";
 import type { CurrentUser } from "@/lib/auth";
-import { toFaNumber } from "@/lib/format";
 import type { Category } from "@/lib/nav-items";
 import { AccountMenu } from "./account-menu";
-import { CategoryMenu } from "./category-menu";
-import { SearchBar } from "./search-bar";
+import { CartButton } from "./cart-button";
+import { CategoryMegaMenu } from "./category-mega-menu";
+import { SpotlightSearch } from "./spotlight-search";
 
 const iconButton =
   "grid size-9 place-items-center rounded-md text-foreground transition hover:bg-muted";
 
 /**
- * Search-dominant storefront header (Digikala/Torob pattern). On mobile the
- * search bar drops to its own row; on desktop it grows inline and a category
- * strip sits below.
+ * Search-dominant storefront header (Digikala/Torob pattern). Spotlight (⌘K)
+ * search, a hover account menu (with the theme switch), and a hover/drawer cart.
+ * On mobile the search trigger drops to its own row.
  */
 export function SiteHeader({
   user,
@@ -27,7 +24,6 @@ export function SiteHeader({
   user: CurrentUser | null;
   categories: Category[];
 }) {
-  const { count } = useCart();
   const topCategories = categories.slice(0, 6);
 
   return (
@@ -40,40 +36,24 @@ export function SiteHeader({
           </span>
         </Link>
 
-        <SearchBar className="hidden flex-1 sm:block" />
+        <SpotlightSearch className="hidden flex-1 sm:block" />
 
         <div className="ms-auto flex items-center gap-1 sm:ms-0">
-          <ThemeToggle className={iconButton} />
           <AccountMenu user={user} className={iconButton} />
-          <Link href="/basket" aria-label="سبد خرید" className={`relative ${iconButton}`}>
-            <ShoppingBag className="size-5" />
-            {count > 0 ? (
-              <span className="absolute end-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-gold px-1 text-[10px] font-black text-background">
-                {count > 9 ? "+۹" : toFaNumber(count)}
-              </span>
-            ) : null}
-          </Link>
+          <CartButton className={iconButton} />
         </div>
       </div>
 
       <div className="px-4 pb-3 sm:hidden">
-        <SearchBar />
+        <SpotlightSearch className="w-full" />
       </div>
 
       {topCategories.length > 0 ? (
         <div className="hidden border-t border-border lg:block">
           <div className="mx-auto flex h-11 w-full max-w-7xl items-center gap-5 px-6 text-sm">
-            <CategoryMenu
+            <CategoryMegaMenu
               categories={categories}
-              trigger={
-                <button
-                  type="button"
-                  className="flex shrink-0 items-center gap-2 font-bold text-foreground"
-                >
-                  <LayoutGrid className="size-4 text-gold" />
-                  همه دسته‌بندی‌ها
-                </button>
-              }
+              className="flex shrink-0 items-center gap-2 font-bold text-foreground"
             />
             {topCategories.map((category) => (
               <Link

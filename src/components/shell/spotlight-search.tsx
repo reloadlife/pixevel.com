@@ -3,7 +3,6 @@
 import { Dialog } from "@base-ui/react/dialog";
 import { Command } from "cmdk";
 import { Search } from "lucide-react";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useEffect, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
@@ -180,13 +179,12 @@ export function SpotlightSearch({ className }: { className?: string }) {
                       >
                         {/* Thumbnail */}
                         {product.imageUrl ? (
-                          <div className="relative size-10 shrink-0 overflow-hidden rounded-md border bg-muted">
-                            <Image
+                          <div className="size-10 shrink-0 overflow-hidden rounded-md border bg-muted">
+                            {/* biome-ignore lint/performance/noImgElement: admin-entered media URLs. */}
+                            <img
                               src={product.imageUrl}
                               alt={product.titleFa}
-                              fill
-                              sizes="40px"
-                              className="object-cover"
+                              className="h-full w-full object-cover"
                             />
                           </div>
                         ) : (

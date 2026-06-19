@@ -1,42 +1,64 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-type CartState = { count: number };
+import type { CartView } from "@/lib/cart";
 
-const CartContext = createContext<CartState>({ count: 0 });
+export type CartLine = CartView["items"][number];
+
+type CartState = {
+  cart: CartView;
+  count: number;
+  loading: boolean;
+  refresh: () => void;
+};
+
+const EMPTY_CART: CartView = { id: null, items: [], itemCount: 0, subtotal: 0 };
+
+const CartContext = createContext<CartState>({
+  cart: EMPTY_CART,
+  count: 0,
+  loading: false,
+  refresh: () => {},
+});
 
 export function CartProvider({ children }: { children: React.ReactNode }) {
-  const [count, setCount] = useState(0);
+  const [cart, setCart] = useState<CartView>(EMPTY_CART);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        const response = await fetch("/api/cart", { cache: "no-store" });
-        const payload = await response.json();
-
-        if (active && payload?.ok) {
-          setCount(payload.data.cart.itemCount ?? 0);
-        }
-      } catch {
-        // Ignore — badge keeps its last known value.
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/cart", { cache: "no-store" });
+      const payload = await response.json();
+      if (payload?.ok) {
+        setCart(payload.data.cart as CartView);
       }
+    } catch {
+      // Ignore — keep the last known cart.
+    } finally {
+      setLoading(false);
     }
-
-    load();
-    window.addEventListener("cart:changed", load);
-    window.addEventListener("focus", load);
-
-    return () => {
-      active = false;
-      window.removeEventListener("cart:changed", load);
-      window.removeEventListener("focus", load);
-    };
   }, []);
 
-  return <CartContext.Provider value={{ count }}>{children}</CartContext.Provider>;
+  useEffect(() => {
+    refresh();
+    const onChange = () => {
+      refresh();
+    };
+    window.addEventListener("cart:changed", onChange);
+    window.addEventListener("focus", onChange);
+    return () => {
+      window.removeEventListener("cart:changed", onChange);
+      window.removeEventListener("focus", onChange);
+    };
+  }, [refresh]);
+
+  return (
+    <CartContext.Provider value={{ cart, count: cart.itemCount, loading, refresh }}>
+      {children}
+    </CartContext.Provider>
+  );
 }
 
 export function useCart(): CartState {

@@ -1,6 +1,9 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { THEME_COOKIE } from "@/app/api/preferences/theme/route";
+import { ThemeToggle } from "@/components/shop/theme-toggle";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
@@ -11,6 +14,15 @@ export default async function AccountPage() {
   if (!user) {
     redirect("/login?redirect=/account");
   }
+
+  const cookieStore = await cookies();
+  const themeCookie = cookieStore.get(THEME_COOKIE)?.value;
+  const currentTheme =
+    themeCookie === "dark" || themeCookie === "light"
+      ? (themeCookie as "dark" | "light")
+      : user.isPremium
+        ? "dark"
+        : "light";
 
   const db = getDb();
   const [orders, payments] = await Promise.all([
@@ -37,6 +49,11 @@ export default async function AccountPage() {
           {user.phone}
         </p>
       </header>
+      {user.isPremium && (
+        <div className="mb-5">
+          <ThemeToggle currentTheme={currentTheme} />
+        </div>
+      )}
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="border border-border bg-card p-4">
           <h2 className="font-black">تاریخچه سفارش‌ها</h2>

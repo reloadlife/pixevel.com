@@ -149,12 +149,12 @@ export function BasketItems({
           <span>{formatToman(cart.subtotal)}</span>
         </div>
         {isLoggedIn ? (
-          <button
-            type="button"
-            className="mt-4 h-12 w-full rounded-full bg-foreground text-base font-black text-background"
+          <Link
+            href="/checkout"
+            className="mt-4 grid h-12 w-full place-items-center rounded-full bg-foreground text-base font-black text-background"
           >
             ثبت سفارش
-          </button>
+          </Link>
         ) : (
           <Link
             href="/login?redirect=/basket"

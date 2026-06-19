@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-
+import type { FulfillmentType } from "@/db/schema";
 import { cartItems, carts, inventoryUnits } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth";
 import { getUserTier, variantPrice } from "@/lib/catalog";
@@ -23,6 +23,7 @@ export type CartLine = {
   quantity: number;
   availableStock: number;
   lineTotal: number;
+  fulfillmentType: FulfillmentType;
 };
 
 export type CartView = {
@@ -97,7 +98,13 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
       variant: {
         with: {
           product: {
-            columns: { slug: true, titleFa: true, primaryImageUrl: true, status: true },
+            columns: {
+              slug: true,
+              titleFa: true,
+              primaryImageUrl: true,
+              status: true,
+              fulfillmentType: true,
+            },
           },
         },
       },
@@ -125,6 +132,7 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
       quantity: row.quantity,
       availableStock: stock,
       lineTotal: unitPrice * row.quantity,
+      fulfillmentType: row.variant.product.fulfillmentType,
     });
   }
 

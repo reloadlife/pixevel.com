@@ -1,4 +1,4 @@
-import { and, count, ilike, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, ilike, ne, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 
 import type { ProductStatus } from "@/db/schema";
@@ -8,11 +8,26 @@ import { decimalToNumber } from "@/lib/format";
 
 export type ProductListingOptions = {
   q?: string;
+  category?: string; // category slug — when present, restrict to products in this category
   page?: number;
   pageSize?: number;
   // Optional transaction/db override — used in tests to share the rollback tx.
   _db?: ReturnType<typeof getDb>;
 };
+
+/**
+ * Returns all active (isVisible=true) categories ordered by sortOrder then titleFa.
+ */
+export async function listCategories(
+  _db?: ReturnType<typeof getDb>,
+): Promise<{ id: string; slug: string; titleFa: string }[]> {
+  const db = _db ?? getDb();
+  return db
+    .select({ id: categories.id, slug: categories.slug, titleFa: categories.titleFa })
+    .from(categories)
+    .where(eq(categories.isVisible, true))
+    .orderBy(asc(categories.sortOrder), asc(categories.titleFa));
+}
 
 type UserTier = "PUBLIC" | "REGISTERED" | "PREMIUM";
 type CatalogImage = {
@@ -196,7 +211,7 @@ export async function getProductsForListing(
 ) {
   noStore();
 
-  const { q, _db } = opts;
+  const { q, category, _db } = opts;
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = opts.pageSize ?? 24;
   const searchTerm = q?.trim();
@@ -207,7 +222,16 @@ export async function getProductsForListing(
   // Build a WHERE expression using table columns directly (for the count query).
   function buildCountWhere() {
     const archivedFilter = ne(productsTable.status, "ARCHIVED");
-    if (!searchTerm) return archivedFilter;
+
+    const categoryFilter = category
+      ? sql`EXISTS (
+          SELECT 1 FROM ${categories} c
+          WHERE c.id = ${productsTable.categoryId}
+            AND c.slug = ${category}
+        )`
+      : undefined;
+
+    if (!searchTerm) return categoryFilter ? and(archivedFilter, categoryFilter) : archivedFilter;
 
     const term = `%${searchTerm}%`;
     const textMatch = or(
@@ -226,7 +250,9 @@ export async function getProductsForListing(
       )`,
     );
 
-    return and(archivedFilter, textMatch);
+    return categoryFilter
+      ? and(archivedFilter, categoryFilter, textMatch)
+      : and(archivedFilter, textMatch);
   }
 
   // COUNT query — same filters, no pagination.
@@ -241,7 +267,16 @@ export async function getProductsForListing(
   const rows = await db.query.products.findMany({
     where: (product, { ne: neOp }) => {
       const archivedFilter = neOp(product.status, "ARCHIVED");
-      if (!searchTerm) return archivedFilter;
+
+      const categoryFilter = category
+        ? sql`EXISTS (
+            SELECT 1 FROM ${categories} c
+            WHERE c.id = ${product.categoryId}
+              AND c.slug = ${category}
+          )`
+        : undefined;
+
+      if (!searchTerm) return categoryFilter ? and(archivedFilter, categoryFilter) : archivedFilter;
 
       const term = `%${searchTerm}%`;
       const textMatch = or(
@@ -262,7 +297,9 @@ export async function getProductsForListing(
         )`,
       );
 
-      return and(archivedFilter, textMatch);
+      return categoryFilter
+        ? and(archivedFilter, categoryFilter, textMatch)
+        : and(archivedFilter, textMatch);
     },
     with: {
       category: true,

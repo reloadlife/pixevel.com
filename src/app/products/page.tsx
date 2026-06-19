@@ -1,29 +1,39 @@
 import { ProductCard } from "@/components/shop/product-card";
 import { getCurrentUser } from "@/lib/auth";
-import { getProductsForListing } from "@/lib/catalog";
+import { getProductsForListing, listCategories } from "@/lib/catalog";
 
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; category?: string }>;
 }) {
-  const { q, page: pageParam } = await searchParams;
+  const { q, page: pageParam, category } = await searchParams;
   const page = Math.max(1, Number(pageParam ?? "1") || 1);
   const user = await getCurrentUser();
-  const { items: products, meta } = await getProductsForListing(user, { q, page });
+  const [{ items: products, meta }, allCategories] = await Promise.all([
+    getProductsForListing(user, { q, category, page }),
+    listCategories(),
+  ]);
+  const activeCategoryTitle = category
+    ? (allCategories.find((c) => c.slug === category)?.titleFa ?? category)
+    : null;
 
   function pageUrl(p: number) {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
+    if (category) params.set("category", category);
     params.set("page", String(p));
     return `/products?${params.toString()}`;
   }
 
+  function clearCategoryUrl() {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    return `/products${params.size > 0 ? `?${params.toString()}` : ""}`;
+  }
+
   return (
-    <main
-      className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14"
-      dir="rtl"
-    >
+    <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14" dir="rtl">
       <header className="mb-6">
         <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
           Pixevel Shop
@@ -69,6 +79,22 @@ export default async function ProductsPage({
           </p>
         )}
       </form>
+
+      {/* Active category filter chip */}
+      {activeCategoryTitle && (
+        <div className="mb-6 flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/60 px-3 py-1 text-sm font-medium">
+            دسته: {activeCategoryTitle}
+            <a
+              href={clearCategoryUrl()}
+              aria-label="حذف فیلتر دسته"
+              className="ms-1 text-muted-foreground hover:text-foreground"
+            >
+              ×
+            </a>
+          </span>
+        </div>
+      )}
 
       {products.length > 0 ? (
         <>

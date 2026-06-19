@@ -1,16 +1,10 @@
 import { notFound } from "next/navigation";
-
-import { BottomNav } from "@/components/shop/bottom-nav";
-import { ProductDetailClient } from "@/components/shop/product-detail-client";
 import { ProductCard } from "@/components/shop/product-card";
+import { ProductDetailClient } from "@/components/shop/product-detail-client";
 import { getCurrentUser } from "@/lib/auth";
 import { getProductDetailView } from "@/lib/catalog";
 
-export default async function ProductDetailPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export default async function ProductDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const user = await getCurrentUser();
   const { slug } = await params;
   const product = await getProductDetailView(slug, user);
@@ -20,7 +14,7 @@ export default async function ProductDetailPage({
   }
 
   return (
-    <main className="min-h-dvh bg-background px-4 pb-24 pt-6 text-foreground sm:px-8 lg:px-14">
+    <main className="min-h-dvh bg-background px-4 pb-24 pt-14 text-foreground sm:px-8 lg:px-14">
       <ProductDetailClient product={product} />
       {product.relatedProducts.length > 0 ? (
         <section className="mt-16 border-t border-border pt-8">
@@ -41,7 +35,6 @@ export default async function ProductDetailPage({
           </div>
         </section>
       ) : null}
-      <BottomNav user={user} />
     </main>
   );
 }

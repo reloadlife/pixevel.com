@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { BottomNav } from "@/components/shop/bottom-nav";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
@@ -27,11 +26,15 @@ export default async function AccountPage() {
   ]);
 
   return (
-    <main className="min-h-dvh bg-background px-4 pb-24 pt-6 text-foreground sm:px-8 lg:px-14">
+    <main className="min-h-dvh bg-background px-4 pb-24 pt-14 text-foreground sm:px-8 lg:px-14">
       <header className="mb-8">
-        <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">Pixevel Account</p>
+        <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
+          Pixevel Account
+        </p>
         <h1 className="mt-3 text-4xl font-black">حساب کاربری</h1>
-        <p className="mt-2 text-sm text-muted-foreground" dir="ltr">{user.phone}</p>
+        <p className="mt-2 text-sm text-muted-foreground" dir="ltr">
+          {user.phone}
+        </p>
       </header>
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="border border-border bg-card p-4">
@@ -43,7 +46,9 @@ export default async function AccountPage() {
               orders.map((order) => (
                 <div key={order.id} className="border border-border p-3 text-sm">
                   <p className="font-black">{order.orderNumber}</p>
-                  <p className="text-muted-foreground">{formatToman(order.totalAmount.toString())}</p>
+                  <p className="text-muted-foreground">
+                    {formatToman(order.totalAmount.toString())}
+                  </p>
                 </div>
               ))
             )}
@@ -65,7 +70,6 @@ export default async function AccountPage() {
           </div>
         </section>
       </div>
-      <BottomNav user={user} />
     </main>
   );
 }

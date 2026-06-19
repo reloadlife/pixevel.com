@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { Search, ShoppingBag, UserRound } from "lucide-react";
-
-import type { CurrentUser } from "@/lib/auth";
+import Link from "next/link";
 import { useCart } from "@/components/shop/cart-provider";
-import { useHideOnScroll } from "@/lib/use-hide-on-scroll";
+import type { CurrentUser } from "@/lib/auth";
 import { toFaNumber } from "@/lib/format";
+import { useHideOnScroll } from "@/lib/use-hide-on-scroll";
 
 export function TopBar({ user }: { user: CurrentUser | null }) {
   const hidden = useHideOnScroll();
@@ -21,8 +20,8 @@ export function TopBar({ user }: { user: CurrentUser | null }) {
       aria-label="نوار بالا"
     >
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <Link href="/" className="flex items-baseline gap-1.5" aria-label="پیکسِل، خانه">
-          <span className="text-lg font-black tracking-wide text-gold">پیکسِل</span>
+        <Link href="/" className="flex items-baseline gap-1.5" aria-label="پیسکول، خانه">
+          <span className="text-lg font-black tracking-wide text-gold">پیسکول</span>
           <span className="text-[10px] tracking-[0.3em] text-luxe-muted">DIGITAL</span>
         </Link>
         <nav className="flex items-center gap-5" aria-label="میانبرها">

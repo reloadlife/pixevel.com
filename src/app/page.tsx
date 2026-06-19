@@ -1,22 +1,19 @@
-/* eslint-disable @next/next/no-img-element -- Product media can be admin-entered URLs until a CDN allowlist exists. */
 import Link from "next/link";
 
-import { BottomNav } from "@/components/shop/bottom-nav";
 import { FullscreenHorizontalGallery } from "@/components/shop/fullscreen-horizontal-gallery";
 import { ProductCard } from "@/components/shop/product-card";
 import { ShowcaseHero } from "@/components/shop/showcase-hero";
 import { ShowcaseHeroImageOnly } from "@/components/shop/showcase-hero-image-only";
 import { ShowcaseRandomGallery } from "@/components/shop/showcase-random-gallery";
-import { TopBar } from "@/components/shop/top-bar";
 import { getCurrentUser } from "@/lib/auth";
-import { formatToman } from "@/lib/format";
 import { getHomepageView } from "@/lib/catalog";
+import { formatToman } from "@/lib/format";
 
 type HomeBlockView = Awaited<ReturnType<typeof getHomepageView>>[number];
 type HomeBlockProduct = NonNullable<HomeBlockView["products"][number]>;
 
 function isHomeBlockProduct(
-  product: HomeBlockView["products"][number]
+  product: HomeBlockView["products"][number],
 ): product is HomeBlockProduct {
   return Boolean(product);
 }
@@ -27,7 +24,6 @@ export default async function Home() {
 
   return (
     <main className="min-h-dvh bg-background pb-24 pt-14 text-foreground">
-      <TopBar user={user} />
       <div className="space-y-12">
         {blocks.map((block) => {
           if (block.products.length === 0) {
@@ -87,8 +83,6 @@ export default async function Home() {
           );
         })}
       </div>
-
-      <BottomNav user={user} />
     </main>
   );
 }
@@ -176,7 +170,9 @@ function ShowcaseBlock({ block }: { block: HomeBlockView }) {
               className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
             />
           ) : (
-            <div className="grid h-full place-items-center bg-zinc-200 text-zinc-600">بدون تصویر</div>
+            <div className="grid h-full place-items-center bg-zinc-200 text-zinc-600">
+              بدون تصویر
+            </div>
           )}
         </div>
         <div className="flex flex-col justify-end p-5 sm:p-8">

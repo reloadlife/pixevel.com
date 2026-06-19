@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist_Mono, Vazirmatn } from "next/font/google";
 
 import { CartProvider } from "@/components/shop/cart-provider";
+import { SiteChrome } from "@/components/shop/site-chrome";
 import { getCurrentUser } from "@/lib/auth";
 
 import "./globals.css";
@@ -18,8 +19,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "پیکسول | گیفت کارت و محصولات دیجیتال",
-  description: "خرید آنی گیفت کارت اسپاتیفای، اپل، استیم و سرویس‌های دیجیتال از پیکسول.",
+  title: "پیسکول | گیفت کارت و محصولات دیجیتال",
+  description: "خرید آنی گیفت کارت اسپاتیفای، اپل، استیم و سرویس‌های دیجیتال از پیسکول.",
 };
 
 export default async function RootLayout({
@@ -38,7 +39,10 @@ export default async function RootLayout({
       className={`${isPremium ? "dark" : ""} ${vazirmatn.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <CartProvider>{children}</CartProvider>
+        <CartProvider>
+          <SiteChrome user={user} />
+          {children}
+        </CartProvider>
       </body>
     </html>
   );

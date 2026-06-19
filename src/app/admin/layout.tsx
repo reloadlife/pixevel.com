@@ -13,17 +13,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <TooltipProvider>
-      <SidebarProvider>
-        <div dir="rtl" className="flex min-h-svh w-full">
-          <SidebarInset>
-            <header className="flex h-12 shrink-0 items-center gap-3 border-b px-4">
-              <SidebarTrigger />
-              <span className="text-sm font-medium text-foreground/80">پنل مدیریت</span>
-            </header>
-            <div className="mx-auto w-full max-w-7xl p-4 md:p-6">{children}</div>
-          </SidebarInset>
-          <AdminSidebar />
-        </div>
+      <SidebarProvider dir="rtl">
+        <AdminSidebar />
+        <SidebarInset>
+          <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b bg-background px-4">
+            <SidebarTrigger />
+            <span className="text-sm font-medium">پنل مدیریت</span>
+          </header>
+          <div className="mx-auto w-full max-w-7xl p-4 md:p-6">{children}</div>
+        </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>
   );

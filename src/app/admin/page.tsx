@@ -1,6 +1,16 @@
+import {
+  HomeIcon,
+  ImageIcon,
+  LayoutGridIcon,
+  PackageIcon,
+  PlusIcon,
+  ShoppingBagIcon,
+  TagIcon,
+  UsersIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { orders as ordersTable, products as productsTable, users as usersTable } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -31,78 +41,138 @@ export default async function AdminPage() {
   ]);
 
   return (
-    <>
+    <div dir="rtl">
+      {/* آمار کلی */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <Stat title="کاربران" value={userCount} />
-        <Stat title="محصولات" value={productCount} />
-        <Stat title="سفارش‌ها" value={orderCount} />
+        <StatCard
+          title="کاربران"
+          value={userCount}
+          icon={UsersIcon}
+          description="تعداد کل کاربران ثبت‌نام‌شده"
+        />
+        <StatCard
+          title="محصولات"
+          value={productCount}
+          icon={PackageIcon}
+          description="تعداد کل محصولات تعریف‌شده"
+        />
+        <StatCard
+          title="سفارش‌ها"
+          value={orderCount}
+          icon={ShoppingBagIcon}
+          description="تعداد کل سفارش‌های ثبت‌شده"
+        />
       </div>
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <Link
+
+      {/* دسترسی سریع */}
+      <h2 className="mt-8 mb-4 text-base font-semibold text-foreground/70">دسترسی سریع</h2>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <QuickLink
           href="/admin/products"
-          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
-        >
-          <h2 className="text-lg font-black">مدیریت محصولات</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            جستجو، فیلتر، ویرایش وضعیت و ورود به صفحه ویرایش محصول.
-          </p>
-        </Link>
-        <Link
+          icon={PackageIcon}
+          title="محصولات"
+          description="جستجو، فیلتر و ویرایش محصولات"
+        />
+        <QuickLink
           href="/admin/products/new"
-          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
-        >
-          <h2 className="text-lg font-black">افزودن محصول</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            ساخت محصول، تولید تنوع‌ها و ایجاد موجودی دقیق.
-          </p>
-        </Link>
-        <Link
-          href="/admin/homepage"
-          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
-        >
-          <h2 className="text-lg font-black">بلاک‌های صفحه خانه</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            ساخت ویترین بزرگ و گالری‌های داینامیک یا دستی.
-          </p>
-        </Link>
-        <Link
-          href="/admin/watermarks"
-          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
-        >
-          <h2 className="text-lg font-black">تصاویر واترمارک</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            آپلود PNGهای واترمارک برای استفاده روی تصاویر محصول.
-          </p>
-        </Link>
-        <Link
+          icon={PlusIcon}
+          title="افزودن محصول"
+          description="ساخت محصول جدید با تنوع و موجودی"
+        />
+        <QuickLink
+          href="/admin/orders"
+          icon={ShoppingBagIcon}
+          title="سفارش‌ها"
+          description="مشاهده و مدیریت سفارش‌های مشتریان"
+        />
+        <QuickLink
+          href="/admin/users"
+          icon={UsersIcon}
+          title="کاربران"
+          description="تغییر نقش و وضعیت پریمیوم کاربران"
+        />
+        <QuickLink
           href="/admin/categories"
-          className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
-        >
-          <h2 className="text-lg font-black">مدیریت دسته‌ها</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">ساخت و ویرایش دسته‌های تو در تو.</p>
-        </Link>
-        <Link href="/admin/tags" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
-          <h2 className="text-lg font-black">مدیریت تگ‌ها</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            ساخت، ویرایش و مخفی کردن تگ‌های محصول.
-          </p>
-        </Link>
-        <Link href="/admin/users" className="border border-zinc-200 bg-white p-5 hover:bg-zinc-50">
-          <h2 className="text-lg font-black">مدیریت کاربران</h2>
-          <p className="mt-2 text-sm leading-7 text-zinc-500">
-            تغییر نقش ادمین و وضعیت پریمیوم کاربران.
-          </p>
-        </Link>
+          icon={LayoutGridIcon}
+          title="دسته‌ها"
+          description="ساخت و ویرایش دسته‌های تو در تو"
+        />
+        <QuickLink
+          href="/admin/tags"
+          icon={TagIcon}
+          title="تگ‌ها"
+          description="ساخت، ویرایش و مخفی کردن تگ‌های محصول"
+        />
+        <QuickLink
+          href="/admin/homepage"
+          icon={HomeIcon}
+          title="صفحه خانه"
+          description="ساخت ویترین‌ها و گالری‌های داینامیک"
+        />
+        <QuickLink
+          href="/admin/watermarks"
+          icon={ImageIcon}
+          title="واترمارک‌ها"
+          description="آپلود PNG واترمارک برای تصاویر محصول"
+        />
       </div>
-    </>
+    </div>
   );
 }
 
-function Stat({ title, value }: { title: string; value: number }) {
+function StatCard({
+  title,
+  value,
+  icon: Icon,
+  description,
+}: {
+  title: string;
+  value: number;
+  icon: React.ElementType;
+  description: string;
+}) {
   return (
-    <div className="border border-zinc-200 bg-white p-5">
-      <p className="text-sm font-bold text-zinc-500">{title}</p>
-      <p className="mt-2 text-3xl font-black">{value.toLocaleString("fa-IR")}</p>
-    </div>
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
+          <Icon className="h-4 w-4 text-muted-foreground" />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-3xl font-black tabular-nums">{value.toLocaleString("fa-IR")}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickLink({
+  href,
+  icon: Icon,
+  title,
+  description,
+}: {
+  href: string;
+  icon: React.ElementType;
+  title: string;
+  description: string;
+}) {
+  return (
+    <Link href={href} className="group block">
+      <Card className="h-full transition-shadow group-hover:shadow-md">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <Icon className="h-4 w-4 text-primary" />
+            </div>
+            <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <CardDescription className="text-xs leading-relaxed">{description}</CardDescription>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }

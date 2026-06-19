@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { HomeBlockManagement } from "@/components/admin/home-block-management";
 import { listAdminHomeBlocks, toAdminHomeBlockRow } from "@/lib/admin/home-blocks";
 import { listAdminProducts, toAdminProductPickerOption } from "@/lib/admin/products";
@@ -31,13 +30,11 @@ export default async function AdminHomepagePage() {
   ]);
 
   return (
-    <AdminShell user={user}>
-      <HomeBlockManagement
-        initialBlocks={blocks.map(toAdminHomeBlockRow)}
-        initialProducts={products.map(toAdminProductPickerOption)}
-        initialCategories={categories.map(toAdminCategoryOption)}
-        initialTags={tags.map(toAdminTagOption)}
-      />
-    </AdminShell>
+    <HomeBlockManagement
+      initialBlocks={blocks.map(toAdminHomeBlockRow)}
+      initialProducts={products.map(toAdminProductPickerOption)}
+      initialCategories={categories.map(toAdminCategoryOption)}
+      initialTags={tags.map(toAdminTagOption)}
+    />
   );
 }

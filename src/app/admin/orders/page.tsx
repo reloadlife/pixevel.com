@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { OrderManagement } from "@/components/admin/order-management";
 import { listAdminOrders, toAdminOrderRow } from "@/lib/admin/orders";
 import { getCurrentUser } from "@/lib/auth";
@@ -18,9 +17,5 @@ export default async function AdminOrdersPage() {
 
   const orders = await listAdminOrders();
 
-  return (
-    <AdminShell user={user}>
-      <OrderManagement initialOrders={orders.map(toAdminOrderRow)} mode="list" />
-    </AdminShell>
-  );
+  return <OrderManagement initialOrders={orders.map(toAdminOrderRow)} mode="list" />;
 }

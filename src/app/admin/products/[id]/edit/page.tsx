@@ -1,6 +1,5 @@
 import { notFound, redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { ProductManagement } from "@/components/admin/product-management";
 import { getAdminProduct, toAdminProductRow } from "@/lib/admin/products";
 import {
@@ -40,15 +39,13 @@ export default async function EditAdminProductPage({
   }
 
   return (
-    <AdminShell user={user}>
-      <ProductManagement
-        initialProducts={[toAdminProductRow(product)]}
-        initialCategories={categories.map(toAdminCategoryOption)}
-        initialTags={tags.map(toAdminTagOption)}
-        initialWatermarkImages={watermarkImages.map(toAdminWatermarkImageRow)}
-        mode="edit"
-        initialEditingProductId={product.id}
-      />
-    </AdminShell>
+    <ProductManagement
+      initialProducts={[toAdminProductRow(product)]}
+      initialCategories={categories.map(toAdminCategoryOption)}
+      initialTags={tags.map(toAdminTagOption)}
+      initialWatermarkImages={watermarkImages.map(toAdminWatermarkImageRow)}
+      mode="edit"
+      initialEditingProductId={product.id}
+    />
   );
 }

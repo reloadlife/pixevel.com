@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { WatermarkImageManagement } from "@/components/admin/watermark-image-management";
 import { listAdminWatermarkImages, toAdminWatermarkImageRow } from "@/lib/admin/watermark-images";
 import { getCurrentUser } from "@/lib/auth";
@@ -18,9 +17,5 @@ export default async function AdminWatermarksPage() {
 
   const images = await listAdminWatermarkImages();
 
-  return (
-    <AdminShell user={user}>
-      <WatermarkImageManagement initialImages={images.map(toAdminWatermarkImageRow)} />
-    </AdminShell>
-  );
+  return <WatermarkImageManagement initialImages={images.map(toAdminWatermarkImageRow)} />;
 }

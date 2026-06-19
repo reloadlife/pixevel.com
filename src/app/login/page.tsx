@@ -7,7 +7,7 @@ export default async function LoginPage() {
   const user = await getCurrentUser();
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-zinc-50 px-4 py-10">
+    <main className="grid min-h-[70dvh] place-items-center px-4 py-10">
       <div className="w-full max-w-md">
         {user ? (
           <div className="border border-border bg-card p-6 text-center">

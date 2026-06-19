@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { ProductManagement } from "@/components/admin/product-management";
 import { listAdminProducts, toAdminProductRow } from "@/lib/admin/products";
 import {
@@ -29,13 +28,11 @@ export default async function AdminProductsPage() {
   ]);
 
   return (
-    <AdminShell user={user}>
-      <ProductManagement
-        initialProducts={products.map(toAdminProductRow)}
-        initialCategories={categories.map(toAdminCategoryOption)}
-        initialTags={tags.map(toAdminTagOption)}
-        mode="list"
-      />
-    </AdminShell>
+    <ProductManagement
+      initialProducts={products.map(toAdminProductRow)}
+      initialCategories={categories.map(toAdminCategoryOption)}
+      initialTags={tags.map(toAdminTagOption)}
+      mode="list"
+    />
   );
 }

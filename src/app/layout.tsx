@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Vazirmatn } from "next/font/google";
 
+import { AppShell } from "@/components/shell/app-shell";
 import { CartProvider } from "@/components/shop/cart-provider";
-import { SiteChrome } from "@/components/shop/site-chrome";
 import { ThemeProvider } from "@/components/theme-provider";
 import { getCurrentUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -50,8 +50,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <CartProvider>
-            <SiteChrome user={user} />
-            {children}
+            <AppShell user={user}>{children}</AppShell>
           </CartProvider>
         </ThemeProvider>
       </body>

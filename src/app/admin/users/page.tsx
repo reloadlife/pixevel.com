@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { UserManagement } from "@/components/admin/user-management";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -29,13 +28,11 @@ export default async function AdminUsersPage() {
   });
 
   return (
-    <AdminShell user={user}>
-      <UserManagement
-        initialUsers={users.map((item) => ({
-          ...item,
-          createdAt: item.createdAt.toISOString(),
-        }))}
-      />
-    </AdminShell>
+    <UserManagement
+      initialUsers={users.map((item) => ({
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+      }))}
+    />
   );
 }

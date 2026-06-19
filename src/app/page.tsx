@@ -23,7 +23,7 @@ export default async function Home() {
   const blocks = await getHomepageView(user);
 
   return (
-    <main className="min-h-dvh bg-background pb-24 pt-14 text-foreground">
+    <main className="bg-background pt-4 text-foreground">
       <div className="space-y-12">
         {blocks.map((block) => {
           if (block.products.length === 0) {

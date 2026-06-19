@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { ProductManagement } from "@/components/admin/product-management";
 import {
   listAdminCategories,
@@ -24,13 +23,11 @@ export default async function NewAdminProductPage() {
   const [categories, tags] = await Promise.all([listAdminCategories(), listAdminTags()]);
 
   return (
-    <AdminShell user={user}>
-      <ProductManagement
-        initialProducts={[]}
-        initialCategories={categories.map(toAdminCategoryOption)}
-        initialTags={tags.map(toAdminTagOption)}
-        mode="create"
-      />
-    </AdminShell>
+    <ProductManagement
+      initialProducts={[]}
+      initialCategories={categories.map(toAdminCategoryOption)}
+      initialTags={tags.map(toAdminTagOption)}
+      mode="create"
+    />
   );
 }

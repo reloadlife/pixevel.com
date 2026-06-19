@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { TagManagement } from "@/components/admin/taxonomy-management";
 import { listAdminTags, toAdminTagOption } from "@/lib/admin/taxonomy";
 import { getCurrentUser } from "@/lib/auth";
@@ -18,9 +17,5 @@ export default async function AdminTagsPage() {
 
   const tags = await listAdminTags();
 
-  return (
-    <AdminShell user={user}>
-      <TagManagement initialTags={tags.map(toAdminTagOption)} />
-    </AdminShell>
-  );
+  return <TagManagement initialTags={tags.map(toAdminTagOption)} />;
 }

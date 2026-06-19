@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { OrderManagement } from "@/components/admin/order-management";
 import { getAdminOrder } from "@/lib/admin/orders";
 import { getCurrentUser } from "@/lib/auth";
@@ -27,9 +26,5 @@ export default async function AdminOrderDetailPage({
     redirect("/admin/orders");
   }
 
-  return (
-    <AdminShell user={user}>
-      <OrderManagement initialOrder={order} mode="detail" />
-    </AdminShell>
-  );
+  return <OrderManagement initialOrder={order} mode="detail" />;
 }

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { AdminShell } from "@/components/admin/admin-shell";
 import { orders as ordersTable, products as productsTable, users as usersTable } from "@/db/schema";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -32,7 +31,7 @@ export default async function AdminPage() {
   ]);
 
   return (
-    <AdminShell user={user}>
+    <>
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat title="کاربران" value={userCount} />
         <Stat title="محصولات" value={productCount} />
@@ -95,7 +94,7 @@ export default async function AdminPage() {
           </p>
         </Link>
       </div>
-    </AdminShell>
+    </>
   );
 }
 

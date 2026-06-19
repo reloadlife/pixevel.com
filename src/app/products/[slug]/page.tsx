@@ -14,7 +14,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   }
 
   return (
-    <main className="min-h-dvh bg-background px-4 pb-24 pt-14 text-foreground sm:px-8 lg:px-14">
+    <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14">
       <ProductDetailClient product={product} />
       {product.relatedProducts.length > 0 ? (
         <section className="mt-16 border-t border-border pt-8">

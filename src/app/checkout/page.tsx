@@ -24,7 +24,7 @@ export default async function CheckoutPage() {
     return (
       <main
         dir="rtl"
-        className="min-h-dvh bg-background px-4 pb-28 pt-14 text-foreground sm:px-8 lg:px-14"
+        className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14"
       >
         <div className="mx-auto max-w-2xl border border-border bg-card p-8 text-center">
           <p className="text-muted-foreground">سبد خرید شما خالی است.</p>
@@ -42,7 +42,7 @@ export default async function CheckoutPage() {
   return (
     <main
       dir="rtl"
-      className="min-h-dvh bg-background px-4 pb-28 pt-14 text-foreground sm:px-8 lg:px-14"
+      className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14"
     >
       {/* Page header — gold/luxe style consistent with top-bar */}
       <header className="mb-8">

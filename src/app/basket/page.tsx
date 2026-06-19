@@ -10,7 +10,7 @@ export default async function BasketPage() {
   const cart = await getCartView({ user, anonymousId });
 
   return (
-    <main className="min-h-dvh bg-background px-4 pb-28 pt-14 text-foreground sm:px-8 lg:px-14">
+    <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14">
       <header className="mb-8">
         <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
           Pixevel Basket

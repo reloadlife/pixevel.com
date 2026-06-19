@@ -3,6 +3,7 @@
 import { Search, ShoppingBag, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useCart } from "@/components/shop/cart-provider";
+import { ThemeToggle } from "@/components/shop/theme-toggle";
 import type { CurrentUser } from "@/lib/auth";
 import { toFaNumber } from "@/lib/format";
 import { useHideOnScroll } from "@/lib/use-hide-on-scroll";
@@ -25,6 +26,7 @@ export function TopBar({ user }: { user: CurrentUser | null }) {
           <span className="text-[10px] tracking-[0.3em] text-luxe-muted">DIGITAL</span>
         </Link>
         <nav className="flex items-center gap-5" aria-label="میانبرها">
+          <ThemeToggle className="transition hover:text-gold" />
           <Link href="/products" aria-label="جستجو" className="transition hover:text-gold">
             <Search className="size-5" />
           </Link>

@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Vazirmatn } from "next/font/google";
-import { cookies } from "next/headers";
-import { THEME_COOKIE } from "@/app/api/preferences/theme/route";
+
 import { CartProvider } from "@/components/shop/cart-provider";
 import { SiteChrome } from "@/components/shop/site-chrome";
+import { ThemeProvider } from "@/components/theme-provider";
 import { getCurrentUser } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 import "./globals.css";
 
+// Persian-first: Vazirmatn is the base sans (covers Arabic + Latin).
 const vazirmatn = Vazirmatn({
-  variable: "--font-vazirmatn",
+  variable: "--font-sans",
   subsets: ["arabic", "latin"],
   display: "swap",
 });
@@ -32,23 +34,26 @@ export default async function RootLayout({
   const user = await getCurrentUser();
   const isPremium = Boolean(user?.isPremium);
 
-  const cookieStore = await cookies();
-  const themeCookie = cookieStore.get(THEME_COOKIE)?.value;
-  // cookie present → honour it; cookie absent → premium users default to dark
-  const dark = themeCookie ? themeCookie === "dark" : isPremium;
-
   return (
     <html
       lang="fa"
       dir="rtl"
+      suppressHydrationWarning
       data-premium={isPremium ? "true" : "false"}
-      className={`${dark ? "dark" : ""} ${vazirmatn.variable} ${geistMono.variable} h-full antialiased`}
+      className={cn("h-full antialiased", vazirmatn.variable, geistMono.variable)}
     >
       <body className="min-h-full bg-background text-foreground">
-        <CartProvider>
-          <SiteChrome user={user} />
-          {children}
-        </CartProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <CartProvider>
+            <SiteChrome user={user} />
+            {children}
+          </CartProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

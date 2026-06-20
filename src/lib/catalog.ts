@@ -262,7 +262,8 @@ export async function getProductsForListing(
   function buildCountWhere() {
     const archivedFilter = ne(productsTable.status, "ARCHIVED");
 
-    const baseFilters = [archivedFilter];
+    // Domain products are one-off, per-search minted items — never list them.
+    const baseFilters = [archivedFilter, ne(productsTable.fulfillmentType, "DOMAIN")];
 
     if (category) {
       baseFilters.push(
@@ -320,7 +321,10 @@ export async function getProductsForListing(
 
   const rows = await db.query.products.findMany({
     where: (product, { ne: neOp }) => {
-      const filters = [neOp(product.status, "ARCHIVED")];
+      const filters = [
+        neOp(product.status, "ARCHIVED"),
+        neOp(product.fulfillmentType, "DOMAIN"),
+      ];
 
       if (category) {
         filters.push(

@@ -74,7 +74,7 @@ export function ShowcaseHeroImageOnly({
       <div className="absolute inset-0 bg-black/45" />
       <div className="relative z-10 grid h-full min-h-full place-items-center px-4 py-14 text-center sm:px-8 lg:px-14">
         <div className="max-w-4xl">
-          <p className="text-xs font-black uppercase tracking-[0.32em] text-gold">Pixevel</p>
+          <p className="text-xs font-black uppercase tracking-[0.32em] text-primary">Pixevel</p>
           <h2 className="mt-4 text-5xl font-black leading-tight sm:text-7xl lg:text-8xl">
             {title}
           </h2>

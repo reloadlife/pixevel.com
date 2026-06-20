@@ -79,11 +79,14 @@ type TxLike = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>
 /**
  * Insert inventory units for a single variant.
  *
- * - When `codes` are provided, one InventoryUnit row is created per real code.
- *   The UNIQUE(code) constraint is honored gracefully: codes that already exist
- *   (in this product or anywhere) are skipped and reported, not thrown.
- * - Otherwise, falls back to auto-generating `quantity` synthetic codes from the
- *   variant SKU. This path stays only for operators who supply a plain quantity.
+ * - When `codes` are provided, one InventoryUnit row is created per real code
+ *   (the DIGITAL path — gift-card codes / CD keys). The UNIQUE(code) constraint
+ *   is honored gracefully: codes that already exist (in this product or
+ *   anywhere) are skipped and reported, not thrown.
+ * - Otherwise, creates `quantity` units with auto-generated internal serials
+ *   derived from the variant SKU. This is the PHYSICAL path (a "unit" is one
+ *   physical item and its `code` is a meaningless serial), and is also the
+ *   fallback for any operator who supplies a plain quantity instead of codes.
  *
  * Returns a summary of how many were added vs skipped.
  */

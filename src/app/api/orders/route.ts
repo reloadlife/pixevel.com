@@ -1,6 +1,7 @@
 import { apiError, apiOk, readJson } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { OrderError, placeOrder } from "@/lib/orders/place-order";
+import { isPaymentMethod } from "@/lib/payments/methods";
 import type { PaymentMethod } from "@/lib/payments/provider";
 
 // ─── POST /api/orders ─────────────────────────────────────────────────────────
@@ -18,6 +19,7 @@ interface OrderBody {
   gift?: {
     isGift: boolean;
     recipientEmail?: string;
+    recipientPhone?: string;
     giftMessage?: string;
   };
   couponCode?: string;
@@ -34,6 +36,11 @@ export async function POST(request: Request) {
 
   if (!body || !body.paymentMethod) {
     return apiError("BAD_REQUEST", "اطلاعات درخواست ناقص است.", 400);
+  }
+
+  // Reject removed/invalid payment methods before touching the order service.
+  if (!isPaymentMethod(body.paymentMethod)) {
+    return apiError("INVALID_PAYMENT_METHOD", "روش پرداخت انتخاب‌شده معتبر نیست.", 422);
   }
 
   try {
@@ -90,6 +97,12 @@ function mapOrderError(err: OrderError): { code: string; message: string; status
       };
     case "INVALID_EMAIL":
       return { code: "INVALID_EMAIL", message: err.message, status: 400 };
+    case "INVALID_PHONE":
+      return { code: "INVALID_PHONE", message: err.message, status: 400 };
+    case "GIFT_CONTACT_REQUIRED":
+      return { code: "GIFT_CONTACT_REQUIRED", message: err.message, status: 400 };
+    case "INVALID_PAYMENT_METHOD":
+      return { code: "INVALID_PAYMENT_METHOD", message: err.message, status: 422 };
     case "INVALID_COUPON":
       return { code: "INVALID_COUPON", message: err.message, status: 422 };
     default:

@@ -1,24 +1,37 @@
 "use client";
 
+import {
+  Banknote,
+  Building2,
+  CreditCard,
+  Gift,
+  Loader2,
+  Mail,
+  Phone,
+  Smartphone,
+  Tag,
+  Upload,
+  Wallet,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type ChangeEvent, type FormEvent, useRef, useState } from "react";
+import { type ChangeEvent, type ComponentType, type FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
-
 import type { CartView } from "@/lib/cart";
-import { formatToman } from "@/lib/format";
-
-type PaymentMethod = "ZARINPAL" | "CARD_TO_CARD" | "MANUAL";
+import { formatToman, toFaNumber } from "@/lib/format";
+import {
+  PAYMENT_METHOD_GROUPS,
+  PAYMENT_METHODS,
+  type PaymentMethodGroup,
+  type PaymentMethodMeta,
+} from "@/lib/payments/methods";
+import type { PaymentMethod } from "@/lib/payments/provider";
+import { cn } from "@/lib/utils";
 
 interface AppliedCoupon {
   code: string;
   discountAmount: number;
 }
-
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: "ZARINPAL", label: "زرین‌پال" },
-  { value: "CARD_TO_CARD", label: "کارت به کارت" },
-  { value: "MANUAL", label: "پرداخت دستی" },
-];
 
 interface ShippingFields {
   customerName: string;
@@ -41,6 +54,24 @@ interface CardInstructions {
   holder: string;
   fa: string;
 }
+
+const METHOD_ICONS: Record<PaymentMethod, ComponentType<{ className?: string }>> = {
+  ZARINPAL: CreditCard,
+  BEHPARDAKHT: Building2,
+  SAMAN: Building2,
+  SNAPPPAY: Wallet,
+  DIGIPAY: Wallet,
+  CARD_TO_CARD: Banknote,
+};
+
+const GROUP_ICONS: Record<PaymentMethodGroup, ComponentType<{ className?: string }>> = {
+  ONLINE: CreditCard,
+  INSTALLMENT: Wallet,
+  TRANSFER: Banknote,
+};
+
+const inputClass =
+  "h-11 w-full rounded-md border border-border bg-background px-4 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40";
 
 // ─── Receipt Step ─────────────────────────────────────────────────────────────
 
@@ -95,17 +126,17 @@ function ReceiptStep({
   }
 
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="mx-auto max-w-xl space-y-6" dir="rtl">
       {/* Instructions card */}
-      <div className="border border-gold/40 bg-gold/5 p-6">
-        <h2 className="mb-4 text-lg font-black text-gold">اطلاعات پرداخت کارت به کارت</h2>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Banknote className="size-5 text-primary" aria-hidden="true" />
+          <h2 className="text-lg font-black text-foreground">اطلاعات پرداخت کارت به کارت</h2>
+        </div>
         <div className="mb-4 space-y-3">
           <div className="flex items-center gap-3">
             <span className="w-24 text-sm font-bold text-muted-foreground">شماره کارت</span>
-            <span
-              className="font-mono text-base font-black tracking-widest text-foreground"
-              dir="ltr"
-            >
+            <span className="text-base font-black tracking-widest text-foreground" dir="ltr">
               {instructions.cardNumber}
             </span>
           </div>
@@ -119,11 +150,11 @@ function ReceiptStep({
 
       {/* Receipt upload */}
       <form onSubmit={handleUpload} className="space-y-4">
-        <h3 className="text-base font-black">آپلود رسید واریزی</h3>
+        <h3 className="text-base font-black text-foreground">آپلود رسید واریزی</h3>
 
         <button
           type="button"
-          className="flex w-full cursor-pointer flex-col items-center justify-center gap-2 border border-dashed border-border bg-card p-8 transition hover:border-gold/60"
+          className="flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card p-8 text-card-foreground transition hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           onClick={() => fileRef.current?.click()}
           aria-label="انتخاب تصویر رسید"
         >
@@ -135,10 +166,10 @@ function ReceiptStep({
             onChange={handleFileChange}
           />
           {file ? (
-            <span className="text-sm font-bold text-gold">{file.name}</span>
+            <span className="text-sm font-bold text-primary">{file.name}</span>
           ) : (
             <>
-              <span className="text-2xl">📎</span>
+              <Upload className="size-7 text-muted-foreground" aria-hidden="true" />
               <span className="text-sm font-bold text-muted-foreground">
                 کلیک کنید و تصویر رسید را انتخاب کنید
               </span>
@@ -147,7 +178,7 @@ function ReceiptStep({
         </button>
 
         {error ? (
-          <p className="rounded border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-bold text-destructive">
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-bold text-destructive">
             {error}
           </p>
         ) : null}
@@ -155,12 +186,203 @@ function ReceiptStep({
         <button
           type="submit"
           disabled={uploading || !file}
-          className="h-14 w-full rounded-full bg-gold text-base font-black text-luxe transition hover:brightness-110 disabled:opacity-50"
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-black text-primary-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50"
         >
+          {uploading ? (
+            <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+          ) : (
+            <Upload className="size-5" aria-hidden="true" />
+          )}
           {uploading ? "در حال آپلود…" : "ارسال رسید و تأیید سفارش"}
         </button>
       </form>
     </div>
+  );
+}
+
+// ─── Order Summary ────────────────────────────────────────────────────────────
+
+function OrderSummary({
+  cart,
+  subtotal,
+  discount,
+  total,
+  couponInput,
+  setCouponInput,
+  appliedCoupon,
+  couponPending,
+  applyCoupon,
+  removeCoupon,
+}: {
+  cart: CartView;
+  subtotal: number;
+  discount: number;
+  total: number;
+  couponInput: string;
+  setCouponInput: (value: string) => void;
+  appliedCoupon: AppliedCoupon | null;
+  couponPending: boolean;
+  applyCoupon: () => void;
+  removeCoupon: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 text-card-foreground sm:p-6">
+      <h2 className="mb-4 text-lg font-black">خلاصه سفارش</h2>
+
+      {/* Line items */}
+      <ul className="space-y-3">
+        {cart.items.map((item) => (
+          <li key={item.variantId} className="flex items-center gap-3">
+            <div className="relative size-14 shrink-0 overflow-hidden rounded-md bg-muted">
+              {item.imageUrl ? (
+                <img
+                  src={item.imageUrl}
+                  alt={item.titleFa}
+                  className="h-full w-full object-cover"
+                />
+              ) : null}
+              <span className="absolute -left-1 -top-1 flex size-5 items-center justify-center rounded-full bg-foreground text-[10px] font-black text-background">
+                {toFaNumber(item.quantity)}
+              </span>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate text-sm font-bold">{item.titleFa}</span>
+              <span className="truncate text-xs text-muted-foreground">{item.variantTitleFa}</span>
+            </div>
+            <span className="shrink-0 text-sm font-black">{formatToman(item.lineTotal)}</span>
+          </li>
+        ))}
+      </ul>
+
+      {/* Coupon */}
+      <div className="mt-5 border-t border-border pt-5">
+        {appliedCoupon ? (
+          <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Tag className="size-4 text-primary" aria-hidden="true" />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-black text-primary" dir="ltr">
+                  {appliedCoupon.code}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {formatToman(appliedCoupon.discountAmount)} تخفیف اعمال شد
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={removeCoupon}
+              className="flex items-center gap-1 text-sm font-bold text-destructive hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+            >
+              <X className="size-4" aria-hidden="true" />
+              حذف
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={couponInput}
+              onChange={(e) => setCouponInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applyCoupon();
+                }
+              }}
+              className={inputClass}
+              placeholder="کد تخفیف"
+              dir="ltr"
+              aria-label="کد تخفیف"
+            />
+            <button
+              type="button"
+              onClick={applyCoupon}
+              disabled={couponPending || !couponInput.trim()}
+              className="flex h-11 shrink-0 items-center justify-center rounded-full bg-foreground px-6 text-sm font-black text-background transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground/40 disabled:opacity-50"
+            >
+              {couponPending ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                "اعمال"
+              )}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Totals */}
+      <div className="mt-5 space-y-2 border-t border-border pt-5 text-sm">
+        <div className="flex items-center justify-between text-muted-foreground">
+          <span>جمع جزء</span>
+          <span>{formatToman(subtotal)}</span>
+        </div>
+        {discount > 0 ? (
+          <div className="flex items-center justify-between text-primary">
+            <span>تخفیف</span>
+            <span dir="ltr">−{formatToman(discount)}</span>
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-black">
+          <span>جمع کل</span>
+          <span className="text-primary">{formatToman(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Payment Method Card ──────────────────────────────────────────────────────
+
+function MethodCard({
+  meta,
+  enabled,
+  selected,
+  onSelect,
+}: {
+  meta: PaymentMethodMeta;
+  enabled: boolean;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = METHOD_ICONS[meta.method];
+
+  return (
+    <label
+      className={cn(
+        "flex items-center gap-3 rounded-lg border p-4 transition",
+        enabled
+          ? "cursor-pointer focus-within:ring-2 focus-within:ring-primary/40"
+          : "cursor-not-allowed opacity-60",
+        selected ? "border-primary bg-primary/5" : "border-border bg-card",
+        enabled && !selected ? "hover:border-primary/50" : "",
+      )}
+    >
+      <input
+        type="radio"
+        name="paymentMethod"
+        value={meta.method}
+        checked={selected}
+        disabled={!enabled}
+        onChange={onSelect}
+        className="size-4 shrink-0 accent-primary"
+      />
+      <Icon
+        className={cn("size-5 shrink-0", selected ? "text-primary" : "text-muted-foreground")}
+        aria-hidden="true"
+      />
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex items-center gap-2">
+          <span className="font-bold text-foreground">{meta.label}</span>
+          {!enabled ? (
+            <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-black text-muted-foreground">
+              به‌زودی
+            </span>
+          ) : null}
+        </span>
+        <span className="truncate text-xs text-muted-foreground">{meta.description}</span>
+      </span>
+    </label>
   );
 }
 
@@ -172,15 +394,22 @@ export function CheckoutClient({
   hasDigital = false,
   defaultShipping,
   defaultEmail = "",
+  enabledMethods,
 }: {
   cart: CartView;
   hasPhysical: boolean;
   hasDigital?: boolean;
   defaultShipping?: ShippingFields;
   defaultEmail?: string;
+  enabledMethods: PaymentMethod[];
 }) {
   const router = useRouter();
-  const [method, setMethod] = useState<PaymentMethod>("MANUAL");
+
+  const enabledSet = new Set(enabledMethods);
+  const firstEnabled =
+    PAYMENT_METHODS.find((m) => enabledSet.has(m.method))?.method ?? PAYMENT_METHODS[0].method;
+
+  const [method, setMethod] = useState<PaymentMethod>(firstEnabled);
   const [shipping, setShipping] = useState<ShippingFields>(defaultShipping ?? EMPTY_SHIPPING);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -189,6 +418,7 @@ export function CheckoutClient({
   const [customerEmail, setCustomerEmail] = useState(defaultEmail);
   const [isGift, setIsGift] = useState(false);
   const [recipientEmail, setRecipientEmail] = useState("");
+  const [recipientPhone, setRecipientPhone] = useState("");
   const [giftMessage, setGiftMessage] = useState("");
 
   // Coupon state
@@ -253,6 +483,13 @@ export function CheckoutClient({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+
+    // Gift requires at least one of email/phone.
+    if (isGift && !recipientEmail.trim() && !recipientPhone.trim()) {
+      toast.error("ایمیل یا موبایل گیرنده هدیه را وارد کنید.");
+      return;
+    }
+
     setPending(true);
 
     try {
@@ -271,6 +508,7 @@ export function CheckoutClient({
         body.gift = {
           isGift: true,
           recipientEmail: recipientEmail.trim() || undefined,
+          recipientPhone: recipientPhone.trim() || undefined,
           giftMessage: giftMessage.trim() || undefined,
         };
       }
@@ -324,301 +562,290 @@ export function CheckoutClient({
     return <ReceiptStep orderId={receiptStep.orderId} instructions={receiptStep.instructions} />;
   }
 
+  const summary = (
+    <OrderSummary
+      cart={cart}
+      subtotal={subtotal}
+      discount={discount}
+      total={total}
+      couponInput={couponInput}
+      setCouponInput={setCouponInput}
+      appliedCoupon={appliedCoupon}
+      couponPending={couponPending}
+      applyCoupon={applyCoupon}
+      removeCoupon={removeCoupon}
+    />
+  );
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-8" dir="rtl">
-      {/* Buyer email */}
-      <section>
-        <h2 className="mb-4 text-lg font-black">ایمیل خریدار</h2>
-        <div>
-          <label
-            htmlFor="buyer-email"
-            className="mb-1 block text-sm font-bold text-muted-foreground"
-          >
-            ایمیل
-          </label>
-          <input
-            id="buyer-email"
-            type="email"
-            required={hasDigital}
-            value={customerEmail}
-            onChange={(e) => setCustomerEmail(e.target.value)}
-            className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-            placeholder="name@example.com"
-            dir="ltr"
-            inputMode="email"
-            autoComplete="email"
-          />
-          <p className="mt-2 text-xs leading-6 text-muted-foreground">
-            کد خرید به این ایمیل ارسال می‌شود.
-          </p>
-        </div>
-      </section>
+    <div dir="rtl" className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+      {/* Summary first on mobile, sidebar on desktop */}
+      <aside className="order-first lg:order-last lg:sticky lg:top-6">{summary}</aside>
 
-      {/* Gift */}
-      <section>
-        <label className="flex cursor-pointer items-center gap-3">
-          <input
-            type="checkbox"
-            checked={isGift}
-            onChange={(e) => setIsGift(e.target.checked)}
-            className="size-4 accent-gold"
-          />
-          <span className="text-lg font-black">این خرید هدیه است</span>
-        </label>
-
-        {isGift ? (
-          <div className="mt-4 space-y-4 border-r-2 border-gold/40 pr-4">
-            <p className="text-xs leading-6 text-muted-foreground">
-              کد خرید به جای شما، به ایمیل گیرنده ارسال می‌شود.
-            </p>
-            <div>
-              <label
-                htmlFor="recipient-email"
-                className="mb-1 block text-sm font-bold text-muted-foreground"
-              >
-                ایمیل گیرنده
-              </label>
-              <input
-                id="recipient-email"
-                type="email"
-                required={isGift}
-                value={recipientEmail}
-                onChange={(e) => setRecipientEmail(e.target.value)}
-                className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-                placeholder="recipient@example.com"
-                dir="ltr"
-                inputMode="email"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="gift-message"
-                className="mb-1 block text-sm font-bold text-muted-foreground"
-              >
-                پیام هدیه (اختیاری)
-              </label>
-              <textarea
-                id="gift-message"
-                value={giftMessage}
-                onChange={(e) => setGiftMessage(e.target.value)}
-                rows={3}
-                maxLength={500}
-                className="w-full resize-none border border-border bg-card px-4 py-3 text-sm outline-none focus:border-gold"
-                placeholder="پیام شما برای گیرنده هدیه…"
-              />
-            </div>
-          </div>
-        ) : null}
-      </section>
-
-      {/* Coupon */}
-      <section>
-        <h2 className="mb-4 text-lg font-black">کد تخفیف</h2>
-        {appliedCoupon ? (
-          <div className="flex items-center justify-between border border-gold/40 bg-gold/5 px-4 py-3">
-            <div className="flex flex-col gap-1">
-              <span className="font-mono text-sm font-black text-gold" dir="ltr">
-                {appliedCoupon.code}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {formatToman(appliedCoupon.discountAmount)} تخفیف اعمال شد
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={removeCoupon}
-              className="text-sm font-bold text-destructive hover:underline"
-            >
-              حذف
-            </button>
-          </div>
-        ) : (
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={couponInput}
-              onChange={(e) => setCouponInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  applyCoupon();
-                }
-              }}
-              className="h-11 flex-1 border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-              placeholder="کد تخفیف را وارد کنید"
-              dir="ltr"
-            />
-            <button
-              type="button"
-              onClick={applyCoupon}
-              disabled={couponPending || !couponInput.trim()}
-              className="h-11 shrink-0 rounded-full bg-foreground px-6 text-sm font-black text-background transition hover:brightness-110 disabled:opacity-50"
-            >
-              {couponPending ? "…" : "اعمال"}
-            </button>
-          </div>
-        )}
-      </section>
-
-      {/* Order totals — server stays authoritative; this preview reflects coupon. */}
-      <section className="border-t border-border pt-6">
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center justify-between text-muted-foreground">
-            <span>جمع جزء</span>
-            <span>{formatToman(subtotal)}</span>
-          </div>
-          {discount > 0 ? (
-            <div className="flex items-center justify-between text-gold">
-              <span>تخفیف</span>
-              <span dir="ltr">−{formatToman(discount)}</span>
-            </div>
-          ) : null}
-          <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-black">
-            <span>جمع کل</span>
-            <span className="text-gold">{formatToman(total)}</span>
-          </div>
-        </div>
-      </section>
-
-      {/* Payment method */}
-      <section>
-        <h2 className="mb-4 text-lg font-black">روش پرداخت</h2>
-        <div className="space-y-3">
-          {PAYMENT_METHODS.map(({ value, label }) => (
-            <label
-              key={value}
-              className={`flex cursor-pointer items-center gap-3 border p-4 transition ${
-                method === value
-                  ? "border-gold bg-gold/5 text-foreground"
-                  : "border-border bg-card text-foreground hover:border-gold/50"
-              }`}
-            >
-              <input
-                type="radio"
-                name="paymentMethod"
-                value={value}
-                checked={method === value}
-                onChange={() => setMethod(value)}
-                className="accent-gold"
-              />
-              <span className="font-bold">{label}</span>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      {/* Address form — only for physical items */}
-      {hasPhysical ? (
+      <form onSubmit={handleSubmit} className="order-last space-y-8 lg:order-first">
+        {/* Buyer email */}
         <section>
-          <h2 className="mb-4 text-lg font-black">آدرس ارسال</h2>
-          <div className="space-y-4">
-            <div>
-              <label
-                htmlFor="sh-name"
-                className="mb-1 block text-sm font-bold text-muted-foreground"
-              >
-                نام گیرنده
-              </label>
-              <input
-                id="sh-name"
-                type="text"
-                required
-                value={shipping.customerName}
-                onChange={(e) => updateShipping("customerName", e.target.value)}
-                className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-                placeholder="نام و نام خانوادگی"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="sh-address"
-                className="mb-1 block text-sm font-bold text-muted-foreground"
-              >
-                نشانی
-              </label>
-              <input
-                id="sh-address"
-                type="text"
-                required
-                value={shipping.addressLine}
-                onChange={(e) => updateShipping("addressLine", e.target.value)}
-                className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-                placeholder="خیابان، کوچه، پلاک"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label
-                  htmlFor="sh-city"
-                  className="mb-1 block text-sm font-bold text-muted-foreground"
-                >
-                  شهر
-                </label>
-                <input
-                  id="sh-city"
-                  type="text"
-                  required
-                  value={shipping.city}
-                  onChange={(e) => updateShipping("city", e.target.value)}
-                  className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-                  placeholder="تهران"
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="sh-province"
-                  className="mb-1 block text-sm font-bold text-muted-foreground"
-                >
-                  استان
-                </label>
-                <input
-                  id="sh-province"
-                  type="text"
-                  required
-                  value={shipping.province}
-                  onChange={(e) => updateShipping("province", e.target.value)}
-                  className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-                  placeholder="تهران"
-                />
-              </div>
-            </div>
-            <div>
-              <label
-                htmlFor="sh-postal"
-                className="mb-1 block text-sm font-bold text-muted-foreground"
-              >
-                کد پستی
-              </label>
-              <input
-                id="sh-postal"
-                type="text"
-                required
-                value={shipping.postalCode}
-                onChange={(e) => updateShipping("postalCode", e.target.value)}
-                className="h-11 w-full border border-border bg-card px-4 text-sm outline-none focus:border-gold"
-                placeholder="۱۲۳۴۵۶۷۸۹۰"
-                maxLength={10}
-              />
-            </div>
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-black text-foreground">
+            <Mail className="size-5 text-muted-foreground" aria-hidden="true" />
+            ایمیل خریدار
+          </h2>
+          <div>
+            <label
+              htmlFor="buyer-email"
+              className="mb-1.5 block text-sm font-bold text-muted-foreground"
+            >
+              ایمیل
+            </label>
+            <input
+              id="buyer-email"
+              type="email"
+              required={hasDigital}
+              value={customerEmail}
+              onChange={(e) => setCustomerEmail(e.target.value)}
+              className={inputClass}
+              placeholder="name@example.com"
+              dir="ltr"
+              inputMode="email"
+              autoComplete="email"
+            />
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              کد خرید به این ایمیل ارسال می‌شود.
+            </p>
           </div>
         </section>
-      ) : null}
 
-      {/* Error */}
-      {error ? (
-        <p className="rounded border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-bold text-destructive">
-          {error}
-        </p>
-      ) : null}
+        {/* Gift */}
+        <section>
+          <label className="flex cursor-pointer items-center gap-3">
+            <input
+              type="checkbox"
+              checked={isGift}
+              onChange={(e) => setIsGift(e.target.checked)}
+              className="size-4 accent-primary"
+            />
+            <Gift className="size-5 text-muted-foreground" aria-hidden="true" />
+            <span className="text-lg font-black text-foreground">این خرید هدیه است</span>
+          </label>
 
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={pending || cart.items.length === 0}
-        className="h-14 w-full rounded-full bg-gold text-base font-black text-luxe transition hover:brightness-110 disabled:opacity-50"
-      >
-        {pending ? "در حال پردازش…" : "نهایی کردن سفارش"}
-      </button>
-    </form>
+          {isGift ? (
+            <div className="mt-4 space-y-4 border-r-2 border-primary/40 pr-4">
+              <p className="text-xs leading-6 text-muted-foreground">
+                حداقل یکی را وارد کنید؛ کد به همان ارسال می‌شود.
+              </p>
+              <div>
+                <label
+                  htmlFor="recipient-email"
+                  className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-muted-foreground"
+                >
+                  <Mail className="size-4" aria-hidden="true" />
+                  ایمیل گیرنده
+                </label>
+                <input
+                  id="recipient-email"
+                  type="email"
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  className={inputClass}
+                  placeholder="recipient@example.com"
+                  dir="ltr"
+                  inputMode="email"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="recipient-phone"
+                  className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-muted-foreground"
+                >
+                  <Phone className="size-4" aria-hidden="true" />
+                  موبایل گیرنده
+                </label>
+                <input
+                  id="recipient-phone"
+                  type="tel"
+                  value={recipientPhone}
+                  onChange={(e) => setRecipientPhone(e.target.value)}
+                  className={inputClass}
+                  placeholder="0912xxxxxxx"
+                  dir="ltr"
+                  inputMode="tel"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="gift-message"
+                  className="mb-1.5 block text-sm font-bold text-muted-foreground"
+                >
+                  پیام هدیه (اختیاری)
+                </label>
+                <textarea
+                  id="gift-message"
+                  value={giftMessage}
+                  onChange={(e) => setGiftMessage(e.target.value)}
+                  rows={3}
+                  maxLength={500}
+                  className="w-full resize-none rounded-md border border-border bg-background px-4 py-3 text-sm text-foreground outline-none transition placeholder:text-muted-foreground focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+                  placeholder="پیام شما برای گیرنده هدیه…"
+                />
+              </div>
+            </div>
+          ) : null}
+        </section>
+
+        {/* Payment method */}
+        <section>
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-black text-foreground">
+            <Wallet className="size-5 text-muted-foreground" aria-hidden="true" />
+            روش پرداخت
+          </h2>
+          <div className="space-y-6">
+            {PAYMENT_METHOD_GROUPS.map((group) => {
+              const methods = PAYMENT_METHODS.filter((m) => m.group === group.group);
+              if (methods.length === 0) {
+                return null;
+              }
+              const GroupIcon = GROUP_ICONS[group.group];
+              return (
+                <div key={group.group}>
+                  <div className="mb-3 flex items-center gap-2">
+                    <GroupIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+                    <h3 className="text-sm font-black text-muted-foreground">{group.label}</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {methods.map((meta) => (
+                      <MethodCard
+                        key={meta.method}
+                        meta={meta}
+                        enabled={enabledSet.has(meta.method)}
+                        selected={method === meta.method}
+                        onSelect={() => setMethod(meta.method)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Address form — only for physical items */}
+        {hasPhysical ? (
+          <section>
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-black text-foreground">
+              <Smartphone className="size-5 text-muted-foreground" aria-hidden="true" />
+              آدرس ارسال
+            </h2>
+            <div className="space-y-4">
+              <div>
+                <label
+                  htmlFor="sh-name"
+                  className="mb-1.5 block text-sm font-bold text-muted-foreground"
+                >
+                  نام گیرنده
+                </label>
+                <input
+                  id="sh-name"
+                  type="text"
+                  required
+                  value={shipping.customerName}
+                  onChange={(e) => updateShipping("customerName", e.target.value)}
+                  className={inputClass}
+                  placeholder="نام و نام خانوادگی"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="sh-address"
+                  className="mb-1.5 block text-sm font-bold text-muted-foreground"
+                >
+                  نشانی
+                </label>
+                <input
+                  id="sh-address"
+                  type="text"
+                  required
+                  value={shipping.addressLine}
+                  onChange={(e) => updateShipping("addressLine", e.target.value)}
+                  className={inputClass}
+                  placeholder="خیابان، کوچه، پلاک"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="sh-city"
+                    className="mb-1.5 block text-sm font-bold text-muted-foreground"
+                  >
+                    شهر
+                  </label>
+                  <input
+                    id="sh-city"
+                    type="text"
+                    required
+                    value={shipping.city}
+                    onChange={(e) => updateShipping("city", e.target.value)}
+                    className={inputClass}
+                    placeholder="تهران"
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="sh-province"
+                    className="mb-1.5 block text-sm font-bold text-muted-foreground"
+                  >
+                    استان
+                  </label>
+                  <input
+                    id="sh-province"
+                    type="text"
+                    required
+                    value={shipping.province}
+                    onChange={(e) => updateShipping("province", e.target.value)}
+                    className={inputClass}
+                    placeholder="تهران"
+                  />
+                </div>
+              </div>
+              <div>
+                <label
+                  htmlFor="sh-postal"
+                  className="mb-1.5 block text-sm font-bold text-muted-foreground"
+                >
+                  کد پستی
+                </label>
+                <input
+                  id="sh-postal"
+                  type="text"
+                  required
+                  value={shipping.postalCode}
+                  onChange={(e) => updateShipping("postalCode", e.target.value)}
+                  className={inputClass}
+                  placeholder="۱۲۳۴۵۶۷۸۹۰"
+                  maxLength={10}
+                  dir="ltr"
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {/* Error */}
+        {error ? (
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-bold text-destructive">
+            {error}
+          </p>
+        ) : null}
+
+        {/* Submit */}
+        <button
+          type="submit"
+          disabled={pending || cart.items.length === 0}
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-full bg-primary text-base font-black text-primary-foreground transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50"
+        >
+          {pending ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : null}
+          {pending ? "در حال پردازش…" : "نهایی کردن سفارش"}
+        </button>
+      </form>
+    </div>
   );
 }

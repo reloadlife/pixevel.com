@@ -106,6 +106,7 @@ export async function listInventoryUnits(filters: InventoryListFilters) {
         variantTitleFa: productVariants.titleFa,
         productId: productVariants.productId,
         productTitleFa: products.titleFa,
+        fulfillmentType: products.fulfillmentType,
       })
       .from(inventoryUnits)
       .innerJoin(productVariants, eq(inventoryUnits.variantId, productVariants.id))
@@ -125,21 +126,32 @@ export async function listInventoryUnits(filters: InventoryListFilters) {
   const total = totalRows[0]?.value ?? 0;
 
   return {
-    units: rows.map((row) => ({
-      id: row.id,
-      code: row.code,
-      maskedCode: maskCode(row.code),
-      status: row.status,
-      reservedAt: row.reservedAt ? row.reservedAt.toISOString() : null,
-      soldAt: row.soldAt ? row.soldAt.toISOString() : null,
-      createdAt: row.createdAt ? row.createdAt.toISOString() : null,
-      orderId: row.orderId ?? null,
-      variantId: row.variantId,
-      variantSku: row.variantSku,
-      variantTitleFa: row.variantTitleFa,
-      productId: row.productId,
-      productTitleFa: row.productTitleFa,
-    })),
+    units: rows.map((row) => {
+      // Only DIGITAL units hold a real sellable secret (gift-card code / CD key)
+      // that must be masked by default. PHYSICAL (and other non-digital) units
+      // carry a meaningless internal serial — show it plainly, never mask it as
+      // if it were a secret.
+      const isSecret = row.fulfillmentType === "DIGITAL";
+
+      return {
+        id: row.id,
+        code: row.code,
+        // For secrets this is the masked form; for serials it is the serial as-is.
+        maskedCode: isSecret ? maskCode(row.code) : row.code,
+        isSecret,
+        fulfillmentType: row.fulfillmentType,
+        status: row.status,
+        reservedAt: row.reservedAt ? row.reservedAt.toISOString() : null,
+        soldAt: row.soldAt ? row.soldAt.toISOString() : null,
+        createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+        orderId: row.orderId ?? null,
+        variantId: row.variantId,
+        variantSku: row.variantSku,
+        variantTitleFa: row.variantTitleFa,
+        productId: row.productId,
+        productTitleFa: row.productTitleFa,
+      };
+    }),
     pagination: {
       page,
       pageSize,

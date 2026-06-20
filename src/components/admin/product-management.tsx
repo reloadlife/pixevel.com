@@ -714,11 +714,16 @@ export function ProductManagement({
         sizes: sizes.map((size) => size.value.trim()).filter(Boolean),
         stockPerVariant: Number(normalizePriceValue(form.stockPerVariant) || 0),
         fulfillmentType: form.fulfillmentType,
-        stockCodesByVariantKey: Object.fromEntries(
-          Object.entries(stockCodesByVariantKey)
-            .map(([key, raw]) => [key, parseCodes(raw)] as const)
-            .filter(([, codes]) => codes.length > 0),
-        ),
+        // Real codes only apply to DIGITAL products. PHYSICAL stock is created by
+        // quantity (auto-serialed), so never forward pasted codes for it.
+        stockCodesByVariantKey:
+          form.fulfillmentType === "DIGITAL"
+            ? Object.fromEntries(
+                Object.entries(stockCodesByVariantKey)
+                  .map(([key, raw]) => [key, parseCodes(raw)] as const)
+                  .filter(([, codes]) => codes.length > 0),
+              )
+            : {},
         images: imageRows
           .map((image, index) => ({
             url: image.url.trim(),
@@ -845,7 +850,9 @@ export function ProductManagement({
           compareAtAmount: variant.compareAtAmount || null,
           isDefault: variant.isDefault,
           stockToAdd: Number(normalizePriceValue(variant.stockToAdd) || 0),
-          stockCodes: parseCodes(variant.stockCodes),
+          // Codes only apply to DIGITAL; PHYSICAL stock is quantity-driven and
+          // auto-serialed, so never forward pasted codes for non-digital products.
+          stockCodes: editForm.fulfillmentType === "DIGITAL" ? parseCodes(variant.stockCodes) : [],
         })),
       }),
     });
@@ -1059,7 +1066,11 @@ export function ProductManagement({
               onChange={(value) => setField("compareAtAmount", value)}
             />
             <Input
-              label="موجودی هر تنوع (تعداد، در صورت نبود کد)"
+              label={
+                form.fulfillmentType === "PHYSICAL"
+                  ? "موجودی هر تنوع (تعداد)"
+                  : "موجودی هر تنوع (تعداد، در صورت نبود کد)"
+              }
               value={form.stockPerVariant}
               onChange={(value) => setField("stockPerVariant", value)}
               dir="ltr"
@@ -1236,33 +1247,43 @@ export function ProductManagement({
             />
           </div>
 
-          <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
-            <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها و کدها</p>
-            <p className="mb-3 text-xs text-zinc-500">
-              برای هر تنوع می‌توانید کدهای واقعی (کارت هدیه / لایسنس) را وارد کنید؛ هر خط یک کد. اگر
-              کدی وارد نشود، به اندازه «موجودی هر تنوع» کد خودکار ساخته می‌شود.
-            </p>
-            <div className="grid gap-3 md:grid-cols-2">
-              {variantPreview.map((item) => (
-                <div key={item.id} className="border border-zinc-200 bg-white p-2">
-                  <span className="mb-1 block text-xs font-bold">{item.label}</span>
-                  <textarea
-                    value={stockCodesByVariantKey[item.id] ?? ""}
-                    onChange={(event) =>
-                      setStockCodesByVariantKey((current) => ({
-                        ...current,
-                        [item.id]: event.target.value,
-                      }))
-                    }
-                    rows={3}
-                    dir="ltr"
-                    placeholder={"CODE-AAAA-BBBB\nCODE-CCCC-DDDD"}
-                    className="w-full resize-y border border-zinc-300 bg-white p-2 font-mono text-xs outline-none focus:border-zinc-950"
-                  />
-                </div>
-              ))}
+          {form.fulfillmentType === "DIGITAL" ? (
+            <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
+              <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها و کدها</p>
+              <p className="mb-3 text-xs text-zinc-500">
+                برای هر تنوع می‌توانید کدهای واقعی (کارت هدیه / لایسنس) را وارد کنید؛ هر خط یک کد.
+                اگر کدی وارد نشود، به اندازه «موجودی هر تنوع» کد خودکار ساخته می‌شود.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                {variantPreview.map((item) => (
+                  <div key={item.id} className="border border-zinc-200 bg-white p-2">
+                    <span className="mb-1 block text-xs font-bold">{item.label}</span>
+                    <textarea
+                      value={stockCodesByVariantKey[item.id] ?? ""}
+                      onChange={(event) =>
+                        setStockCodesByVariantKey((current) => ({
+                          ...current,
+                          [item.id]: event.target.value,
+                        }))
+                      }
+                      rows={3}
+                      dir="ltr"
+                      placeholder={"CODE-AAAA-BBBB\nCODE-CCCC-DDDD"}
+                      className="w-full resize-y border border-zinc-300 bg-white p-2 font-mono text-xs outline-none focus:border-zinc-950"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
+              <p className="mb-2 font-black">موجودی فیزیکی</p>
+              <p className="text-xs text-zinc-500">
+                برای محصولات فیزیکی موجودی بر اساس «تعداد» اضافه می‌شود؛ به ازای هر واحد یک ردیف
+                موجودی با سریال داخلی خودکار ساخته می‌شود. نیازی به وارد کردن کد نیست.
+              </p>
+            </div>
+          )}
 
           <Button className="mt-4 h-11 px-6 font-black" onClick={createProduct} disabled={saving}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
@@ -1491,12 +1512,14 @@ export function ProductManagement({
                         }
                       />
                     </div>
-                    <Textarea
-                      label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
-                      value={variant.stockCodes}
-                      onChange={(value) => updateEditVariant(variant.id, { stockCodes: value })}
-                      dir="ltr"
-                    />
+                    {editForm.fulfillmentType === "DIGITAL" ? (
+                      <Textarea
+                        label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
+                        value={variant.stockCodes}
+                        onChange={(value) => updateEditVariant(variant.id, { stockCodes: value })}
+                        dir="ltr"
+                      />
+                    ) : null}
                     <p className="text-xs font-bold text-zinc-500">
                       {availableStock(variant)} واحد موجود از {variant.inventoryUnits.length} واحد
                     </p>

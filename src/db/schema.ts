@@ -59,7 +59,27 @@ export const paymentStatus = pgEnum("payment_status", [
   "REFUNDED",
 ]);
 
-export const fulfillmentType = pgEnum("fulfillment_type", ["DIGITAL", "PHYSICAL"]);
+export const fulfillmentType = pgEnum("fulfillment_type", [
+  "DIGITAL",
+  "PHYSICAL",
+  "DOMAIN",
+  "SERVER",
+]);
+
+export const domainStatus = pgEnum("domain_status", [
+  "PENDING",
+  "REGISTERED",
+  "FAILED",
+  "EXPIRED",
+]);
+
+export const serverStatus = pgEnum("server_status", [
+  "PENDING",
+  "ACTIVE",
+  "FAILED",
+  "SUSPENDED",
+  "TERMINATED",
+]);
 
 export const reviewStatus = pgEnum("review_status", ["PENDING", "APPROVED", "REJECTED"]);
 
@@ -75,6 +95,8 @@ export type CartStatus = (typeof cartStatus.enumValues)[number];
 export type OrderStatus = (typeof orderStatus.enumValues)[number];
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number];
 export type FulfillmentType = (typeof fulfillmentType.enumValues)[number];
+export type DomainStatus = (typeof domainStatus.enumValues)[number];
+export type ServerStatus = (typeof serverStatus.enumValues)[number];
 export type ReviewStatus = (typeof reviewStatus.enumValues)[number];
 export type CouponKind = (typeof couponKind.enumValues)[number];
 
@@ -249,6 +271,8 @@ export const productVariants = pgTable(
     premiumPriceAmount: numeric("premiumPriceAmount", price),
     compareAtAmount: numeric("compareAtAmount", price),
     isDefault: boolean("isDefault").default(false).notNull(),
+    /** World-specific data: domain { domainName, tld, years }, server { planCode, cpu, ram, diskGb, periodMonths }. */
+    metadata: jsonb("metadata"),
     createdAt,
     updatedAt,
   },
@@ -477,6 +501,9 @@ export const orderItems = pgTable(
     quantity: integer("quantity").notNull(),
     unitPrice: numeric("unitPrice", price).notNull(),
     totalPrice: numeric("totalPrice", price).notNull(),
+    fulfillmentType: fulfillmentType("fulfillmentType").default("DIGITAL").notNull(),
+    /** World-specific data carried from the variant (domain / server). */
+    metadata: jsonb("metadata"),
   },
   (t) => [
     index("OrderItem_orderId_idx").on(t.orderId),
@@ -561,6 +588,52 @@ export const newsletterSubscribers = pgTable(
     updatedAt,
   },
   (t) => [index("NewsletterSubscriber_createdAt_idx").on(t.createdAt)],
+);
+
+export const domainRegistrations = pgTable(
+  "DomainRegistration",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderItemId: uuid("orderItemId").references(() => orderItems.id, { onDelete: "set null" }),
+    userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
+    domainName: text("domainName").notNull(),
+    tld: text("tld").notNull(),
+    years: integer("years").default(1).notNull(),
+    status: domainStatus("status").default("PENDING").notNull(),
+    registrarRef: text("registrarRef"),
+    registrarPayload: jsonb("registrarPayload"),
+    expiresAt: timestamp("expiresAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("DomainRegistration_userId_idx").on(t.userId),
+    index("DomainRegistration_status_idx").on(t.status),
+    index("DomainRegistration_domainName_idx").on(t.domainName),
+  ],
+);
+
+export const serverInstances = pgTable(
+  "ServerInstance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderItemId: uuid("orderItemId").references(() => orderItems.id, { onDelete: "set null" }),
+    userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
+    planCode: text("planCode").notNull(),
+    specs: jsonb("specs"),
+    status: serverStatus("status").default("PENDING").notNull(),
+    providerRef: text("providerRef"),
+    providerPayload: jsonb("providerPayload"),
+    ipAddress: text("ipAddress"),
+    periodMonths: integer("periodMonths").default(1).notNull(),
+    expiresAt: timestamp("expiresAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("ServerInstance_userId_idx").on(t.userId),
+    index("ServerInstance_status_idx").on(t.status),
+  ],
 );
 
 // --- Relations -------------------------------------------------------------

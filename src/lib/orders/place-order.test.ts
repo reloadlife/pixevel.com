@@ -97,7 +97,7 @@ async function seedCartItem(
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-test("placeOrder: happy path — DIGITAL item, MANUAL payment → order PENDING/UNPAID, unit RESERVED, orderItems + payment inserted, cart ORDERED", async () => {
+test("placeOrder: happy path — DIGITAL item, card-to-card payment → order PENDING/UNPAID, unit RESERVED, orderItems + payment inserted, cart ORDERED", async () => {
   await withRollback(async (tx) => {
     const userId = await seedUser(tx);
     const productId = await seedProduct(tx, { fulfillment: "DIGITAL" });
@@ -106,12 +106,12 @@ test("placeOrder: happy path — DIGITAL item, MANUAL payment → order PENDING/
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    const result = await placeOrder(userId, { paymentMethod: "MANUAL" }, { tx });
+    const result = await placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx });
 
     expect(result.orderId).toBeDefined();
     expect(result.orderNumber).toMatch(/^PX-/);
     expect(result.payment).toBeDefined();
-    expect(result.payment.method).toBe("MANUAL");
+    expect(result.payment.method).toBe("CARD_TO_CARD");
 
     // Order should be PENDING / UNPAID
     const [order] = await tx
@@ -138,14 +138,14 @@ test("placeOrder: happy path — DIGITAL item, MANUAL payment → order PENDING/
     expect(items).toHaveLength(1);
     expect(items[0].quantity).toBe(1);
 
-    // Payment inserted with MANUAL provider and UNPAID status
+    // Payment inserted with card-to-card provider and UNPAID status
     const pmts = await tx
       .select({ status: payments.status, provider: payments.provider })
       .from(payments)
       .where(eq(payments.orderId, result.orderId));
     expect(pmts).toHaveLength(1);
     expect(pmts[0].status).toBe("UNPAID");
-    expect(pmts[0].provider).toBe("MANUAL");
+    expect(pmts[0].provider).toBe("CARD_TO_CARD");
 
     // Cart should be ORDERED
     const [cart] = await tx
@@ -165,7 +165,7 @@ test("placeOrder: PHYSICAL product with no shipping → throws SHIPPING_REQUIRED
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    await expect(placeOrder(userId, { paymentMethod: "MANUAL" }, { tx })).rejects.toMatchObject({
+    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
       code: "SHIPPING_REQUIRED",
     });
   });
@@ -180,7 +180,7 @@ test("placeOrder: out-of-stock variant → throws OUT_OF_STOCK", async () => {
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    await expect(placeOrder(userId, { paymentMethod: "MANUAL" }, { tx })).rejects.toMatchObject({
+    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
       code: "OUT_OF_STOCK",
     });
   });
@@ -192,7 +192,7 @@ test("placeOrder: empty cart → throws CART_EMPTY", async () => {
     await seedCart(tx, userId);
     // No cart items seeded
 
-    await expect(placeOrder(userId, { paymentMethod: "MANUAL" }, { tx })).rejects.toMatchObject({
+    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
       code: "CART_EMPTY",
     });
   });
@@ -203,7 +203,7 @@ test("placeOrder: no cart at all → throws CART_EMPTY", async () => {
     const userId = await seedUser(tx);
     // No cart seeded at all
 
-    await expect(placeOrder(userId, { paymentMethod: "MANUAL" }, { tx })).rejects.toMatchObject({
+    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
       code: "CART_EMPTY",
     });
   });
@@ -218,7 +218,7 @@ test("placeOrder: DISABLED product → throws PRODUCT_UNAVAILABLE", async () => 
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    await expect(placeOrder(userId, { paymentMethod: "MANUAL" }, { tx })).rejects.toMatchObject({
+    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
       code: "PRODUCT_UNAVAILABLE",
     });
   });

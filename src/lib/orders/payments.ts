@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { orderItems, orders, payments, products, productVariants } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { sendEmail } from "@/lib/email/client";
@@ -9,6 +9,8 @@ import {
   type OrderEmailSummary,
   orderReceiptEmail,
 } from "@/lib/email/templates";
+import { sendOrderCodesSms } from "@/lib/sms/order-codes";
+import { dispatchFulfillment } from "./fulfillment";
 import { releaseUnits, sellReservedUnits } from "./inventory";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -62,16 +64,25 @@ async function isAllDigital(tx: any, orderId: string): Promise<boolean> {
 export async function confirmPayment(orderId: string, opts: ConfirmOptions = {}): Promise<void> {
   const { reference } = opts;
 
-  const run = async (tx: any) => {
-    // 1. Update the payment row.
-    await tx
+  const run = async (tx: any): Promise<boolean> => {
+    // 1. Atomically transition the payment row, scoped to the pre-paid states.
+    //    A duplicate callback for an already-PAID/FAILED payment matches no rows,
+    //    so we never re-sell inventory or re-send codes. `returning` lets us
+    //    detect the no-op case regardless of the underlying driver's rowCount.
+    const transitioned = await tx
       .update(payments)
       .set({
         status: "PAID",
         paidAt: sql`now()`,
         ...(reference !== undefined ? { reference } : {}),
       })
-      .where(eq(payments.orderId, orderId));
+      .where(and(eq(payments.orderId, orderId), inArray(payments.status, ["UNPAID", "AUTHORIZED"])))
+      .returning({ id: payments.id });
+
+    // Already confirmed (or no matching payment) — stop before any side effects.
+    if (transitioned.length === 0) {
+      return false;
+    }
 
     // 2. Flip order payment status.
     await tx.update(orders).set({ paymentStatus: "PAID" }).where(eq(orders.id, orderId));
@@ -84,23 +95,32 @@ export async function confirmPayment(orderId: string, opts: ConfirmOptions = {})
     const newStatus = allDigital ? "DELIVERED" : "PROCESSING";
 
     await tx.update(orders).set({ status: newStatus }).where(eq(orders.id, orderId));
+
+    return true;
   };
 
+  let confirmed: boolean;
   if (opts.tx) {
-    await run(opts.tx);
+    confirmed = await run(opts.tx);
   } else {
     const db = getDb();
-    await db.transaction(run);
+    confirmed = await db.transaction(run);
   }
 
   // Best-effort transactional email delivery. Runs AFTER the payment is fully
   // committed and never throws — a missing email config or provider failure
   // must not affect the payment outcome (codes remain visible in the account).
   // We only attempt this on the standalone (non-composed) confirm path so we
-  // don't fire mail mid-transaction when callers inject their own `tx`.
-  if (!opts.tx) {
+  // don't fire mail mid-transaction when callers inject their own `tx`, and only
+  // on the FIRST real confirm — a duplicate callback that hit no rows must not
+  // re-send codes.
+  if (!opts.tx && confirmed) {
     await sendOrderEmails(orderId).catch((err) => {
       console.error("[payments] order email delivery error:", err);
+    });
+    // Provision non-code worlds (domains, servers) — best-effort, never blocks.
+    await dispatchFulfillment(orderId).catch((err: unknown) => {
+      console.error("[payments] fulfillment dispatch error:", err);
     });
   }
 }
@@ -167,9 +187,22 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
     }
   }
 
+  // Codes are only ever delivered for DIGITAL items. For PHYSICAL (and any
+  // non-digital world), a SOLD inventory unit's `code` is just an internal
+  // serial — never a sellable secret — so it must not be emailed or SMSed.
+  // The order's own line items carry the authoritative fulfillmentType per
+  // variant, so we gate delivery to units whose variant is DIGITAL.
+  const digitalVariantIds = new Set<string>();
+  for (const item of order.items) {
+    if (item.variantId && item.fulfillmentType === "DIGITAL") {
+      digitalVariantIds.add(item.variantId);
+    }
+  }
+  const digitalUnits = order.inventoryUnits.filter((unit) => digitalVariantIds.has(unit.variantId));
+
   // (b) Digital codes → recipientEmail ?? customerEmail.
   const codesTo = order.recipientEmail ?? order.customerEmail;
-  if (codesTo && order.inventoryUnits.length > 0) {
+  if (codesTo && digitalUnits.length > 0) {
     // Map variantId → product/item title via the order's own line items.
     const titleByVariant = new Map<string, string>();
     for (const item of order.items) {
@@ -180,7 +213,7 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
 
     // Group sold codes by variant, preserving an "گروه" per product line.
     const codesByVariant = new Map<string, string[]>();
-    for (const unit of order.inventoryUnits) {
+    for (const unit of digitalUnits) {
       const existing = codesByVariant.get(unit.variantId) ?? [];
       existing.push(unit.code);
       codesByVariant.set(unit.variantId, existing);
@@ -205,6 +238,23 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
       if (res.status === "failed") {
         console.error(`[payments] codes email failed for ${order.orderNumber}: ${res.message}`);
       }
+    }
+  }
+
+  // (c) Digital codes → SMS, alongside email. Best-effort: a missing SMS config
+  // or a delivery failure must never affect the (already-committed) payment.
+  // recipientPhone is only ever persisted for gift orders, so this resolves to
+  // the recipient for gifts and the buyer's own phone otherwise.
+  const smsTo = order.recipientPhone ?? order.customerPhone;
+  if (smsTo && digitalUnits.length > 0) {
+    const codes = digitalUnits.map((unit) => unit.code);
+    const sms = await sendOrderCodesSms({
+      phone: smsTo,
+      orderNumber: order.orderNumber,
+      codes,
+    });
+    if (sms.status === "failed") {
+      console.error(`[payments] codes SMS failed for ${order.orderNumber}: ${sms.message}`);
     }
   }
 }

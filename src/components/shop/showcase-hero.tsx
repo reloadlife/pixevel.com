@@ -82,7 +82,7 @@ export function ShowcaseHero({
         style={frozenSize}
       >
         <div className="max-w-4xl">
-          <p className="text-xs font-black uppercase tracking-[0.32em] text-gold">Pixevel</p>
+          <p className="text-xs font-black uppercase tracking-[0.32em] text-primary">Pixevel</p>
           <h2 className="mt-4 text-5xl font-black leading-tight sm:text-7xl lg:text-8xl">
             {title}
           </h2>
@@ -94,12 +94,12 @@ export function ShowcaseHero({
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <Link
               href={`/products/${productSlug}`}
-              className="bg-gold px-6 py-3 text-sm font-black text-luxe transition hover:bg-gold-strong"
+              className="bg-primary px-6 py-3 text-sm font-black text-primary-foreground transition hover:bg-primary/90"
             >
               مشاهده محصول
             </Link>
-            <span className="text-sm font-bold text-luxe-muted">
-              از <span className="text-gold">{formatToman(price)}</span>
+            <span className="text-sm font-bold text-white/70">
+              از <span className="text-primary">{formatToman(price)}</span>
             </span>
           </div>
         </div>

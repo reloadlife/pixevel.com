@@ -1,12 +1,21 @@
 import { and, eq } from "drizzle-orm";
-import { cartItems, carts, orderItems, orders, payments, users } from "@/db/schema";
+import {
+  cartItems,
+  carts,
+  type FulfillmentType,
+  orderItems,
+  orders,
+  payments,
+  users,
+} from "@/db/schema";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { incrementCouponUsage, validateCoupon } from "@/lib/coupons";
 import { getDb } from "@/lib/db";
+import { isPaymentMethod } from "@/lib/payments/methods";
 import { getProvider, type PaymentMethod } from "@/lib/payments/provider";
-// Self-register providers so they are always available.
-import "@/lib/payments/manual";
-import "@/lib/payments/card-to-card";
+import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
+// Self-register every payment provider so getProvider() always resolves.
+import "@/lib/payments/register";
 import { OutOfStockError, releaseExpiredReservations, reserveUnits } from "./inventory";
 import { generateOrderNumber } from "./order-number";
 
@@ -18,6 +27,9 @@ export type OrderErrorCode =
   | "OUT_OF_STOCK"
   | "PRODUCT_UNAVAILABLE"
   | "INVALID_EMAIL"
+  | "INVALID_PHONE"
+  | "INVALID_PAYMENT_METHOD"
+  | "GIFT_CONTACT_REQUIRED"
   | "INVALID_COUPON";
 
 export class OrderError extends Error {
@@ -44,6 +56,8 @@ export interface GiftInput {
   /** When true, codes/receipt are delivered to the recipient. */
   isGift: boolean;
   recipientEmail?: string;
+  /** Recipient's mobile number for SMS code delivery (Iran format). */
+  recipientPhone?: string;
   giftMessage?: string;
 }
 
@@ -110,6 +124,11 @@ export async function placeOrder(
   const { paymentMethod, shipping, gift } = input;
 
   // ── Capture-field normalization + validation (before any DB work). ──────────
+  // Reject removed/invalid payment methods up front (MANUAL was removed).
+  if (!isPaymentMethod(paymentMethod)) {
+    throw new OrderError("INVALID_PAYMENT_METHOD", "روش پرداخت انتخاب‌شده معتبر نیست.");
+  }
+
   const customerEmail = input.customerEmail?.trim() || null;
   if (customerEmail && !isValidEmail(customerEmail)) {
     throw new OrderError("INVALID_EMAIL", "ایمیل خریدار معتبر نیست.");
@@ -120,6 +139,28 @@ export async function placeOrder(
   if (recipientEmail && !isValidEmail(recipientEmail)) {
     throw new OrderError("INVALID_EMAIL", "ایمیل گیرنده هدیه معتبر نیست.");
   }
+
+  // Recipient phone: normalize to 09xxxxxxxxx and validate (Iran format).
+  let recipientPhone: string | null = null;
+  if (isGift) {
+    const rawPhone = gift?.recipientPhone?.trim();
+    if (rawPhone) {
+      const normalized = normalizeIranPhone(rawPhone);
+      if (!isValidIranPhone(normalized)) {
+        throw new OrderError("INVALID_PHONE", "شماره موبایل گیرنده هدیه معتبر نیست.");
+      }
+      recipientPhone = normalized;
+    }
+  }
+
+  // A gift must reach the recipient somehow: email or phone (at least one).
+  if (isGift && !recipientEmail && !recipientPhone) {
+    throw new OrderError(
+      "GIFT_CONTACT_REQUIRED",
+      "برای ارسال هدیه، ایمیل یا شماره موبایل گیرنده الزامی است.",
+    );
+  }
+
   const giftMessage = isGift ? gift?.giftMessage?.trim() || null : null;
   const requestedCoupon = input.couponCode?.trim() || null;
 
@@ -198,7 +239,8 @@ export async function placeOrder(
       colorNameFa: string;
       materialNameFa: string;
       size: string;
-      fulfillmentType: string;
+      fulfillmentType: FulfillmentType;
+      metadata: unknown;
     };
 
     const pricedRows: PricedRow[] = [];
@@ -227,6 +269,7 @@ export async function placeOrder(
         materialNameFa: variant.materialNameFa,
         size: variant.size,
         fulfillmentType: product.fulfillmentType,
+        metadata: variant.metadata,
       });
     }
 
@@ -273,6 +316,7 @@ export async function placeOrder(
         customerPhone: user.phone ?? null,
         customerEmail,
         recipientEmail,
+        recipientPhone,
         giftMessage,
         couponCode: appliedCoupon,
         ...(shipping
@@ -324,6 +368,8 @@ export async function placeOrder(
         quantity: row.quantity,
         unitPrice: String(row.unitPrice),
         totalPrice: String(row.lineTotal),
+        fulfillmentType: row.fulfillmentType,
+        metadata: row.metadata,
       })),
     );
 
@@ -353,9 +399,19 @@ export async function placeOrder(
     await db.transaction(run);
   }
 
-  // After the transaction commits, initiate the payment.
+  // After the transaction commits, initiate the payment. Reload the full order
+  // row so the provider sees real values (totalAmount, customerPhone, …) rather
+  // than a stub — passing a partial stub leaves order.totalAmount undefined and
+  // every gateway computes NaN for the charge amount. When a tx was injected the
+  // row is not yet visible on a fresh connection, so read it back on that tx.
   const provider = getProvider(paymentMethod);
-  const orderRow = { id: orderId!, orderNumber: orderNumber! } as typeof orders.$inferSelect;
+  const reader = opts.tx ?? getDb();
+  const orderRow = await reader.query.orders.findFirst({
+    where: eq(orders.id, orderId!),
+  });
+  if (!orderRow) {
+    throw new Error("ORDER_NOT_FOUND");
+  }
   const initiateResult = await provider.initiate(orderRow, paymentRow!);
 
   return {

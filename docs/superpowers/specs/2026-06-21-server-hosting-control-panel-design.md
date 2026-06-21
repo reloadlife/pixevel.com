@@ -25,7 +25,7 @@ This design mirrors the **domains** feature's proven architecture: an env-gated 
 
 1. **All four backends** (WHM, Proxmox, KVM, ESXi) via **one universal adapter interface + capability model**.
 2. **Access model: one-click SSO / deep-link** into each panel's own console & login. **No** embedded noVNC / web-SSH proxy in v1 (avoids a long-lived websocket gateway outside Next's request model). Embedded console is an explicit follow-up.
-3. **Secrets model:** a DB `serverNodes` table with credentials **encrypted at rest** (AES-256-GCM, key from `SERVER_VAULT_KEY`). Per-server root passwords are **write-only** — set/reset and pushed to the panel, never persisted; only `lastPasswordRotatedAt` is stored.
+3. **Secrets model:** a DB `serverNodes` table with credentials **encrypted at rest** (AES-256-GCM, key from `APP_VAULT_KEY` — the shared app secrets key, see sibling spec). Per-server root passwords are **write-only** — set/reset and pushed to the panel, never persisted; only `lastPasswordRotatedAt` is stored.
 4. **v1 action set (Core):** console (VNC deep-link), one-click panel login (SSO), change root password, manage SSH keys, power (start/stop/reboot), live status/IP/specs. **Reinstall/rebuild-OS is in the interface but stubbed** (`NOT_IMPLEMENTED`) — it needs an OS-template catalog + per-provider cloud-init, deferred.
 5. **Password reset UX:** offer **both** — default to a strong auto-generated password shown once (copy-to-clipboard, never stored), with the option to type a custom one. Policy-validated either way.
 
@@ -178,10 +178,10 @@ New drizzle migration `0006_server_nodes`. Note the repo's known migration-drift
 
 ## 6. Secrets / crypto
 
-`src/lib/crypto/secrets.ts`:
+`src/lib/crypto/secrets.ts` (**shared** with the multi-registrar domains feature — see sibling spec):
 - `encryptSecret(plain: string): string` → `base64(iv(12) | tag(16) | ciphertext)` using AES-256-GCM.
 - `decryptSecret(blob: string): string`.
-- Key from `SERVER_VAULT_KEY` (32 bytes, hex or base64). **Required in production**; if absent, only demo mode works (no real nodes can be created/used).
+- Key from `APP_VAULT_KEY` (32 bytes, hex or base64) — one key for all at-rest secrets (server-node creds and registrar creds alike). **Required in production**; if absent, only demo mode works (no real nodes can be created/used).
 - Helpers `encryptJson`/`decryptJson` for the credentials object.
 - Key is read once, never logged; plaintext credentials exist only in-process at call time.
 
@@ -223,10 +223,10 @@ All responses use the standard `apiOk`/`apiError` envelope. Validation via `pars
 - Buttons render only for advertised capabilities (WHM shows login + password only).
 - Mobile-first, gold accent, matching the domains detail page style.
 
-### Admin — `/admin/servers`
-- Nodes section: table of `serverNodes` (provider, host, status, weight), add/edit form (provider-specific credential fields), "تست اتصال" button.
-- Instances section: table of all `serverInstances` with provider/status/user filters; suspend / retry-provision actions.
-- Linked from the admin sidebar (alongside analytics/blog/settings).
+### Admin — node management under `/admin/integrations` (server-nodes tab) + instances under `/admin/servers`
+- **`/admin/integrations` → server-nodes tab** (unified with the domain-registrars tab from the sibling spec): table of `serverNodes` (provider, host, status, weight), add/edit form (provider-specific credential fields), "تست اتصال" button.
+- **`/admin/servers`** instances section: table of all `serverInstances` with provider/status/user filters; suspend / retry-provision actions.
+- Sidebar links "ادغام‌ها / Integrations" + "سرورها" (alongside analytics/blog/settings).
 
 ---
 

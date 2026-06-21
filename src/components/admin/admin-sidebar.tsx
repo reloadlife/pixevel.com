@@ -1,19 +1,27 @@
 "use client";
 
 import {
+  BarChart3Icon,
+  BellIcon,
   BoxesIcon,
   ExternalLinkIcon,
+  GiftIcon,
   HomeIcon,
   ImageIcon,
   LayoutGridIcon,
+  LifeBuoyIcon,
   MailIcon,
+  NewspaperIcon,
   PackageIcon,
   PlusIcon,
+  SettingsIcon,
+  Share2Icon,
   ShoppingBagIcon,
   StarIcon,
   TagIcon,
   TicketPercentIcon,
   UsersIcon,
+  WalletIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -30,6 +38,7 @@ import {
 
 const navItems = [
   { href: "/admin", label: "داشبورد", icon: HomeIcon, exact: true },
+  { href: "/admin/analytics", label: "تحلیل و آمار", icon: BarChart3Icon, exact: false },
   { href: "/admin/products", label: "محصولات", icon: PackageIcon, exact: false },
   { href: "/admin/products/new", label: "افزودن محصول", icon: PlusIcon, exact: false },
   { href: "/admin/categories", label: "دسته‌ها", icon: LayoutGridIcon, exact: false },
@@ -39,9 +48,16 @@ const navItems = [
   { href: "/admin/inventory", label: "انبار و موجودی", icon: BoxesIcon, exact: false },
   { href: "/admin/orders", label: "سفارش‌ها", icon: ShoppingBagIcon, exact: false },
   { href: "/admin/coupons", label: "کدهای تخفیف", icon: TicketPercentIcon, exact: false },
+  { href: "/admin/gift-cards", label: "کارت‌های هدیه", icon: GiftIcon, exact: false },
   { href: "/admin/reviews", label: "دیدگاه‌ها", icon: StarIcon, exact: false },
+  { href: "/admin/support", label: "پشتیبانی", icon: LifeBuoyIcon, exact: false },
   { href: "/admin/users", label: "کاربران", icon: UsersIcon, exact: false },
+  { href: "/admin/balances", label: "کیف پول و امتیاز", icon: WalletIcon, exact: false },
+  { href: "/admin/notifications", label: "اعلان‌ها", icon: BellIcon, exact: false },
+  { href: "/admin/referrals", label: "معرفی دوستان", icon: Share2Icon, exact: false },
   { href: "/admin/newsletter", label: "خبرنامه", icon: MailIcon, exact: false },
+  { href: "/admin/blog", label: "بلاگ", icon: NewspaperIcon, exact: false },
+  { href: "/admin/settings", label: "تنظیمات", icon: SettingsIcon, exact: false },
   { href: "/", label: "مشاهده سایت", icon: ExternalLinkIcon, exact: true },
 ];
 

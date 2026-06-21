@@ -1,6 +1,6 @@
 import { and, desc, eq } from "drizzle-orm";
 
-import { productReviews, products } from "@/db/schema";
+import { orderItems, orders, productReviews, products, productVariants } from "@/db/schema";
 import { apiError, apiOk, readJson } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -149,6 +149,26 @@ export async function POST(request: Request) {
     return apiError("PRODUCT_NOT_FOUND", "محصول یافت نشد.", 404);
   }
 
+  // Verified-purchase gate: only a buyer (a PAID order containing this product)
+  // may review it — blocks review spam from non-customers.
+  const [purchased] = await db
+    .select({ id: orderItems.id })
+    .from(orderItems)
+    .innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .innerJoin(productVariants, eq(orderItems.variantId, productVariants.id))
+    .where(
+      and(
+        eq(orders.userId, user.id),
+        eq(orders.paymentStatus, "PAID"),
+        eq(productVariants.productId, productId),
+      ),
+    )
+    .limit(1);
+
+  if (!purchased) {
+    return apiError("NOT_PURCHASED", "فقط خریداران این محصول می‌توانند دیدگاه ثبت کنند.", 403);
+  }
+
   const authorName = user.fullName?.trim() || "کاربر پیسکول";
 
   try {
@@ -183,7 +203,8 @@ export async function POST(request: Request) {
       return apiError("DUPLICATE_REVIEW", "شما قبلاً برای این محصول دیدگاه ثبت کرده‌اید.", 409);
     }
 
-    throw error;
+    console.error("[reviews] create failed:", error);
+    return apiError("INTERNAL", "ثبت دیدگاه ممکن نشد.", 500);
   }
 }
 

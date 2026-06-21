@@ -11,6 +11,10 @@ type CategoryInput = {
   descriptionFa?: string;
   isVisible?: boolean;
   sortOrder?: number;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  ogImageUrl?: string | null;
+  noindex?: boolean;
 };
 
 type TagInput = {
@@ -63,6 +67,11 @@ export async function createAdminCategory(input: CategoryInput) {
   await validateCategoryParent(null, input.parentId || null);
 
   const sortOrder = Number.isFinite(input.sortOrder) ? Number(input.sortOrder) : 0;
+  const seoTitle = normalizeText(input.seoTitle);
+  const seoDescription = normalizeText(input.seoDescription);
+  const ogImageUrl = normalizeText(input.ogImageUrl);
+  const noindex = input.noindex ?? false;
+
   const [category] = await getDb()
     .insert(categories)
     .values({
@@ -72,6 +81,10 @@ export async function createAdminCategory(input: CategoryInput) {
       descriptionFa: input.descriptionFa?.trim() || null,
       isVisible: input.isVisible ?? true,
       sortOrder,
+      seoTitle,
+      seoDescription,
+      ogImageUrl,
+      noindex,
     })
     .onConflictDoUpdate({
       target: categories.slug,
@@ -81,11 +94,25 @@ export async function createAdminCategory(input: CategoryInput) {
         descriptionFa: input.descriptionFa?.trim() || null,
         ...(typeof input.isVisible === "boolean" ? { isVisible: input.isVisible } : {}),
         sortOrder,
+        seoTitle,
+        seoDescription,
+        ogImageUrl,
+        noindex,
       },
     })
     .returning();
 
   return category;
+}
+
+/** Trims an optional text field to null when empty/undefined, preserving null intent. */
+function normalizeText(value: string | null | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 async function validateCategoryParent(categoryId: string | null, parentId: string | null) {
@@ -151,6 +178,12 @@ export async function updateAdminCategory(id: string, input: CategoryPatchInput)
         : {}),
       ...(typeof input.isVisible === "boolean" ? { isVisible: input.isVisible } : {}),
       ...(typeof input.sortOrder === "number" ? { sortOrder: input.sortOrder } : {}),
+      ...(input.seoTitle !== undefined ? { seoTitle: normalizeText(input.seoTitle) } : {}),
+      ...(input.seoDescription !== undefined
+        ? { seoDescription: normalizeText(input.seoDescription) }
+        : {}),
+      ...(input.ogImageUrl !== undefined ? { ogImageUrl: normalizeText(input.ogImageUrl) } : {}),
+      ...(typeof input.noindex === "boolean" ? { noindex: input.noindex } : {}),
     })
     .where(eq(categories.id, id))
     .returning();
@@ -233,6 +266,10 @@ export function toAdminCategoryOption(category: AdminCategoryRecord) {
     sortOrder: category.sortOrder,
     depth: category.depth,
     pathFa: category.pathFa,
+    seoTitle: category.seoTitle,
+    seoDescription: category.seoDescription,
+    ogImageUrl: category.ogImageUrl,
+    noindex: category.noindex,
   };
 }
 

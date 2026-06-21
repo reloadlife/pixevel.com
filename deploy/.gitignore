@@ -1,0 +1,7 @@
+# Never commit real secrets or keys.
+secrets.env
+*.key
+*.pem
+id_*
+# Shipped binaries (large, fetched locally)
+node-*.tar.xz

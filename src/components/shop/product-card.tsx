@@ -1,6 +1,8 @@
+import { Star } from "lucide-react";
 import Link from "next/link";
 
-import { formatToman } from "@/lib/format";
+import { formatToman, toFaNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type ProductCardData = {
   slug: string;
@@ -11,6 +13,8 @@ type ProductCardData = {
   price: number;
   compareAtAmount?: number;
   availableStock: number;
+  ratingAvg?: number | null;
+  ratingCount?: number;
 };
 
 export function ProductCard({ product }: { product: ProductCardData }) {
@@ -18,6 +22,8 @@ export function ProductCard({ product }: { product: ProductCardData }) {
   const compareAt = product.compareAtAmount ?? 0;
   const onSale = compareAt > product.price && product.price > 0;
   const discountPercent = onSale ? Math.round(((compareAt - product.price) / compareAt) * 100) : 0;
+  const ratingCount = product.ratingCount ?? 0;
+  const hasRating = ratingCount > 0 && product.ratingAvg != null;
 
   return (
     <Link href={`/products/${product.slug}`} className="product-card-motion group block">
@@ -48,6 +54,18 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         <h3 className="line-clamp-1 text-sm font-black">{product.titleFa}</h3>
         {product.summaryFa ? (
           <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{product.summaryFa}</p>
+        ) : null}
+        {hasRating ? (
+          <div
+            dir="ltr"
+            role="img"
+            className="mt-1.5 flex items-center justify-end gap-1 text-xs font-bold text-foreground"
+            aria-label={`امتیاز ${toFaNumber((product.ratingAvg ?? 0).toFixed(1))} از ۵ بر اساس ${toFaNumber(ratingCount)} دیدگاه`}
+          >
+            <Star className={cn("size-3.5 fill-current text-gold")} aria-hidden="true" />
+            <span>{toFaNumber((product.ratingAvg ?? 0).toFixed(1))}</span>
+            <span className="font-medium text-muted-foreground">({toFaNumber(ratingCount)})</span>
+          </div>
         ) : null}
         <div className="mt-2 flex items-baseline gap-2">
           <p className="text-sm font-bold">{formatToman(product.price)}</p>

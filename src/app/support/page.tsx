@@ -4,6 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "پشتیبانی",
   description: "مرکز پشتیبانی پیسکول؛ راهنمای خرید، رفع مشکل کد و راه‌های ارتباط با تیم پشتیبانی.",
+  alternates: { canonical: "/support" },
 };
 
 const topics = [

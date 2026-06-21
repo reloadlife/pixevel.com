@@ -22,6 +22,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import type { Category } from "@/lib/nav-items";
+import { categoryHref } from "@/lib/nav-items";
 
 /** Top-level worlds → lucide icon + tagline. Children inherit their icon. */
 type World = { icon: LucideIcon; taglineFa: string };
@@ -118,7 +119,7 @@ export function CategoryMenu({
                     nativeButton={false}
                     render={
                       <Link
-                        href={`/products?category=${world.slug}`}
+                        href={categoryHref(world.slug)}
                         className="flex items-center gap-3 rounded-xl bg-muted/60 px-3 py-3 transition hover:bg-muted"
                       />
                     }
@@ -148,7 +149,7 @@ export function CategoryMenu({
                           nativeButton={false}
                           render={
                             <Link
-                              href={`/products?category=${child.slug}`}
+                              href={categoryHref(child.slug)}
                               className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-foreground/75 transition hover:bg-muted hover:text-foreground"
                             />
                           }
@@ -171,7 +172,7 @@ export function CategoryMenu({
                     nativeButton={false}
                     render={
                       <Link
-                        href={`/products?category=${category.slug}`}
+                        href={categoryHref(category.slug)}
                         className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-bold text-foreground/80 transition hover:bg-muted hover:text-foreground"
                       />
                     }

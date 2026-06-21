@@ -144,7 +144,7 @@ export function HeaderMenus({ user, className }: { user: CurrentUser | null; cla
                       </div>
                     </div>
                   ) : user ? (
-                    <div className="w-64 max-w-[calc(100vw-2rem)] p-1.5">
+                    <div className="w-72 max-w-[calc(100vw-2rem)] p-1.5">
                       <AccountPanel user={user} onNavigate={() => setOpen(false)} />
                     </div>
                   ) : null}

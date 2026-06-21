@@ -310,6 +310,23 @@ export type RefundOutcome = {
 export async function refundOrder(id: string): Promise<RefundOutcome> {
   const db = getDb();
 
+  // State guard: only a PAID order can be refunded. Already-refunded is an
+  // idempotent no-op; anything else (unpaid/cancelled) must not flip to REFUNDED
+  // or hit the gateway.
+  const order = await db.query.orders.findFirst({
+    where: (o, { eq: e }) => e(o.id, id),
+    columns: { paymentStatus: true },
+  });
+  if (!order) {
+    throw new Error("ORDER_NOT_FOUND");
+  }
+  if (order.paymentStatus === "REFUNDED") {
+    return { gateway: "none", message: "این سفارش قبلاً مسترد شده است." };
+  }
+  if (order.paymentStatus !== "PAID") {
+    throw new Error("ORDER_NOT_REFUNDABLE");
+  }
+
   // Look at the latest payment to decide whether a gateway refund is possible.
   const latestPayment = await db.query.payments.findFirst({
     where: (p, { eq: e }) => e(p.orderId, id),
@@ -349,12 +366,16 @@ export async function refundOrder(id: string): Promise<RefundOutcome> {
   };
 }
 
-/** Mark a specific inventory unit as DAMAGED. */
-export async function markUnitDamaged(unitId: string): Promise<void> {
-  await getDb()
+/** Mark a specific inventory unit as DAMAGED — scoped to the order it belongs to. */
+export async function markUnitDamaged(unitId: string, orderId: string): Promise<void> {
+  const updated = await getDb()
     .update(inventoryUnits)
     .set({ status: "DAMAGED" })
-    .where(eq(inventoryUnits.id, unitId));
+    .where(and(eq(inventoryUnits.id, unitId), eq(inventoryUnits.orderId, orderId)))
+    .returning({ id: inventoryUnits.id });
+  if (updated.length === 0) {
+    throw new Error("UNIT_NOT_IN_ORDER");
+  }
 }
 
 // ─── Serialisers ──────────────────────────────────────────────────────────────

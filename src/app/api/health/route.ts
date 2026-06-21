@@ -12,12 +12,13 @@ export async function GET() {
       database: "connected",
     });
   } catch (error) {
+    // Log details server-side; never leak DB/connection internals to callers.
+    console.error("[health] database check failed:", error);
     return Response.json(
       {
         ok: false,
         service: "pixevel",
         database: "unavailable",
-        error: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 503 },
     );

@@ -193,3 +193,22 @@ export async function incrementCouponUsage(
 
   return updated.length > 0;
 }
+
+/**
+ * Reverses an {@link incrementCouponUsage} bump (floored at 0). Used to
+ * compensate when an order is abandoned after the usage was already counted
+ * (e.g. payment-gateway initiation fails post-commit).
+ */
+export async function decrementCouponUsage(
+  tx: { update: ReturnType<typeof getDb>["update"] },
+  code: string,
+): Promise<void> {
+  const normalized = code.trim();
+  if (!normalized) {
+    return;
+  }
+  await tx
+    .update(coupons)
+    .set({ usedCount: sql`GREATEST(${coupons.usedCount} - 1, 0)` })
+    .where(sql`lower(${coupons.code}) = lower(${normalized})`);
+}

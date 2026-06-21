@@ -14,6 +14,10 @@ type CategoryOption = {
   sortOrder: number;
   depth: number;
   pathFa: string;
+  seoTitle: string | null;
+  seoDescription: string | null;
+  ogImageUrl: string | null;
+  noindex: boolean;
 };
 
 type TagOption = {
@@ -31,6 +35,10 @@ export function CategoryManagement({ initialCategories }: { initialCategories: C
     slug: "",
     parentId: "",
     sortOrder: "0",
+    seoTitle: "",
+    seoDescription: "",
+    ogImageUrl: "",
+    noindex: false,
   });
 
   function updateCategoryLocal(id: string, patch: Partial<CategoryOption>) {
@@ -58,6 +66,11 @@ export function CategoryManagement({ initialCategories }: { initialCategories: C
         parentId: patch.parentId !== undefined ? patch.parentId : category.parentId,
         sortOrder: patch.sortOrder ?? category.sortOrder,
         isVisible: patch.isVisible ?? category.isVisible,
+        seoTitle: patch.seoTitle !== undefined ? patch.seoTitle : category.seoTitle,
+        seoDescription:
+          patch.seoDescription !== undefined ? patch.seoDescription : category.seoDescription,
+        ogImageUrl: patch.ogImageUrl !== undefined ? patch.ogImageUrl : category.ogImageUrl,
+        noindex: patch.noindex ?? category.noindex,
       }),
     });
     const result = await response.json();
@@ -90,7 +103,16 @@ export function CategoryManagement({ initialCategories }: { initialCategories: C
       return;
     }
 
-    setCategoryForm({ titleFa: "", slug: "", parentId: "", sortOrder: "0" });
+    setCategoryForm({
+      titleFa: "",
+      slug: "",
+      parentId: "",
+      sortOrder: "0",
+      seoTitle: "",
+      seoDescription: "",
+      ogImageUrl: "",
+      noindex: false,
+    });
     await refreshCategories();
   }
 
@@ -136,6 +158,43 @@ export function CategoryManagement({ initialCategories }: { initialCategories: C
             dir="ltr"
           />
         </div>
+
+        {/* SEO overrides — optional; fall back to name/description when empty. */}
+        <fieldset className="mt-4 border border-zinc-200 bg-zinc-50 p-4">
+          <legend className="px-2 text-sm font-black">سئو</legend>
+          <div className="mt-2 grid gap-4 md:grid-cols-2">
+            <Input
+              label="عنوان سئو (title)"
+              value={categoryForm.seoTitle}
+              onChange={(value) => setCategoryForm((current) => ({ ...current, seoTitle: value }))}
+            />
+            <Input
+              label="تصویر OG (URL)"
+              value={categoryForm.ogImageUrl}
+              onChange={(value) =>
+                setCategoryForm((current) => ({ ...current, ogImageUrl: value }))
+              }
+              dir="ltr"
+            />
+            <div className="md:col-span-2">
+              <Textarea
+                label="توضیحات سئو (meta description)"
+                value={categoryForm.seoDescription}
+                onChange={(value) =>
+                  setCategoryForm((current) => ({ ...current, seoDescription: value }))
+                }
+              />
+            </div>
+            <Checkbox
+              label="عدم نمایه‌سازی در موتورهای جستجو (noindex)"
+              checked={categoryForm.noindex}
+              onChange={(checked) =>
+                setCategoryForm((current) => ({ ...current, noindex: checked }))
+              }
+            />
+          </div>
+        </fieldset>
+
         <Button
           className="mt-4 h-10 px-5 font-black"
           onClick={createCategory}
@@ -151,77 +210,132 @@ export function CategoryManagement({ initialCategories }: { initialCategories: C
 
         <div className="mt-6 divide-y divide-zinc-100 border border-zinc-200">
           {categories.map((category) => (
-            <div
-              key={category.id}
-              className="grid gap-3 p-3 text-sm xl:grid-cols-[1.2fr_1fr_1fr_90px_auto]"
-            >
-              <Input
-                label="نام"
-                value={category.titleFa}
-                onChange={(value) => updateCategoryLocal(category.id, { titleFa: value })}
-              />
-              <Input
-                label="اسلاگ"
-                value={category.slug}
-                onChange={(value) => updateCategoryLocal(category.id, { slug: value })}
-                dir="ltr"
-              />
-              <label className="block">
-                <span className="mb-2 block text-sm font-bold">والد</span>
-                <select
-                  value={category.parentId ?? ""}
-                  onChange={(event) =>
-                    updateCategoryLocal(category.id, { parentId: event.target.value || null })
+            <div key={category.id} className="grid gap-3 p-3 text-sm">
+              <div className="grid gap-3 xl:grid-cols-[1.2fr_1fr_1fr_90px_auto]">
+                <Input
+                  label="نام"
+                  value={category.titleFa}
+                  onChange={(value) => updateCategoryLocal(category.id, { titleFa: value })}
+                />
+                <Input
+                  label="اسلاگ"
+                  value={category.slug}
+                  onChange={(value) => updateCategoryLocal(category.id, { slug: value })}
+                  dir="ltr"
+                />
+                <label className="block">
+                  <span className="mb-2 block text-sm font-bold">والد</span>
+                  <select
+                    value={category.parentId ?? ""}
+                    onChange={(event) =>
+                      updateCategoryLocal(category.id, { parentId: event.target.value || null })
+                    }
+                    className="h-11 w-full border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
+                  >
+                    <option value="">بدون والد</option>
+                    {categories
+                      .filter((item) => item.id !== category.id)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {"— ".repeat(item.depth)}
+                          {item.titleFa}
+                          {item.isVisible ? "" : " (مخفی)"}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <Input
+                  label="ترتیب"
+                  value={String(category.sortOrder)}
+                  onChange={(value) =>
+                    updateCategoryLocal(category.id, { sortOrder: Number(value || 0) })
                   }
-                  className="h-11 w-full border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
-                >
-                  <option value="">بدون والد</option>
-                  {categories
-                    .filter((item) => item.id !== category.id)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {"— ".repeat(item.depth)}
-                        {item.titleFa}
-                        {item.isVisible ? "" : " (مخفی)"}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <Input
-                label="ترتیب"
-                value={String(category.sortOrder)}
-                onChange={(value) =>
-                  updateCategoryLocal(category.id, { sortOrder: Number(value || 0) })
-                }
-                dir="ltr"
-              />
-              <div className="flex flex-wrap items-end gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => patchCategory(category, {})}
-                >
-                  <Save className="size-3.5" />
-                  ذخیره
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    updateCategoryLocal(category.id, { isVisible: !category.isVisible });
-                    patchCategory(category, { isVisible: !category.isVisible });
-                  }}
-                >
-                  {category.isVisible ? (
-                    <EyeOff className="size-3.5" />
-                  ) : (
-                    <Eye className="size-3.5" />
-                  )}
-                  {category.isVisible ? "مخفی" : "نمایش"}
-                </Button>
+                  dir="ltr"
+                />
+                <div className="flex flex-wrap items-end gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => patchCategory(category, {})}
+                  >
+                    <Save className="size-3.5" />
+                    ذخیره
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      updateCategoryLocal(category.id, { isVisible: !category.isVisible });
+                      patchCategory(category, { isVisible: !category.isVisible });
+                    }}
+                  >
+                    {category.isVisible ? (
+                      <EyeOff className="size-3.5" />
+                    ) : (
+                      <Eye className="size-3.5" />
+                    )}
+                    {category.isVisible ? "مخفی" : "نمایش"}
+                  </Button>
+                </div>
               </div>
+
+              {/* SEO overrides — collapsed by default to keep the table dense. */}
+              <details className="border border-zinc-200 bg-zinc-50">
+                <summary className="cursor-pointer px-3 py-2 text-sm font-black">سئو</summary>
+                <div className="grid gap-4 p-3 md:grid-cols-2">
+                  <Input
+                    label="عنوان سئو (title)"
+                    value={category.seoTitle ?? ""}
+                    onChange={(value) =>
+                      updateCategoryLocal(category.id, { seoTitle: value || null })
+                    }
+                  />
+                  <Input
+                    label="تصویر OG (URL)"
+                    value={category.ogImageUrl ?? ""}
+                    onChange={(value) =>
+                      updateCategoryLocal(category.id, { ogImageUrl: value || null })
+                    }
+                    dir="ltr"
+                  />
+                  <div className="md:col-span-2">
+                    <Textarea
+                      label="توضیحات سئو (meta description)"
+                      value={category.seoDescription ?? ""}
+                      onChange={(value) =>
+                        updateCategoryLocal(category.id, { seoDescription: value || null })
+                      }
+                    />
+                  </div>
+                  <Checkbox
+                    label="عدم نمایه‌سازی در موتورهای جستجو (noindex)"
+                    checked={category.noindex}
+                    onChange={(checked) => {
+                      updateCategoryLocal(category.id, { noindex: checked });
+                      patchCategory(category, { noindex: checked });
+                    }}
+                  />
+                  <div className="flex items-end md:justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        patchCategory(category, {
+                          seoTitle: category.seoTitle,
+                          seoDescription: category.seoDescription,
+                          ogImageUrl: category.ogImageUrl,
+                        })
+                      }
+                    >
+                      <Save className="size-3.5" />
+                      ذخیره سئو
+                    </Button>
+                  </div>
+                </div>
+              </details>
             </div>
           ))}
         </div>
@@ -376,6 +490,53 @@ function Input({
         className="h-11 w-full border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
         dir={dir}
       />
+    </label>
+  );
+}
+
+function Textarea({
+  label,
+  value,
+  onChange,
+  dir = "rtl",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  dir?: "rtl" | "ltr";
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-bold">{label}</span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={3}
+        className="w-full border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-950"
+        dir={dir}
+      />
+    </label>
+  );
+}
+
+function Checkbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 self-end">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="size-4 border-zinc-300 accent-zinc-950"
+      />
+      <span className="text-sm font-bold">{label}</span>
     </label>
   );
 }

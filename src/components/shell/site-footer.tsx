@@ -2,7 +2,7 @@ import { BadgeCheck, Headphones, Landmark, ShieldCheck, Wallet, Zap } from "luci
 import Link from "next/link";
 import type { ComponentType } from "react";
 
-import type { Category } from "@/lib/nav-items";
+import { type Category, categoryHref } from "@/lib/nav-items";
 import { cn } from "@/lib/utils";
 import { NewsletterSignup } from "./newsletter-signup";
 
@@ -21,12 +21,14 @@ const supportLinks: FooterLink[] = [
   { href: "/contact", label: "تماس با ما" },
   { href: "/faq", label: "سوال‌های پرتکرار" },
   { href: "/support", label: "پشتیبانی" },
+  { href: "/blog", label: "بلاگ" },
   { href: "/about", label: "درباره پیسکول" },
 ];
 
 const legalLinks: FooterLink[] = [
   { href: "/terms", label: "قوانین و مقررات" },
   { href: "/privacy", label: "حریم خصوصی" },
+  { href: "/refund", label: "بازگشت وجه" },
 ];
 
 const trustItems: { icon: IconType; label: string }[] = [
@@ -157,7 +159,7 @@ function FooterColumn({
 export function SiteFooter({ categories = [] }: { categories?: Category[] }) {
   const categoryLinks: FooterLink[] = categories.length
     ? categories.slice(0, 5).map((c) => ({
-        href: `/products?category=${c.slug}`,
+        href: categoryHref(c.slug),
         label: c.titleFa,
       }))
     : [{ href: "/products", label: "همه محصولات" }];

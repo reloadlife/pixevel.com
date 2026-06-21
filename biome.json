@@ -43,10 +43,23 @@
       "a11y": {
         "useKeyWithClickEvents": "warn",
         "noStaticElementInteractions": "warn",
-        "useAriaPropsSupportedByRole": "warn"
+        "useAriaPropsSupportedByRole": "warn",
+        "useSemanticElements": "warn"
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["src/components/ui/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noLabelWithoutControl": "warn"
+          }
+        }
+      }
+    }
+  ],
   "javascript": {
     "formatter": {
       "quoteStyle": "double"

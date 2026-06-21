@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 
 import { users } from "@/db/schema";
 import { getAdminUser, toAdminUserDetail } from "@/lib/admin/users";
@@ -41,6 +41,32 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
   if (!body) {
     return apiError("INVALID_BODY", "درخواست معتبر نیست.");
+  }
+
+  // Role-change guards: valid enum, no self-role-change, and never demote the
+  // last admin (which would lock everyone out — only an admin can grant ADMIN).
+  if (body.role !== undefined) {
+    if (body.role !== "CUSTOMER" && body.role !== "ADMIN") {
+      return apiError("INVALID_ROLE", "نقش کاربر معتبر نیست.");
+    }
+    if (id === admin.id && body.role !== "ADMIN") {
+      return apiError("CANNOT_DEMOTE_SELF", "نمی‌توانید نقش خودتان را تغییر دهید.");
+    }
+    if (body.role === "CUSTOMER") {
+      const target = await getDb().query.users.findFirst({
+        where: (u, { eq: eqOp }) => eqOp(u.id, id),
+        columns: { role: true },
+      });
+      if (target?.role === "ADMIN") {
+        const [{ admins }] = await getDb()
+          .select({ admins: count() })
+          .from(users)
+          .where(eq(users.role, "ADMIN"));
+        if (Number(admins) <= 1) {
+          return apiError("LAST_ADMIN", "حذف آخرین مدیر مجاز نیست.", 409);
+        }
+      }
+    }
   }
 
   const updateData = {

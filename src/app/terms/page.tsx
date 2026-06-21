@@ -4,6 +4,7 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "قوانین و مقررات",
   description: "قوانین و مقررات استفاده از فروشگاه دیجیتال پیسکول.",
+  alternates: { canonical: "/terms" },
 };
 
 const sections = [

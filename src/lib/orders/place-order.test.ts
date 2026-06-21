@@ -165,7 +165,9 @@ test("placeOrder: PHYSICAL product with no shipping → throws SHIPPING_REQUIRED
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
+    await expect(
+      placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx }),
+    ).rejects.toMatchObject({
       code: "SHIPPING_REQUIRED",
     });
   });
@@ -180,7 +182,9 @@ test("placeOrder: out-of-stock variant → throws OUT_OF_STOCK", async () => {
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
+    await expect(
+      placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx }),
+    ).rejects.toMatchObject({
       code: "OUT_OF_STOCK",
     });
   });
@@ -192,7 +196,9 @@ test("placeOrder: empty cart → throws CART_EMPTY", async () => {
     await seedCart(tx, userId);
     // No cart items seeded
 
-    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
+    await expect(
+      placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx }),
+    ).rejects.toMatchObject({
       code: "CART_EMPTY",
     });
   });
@@ -203,7 +209,9 @@ test("placeOrder: no cart at all → throws CART_EMPTY", async () => {
     const userId = await seedUser(tx);
     // No cart seeded at all
 
-    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
+    await expect(
+      placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx }),
+    ).rejects.toMatchObject({
       code: "CART_EMPTY",
     });
   });
@@ -218,7 +226,9 @@ test("placeOrder: DISABLED product → throws PRODUCT_UNAVAILABLE", async () => 
     const cartId = await seedCart(tx, userId);
     await seedCartItem(tx, cartId, variantId, 1);
 
-    await expect(placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx })).rejects.toMatchObject({
+    await expect(
+      placeOrder(userId, { paymentMethod: "CARD_TO_CARD" }, { tx }),
+    ).rejects.toMatchObject({
       code: "PRODUCT_UNAVAILABLE",
     });
   });

@@ -9,15 +9,17 @@ import {
   users,
 } from "@/db/schema";
 import { getUserTier, variantPrice } from "@/lib/catalog";
-import { incrementCouponUsage, validateCoupon } from "@/lib/coupons";
+import { decrementCouponUsage, incrementCouponUsage, validateCoupon } from "@/lib/coupons";
 import { getDb } from "@/lib/db";
 import { isPaymentMethod } from "@/lib/payments/methods";
 import { getProvider, type PaymentMethod } from "@/lib/payments/provider";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
+import { loadExchangeRates } from "@/lib/pricing/exchange";
 // Self-register every payment provider so getProvider() always resolves.
 import "@/lib/payments/register";
 import { OutOfStockError, releaseExpiredReservations, reserveUnits } from "./inventory";
 import { generateOrderNumber } from "./order-number";
+import { failPayment } from "./payments";
 
 // ─── Error ────────────────────────────────────────────────────────────────────
 
@@ -30,7 +32,8 @@ export type OrderErrorCode =
   | "INVALID_PHONE"
   | "INVALID_PAYMENT_METHOD"
   | "GIFT_CONTACT_REQUIRED"
-  | "INVALID_COUPON";
+  | "INVALID_COUPON"
+  | "PAYMENT_INIT_FAILED";
 
 export class OrderError extends Error {
   constructor(
@@ -214,6 +217,7 @@ export async function placeOrder(
                 titleFa: true,
                 status: true,
                 fulfillmentType: true,
+                baseCurrency: true,
               },
             },
           },
@@ -245,6 +249,9 @@ export async function placeOrder(
 
     const pricedRows: PricedRow[] = [];
 
+    // Convert USD/EUR-priced products to live Toman for the charge.
+    await loadExchangeRates();
+
     for (const row of rows) {
       if (!row.variant) continue;
       const { variant } = row;
@@ -254,7 +261,7 @@ export async function placeOrder(
         throw new OrderError("PRODUCT_UNAVAILABLE", "محصول در دسترس نیست.");
       }
 
-      const unitPrice = Math.round(variantPrice(variant, tier));
+      const unitPrice = Math.round(variantPrice(variant, tier, product.baseCurrency));
       const lineTotal = unitPrice * row.quantity;
       subtotalToman += lineTotal;
 
@@ -412,7 +419,29 @@ export async function placeOrder(
   if (!orderRow) {
     throw new Error("ORDER_NOT_FOUND");
   }
-  const initiateResult = await provider.initiate(orderRow, paymentRow!);
+
+  // The order/payment/reservation are already committed. If gateway initiation
+  // fails now, compensate: release the reserved units, fail the payment, cancel
+  // the order, and give back the coupon use — otherwise stock and coupon
+  // capacity leak into a phantom PENDING order that no callback will ever clean.
+  let initiateResult: Awaited<ReturnType<typeof provider.initiate>>;
+  try {
+    initiateResult = await provider.initiate(orderRow, paymentRow!);
+  } catch (error) {
+    const txOpt = opts.tx ? { tx: opts.tx } : {};
+    try {
+      await failPayment(orderId!, txOpt);
+      if (appliedCoupon) {
+        await decrementCouponUsage(opts.tx ?? getDb(), appliedCoupon);
+      }
+    } catch (cleanupError) {
+      console.error(`[place-order] compensation failed for order ${orderId!}`, cleanupError);
+    }
+    throw new OrderError(
+      "PAYMENT_INIT_FAILED",
+      "اتصال به درگاه پرداخت ممکن نشد. دوباره تلاش کنید.",
+    );
+  }
 
   return {
     orderId: orderId!,

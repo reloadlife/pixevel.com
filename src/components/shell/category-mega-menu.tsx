@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Category } from "@/lib/nav-items";
+import { categoryHref } from "@/lib/nav-items";
 import { cn } from "@/lib/utils";
 
 /**
@@ -93,7 +94,7 @@ export function CategoryMegaMenu({
                       <DropdownMenuItem
                         key={category.id}
                         nativeButton={false}
-                        render={<Link href={`/products?category=${category.slug}`} />}
+                        render={<Link href={categoryHref(category.slug)} />}
                         className="group flex items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-sm font-bold text-foreground transition hover:border-primary/40 hover:bg-muted data-highlighted:border-primary/40 data-highlighted:bg-muted"
                       >
                         <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-primary/15">
@@ -124,7 +125,7 @@ export function CategoryMegaMenu({
                       <DropdownMenuItem
                         key={category.id}
                         nativeButton={false}
-                        render={<Link href={`/products?category=${category.slug}`} />}
+                        render={<Link href={categoryHref(category.slug)} />}
                         className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-foreground/80 transition hover:text-primary data-highlighted:text-primary"
                       >
                         <Icon

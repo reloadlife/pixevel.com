@@ -1,3 +1,5 @@
+import "server-only";
+
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 
@@ -15,6 +17,11 @@ const globalForDb = globalThis as unknown as {
  * Returns a singleton Drizzle client bound to the schema (so the relational
  * query API — `db.query.*` — is available). Re-created only when DATABASE_URL
  * changes, mirroring the previous Prisma helper.
+ *
+ * The `server-only` import marks this module as server-exclusive: `pg` is a
+ * Node-only package, so if a Client Component ever pulls this module into the
+ * browser bundle the build fails fast with a clear error here instead of an
+ * opaque "Can't resolve dns/net/tls" from deep inside `pg`.
  */
 export function getDb(): Db {
   const databaseUrl = process.env.DATABASE_URL;

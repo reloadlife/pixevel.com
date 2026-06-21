@@ -98,8 +98,8 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
               value={code}
               onChange={(event) => setCode(event.target.value)}
               inputMode="numeric"
-              maxLength={4}
-              placeholder="1234"
+              maxLength={6}
+              placeholder="------"
               className="h-12 w-full border border-input bg-background px-3 text-center text-2xl font-black tracking-[0.3em] outline-none focus:border-foreground"
               dir="ltr"
             />

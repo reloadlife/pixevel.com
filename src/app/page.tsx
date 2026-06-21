@@ -9,6 +9,7 @@ import { ShowcaseRandomGallery } from "@/components/shop/showcase-random-gallery
 import { getCurrentUser } from "@/lib/auth";
 import { getHomepageView } from "@/lib/catalog";
 import { formatToman } from "@/lib/format";
+import { categoryHref } from "@/lib/nav-items";
 
 type HomeBlockView = Awaited<ReturnType<typeof getHomepageView>>[number];
 type HomeBlockProduct = NonNullable<HomeBlockView["products"][number]>;
@@ -167,7 +168,7 @@ function WorldsGrid() {
           return (
             <Link
               key={world.slug}
-              href={`/products?category=${world.slug}`}
+              href={categoryHref(world.slug)}
               className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg"
             >
               <span className="grid size-11 place-items-center rounded-xl bg-primary/10 text-primary transition group-hover:bg-primary/15">

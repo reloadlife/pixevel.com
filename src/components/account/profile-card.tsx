@@ -4,16 +4,20 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { AvatarUpload } from "@/components/account/avatar-upload";
+import { PhoneChange } from "@/components/account/phone-change";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 
 export type AccountProfile = {
   fullName: string | null;
   email: string | null;
   phone: string | null;
+  avatarUrl: string | null;
   isPremium: boolean;
   createdAt: Date | string;
   defaultAddressLine: string | null;
@@ -87,6 +91,10 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
   if (editing) {
     return (
       <Card className="p-5 sm:p-6">
+        <div className="space-y-5">
+          <AvatarUpload avatarUrl={profile.avatarUrl} fallback={initial} />
+          <Separator />
+        </div>
         <form onSubmit={save} className="space-y-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -110,14 +118,6 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
               />
               <p className="text-xs text-muted-foreground">برای دریافت کد و رسید خرید</p>
             </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="phone">شماره موبایل</Label>
-            <Input id="phone" dir="ltr" value={profile.phone ?? ""} readOnly disabled />
-            <p className="text-xs text-muted-foreground">
-              تغییر شماره موبایل نیازمند تأیید با کد پیامکی است.
-            </p>
           </div>
 
           <div>
@@ -174,6 +174,9 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
             </Button>
           </div>
         </form>
+
+        <Separator className="my-5" />
+        <PhoneChange currentPhone={profile.phone} />
       </Card>
     );
   }
@@ -182,8 +185,13 @@ export function ProfileCard({ profile }: { profile: AccountProfile }) {
     <Card className="p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="grid size-14 shrink-0 place-items-center rounded-full bg-gold/15 text-xl font-black text-gold">
-            {initial}
+          <div className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-full bg-gold/15 text-xl font-black text-gold">
+            {profile.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={profile.avatarUrl} alt={name} className="size-full object-cover" />
+            ) : (
+              initial
+            )}
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">

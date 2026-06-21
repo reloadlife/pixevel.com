@@ -27,3 +27,21 @@ export function bottomTabs(user: CurrentUser | null): BottomTab[] {
 export function isActivePath(href: string, pathname: string, exact?: boolean): boolean {
   return exact ? pathname === href : pathname.startsWith(href);
 }
+
+/**
+ * World categories that own a dedicated storefront instead of the generic
+ * product listing. Keep in sync with the storefront routes under `src/app/*`.
+ */
+export const WORLD_ROUTES: Record<string, string> = {
+  domains: "/domains",
+  hosting: "/servers",
+};
+
+/**
+ * Link target for a category slug: its dedicated storefront when it has one
+ * (e.g. domains → /domains), otherwise its indexable category route
+ * (`/category/<slug>`).
+ */
+export function categoryHref(slug: string): string {
+  return WORLD_ROUTES[slug] ?? `/category/${slug}`;
+}

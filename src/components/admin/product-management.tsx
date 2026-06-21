@@ -89,6 +89,11 @@ type ProductRow = {
   descriptionFa: string;
   fitFa: string;
   careFa: string;
+  seoTitle: string;
+  seoDescription: string;
+  ogImageUrl: string;
+  noindex: boolean;
+  baseCurrency: string;
   status: string;
   fulfillmentType: string;
   categoryId: string;
@@ -101,6 +106,12 @@ type ProductRow = {
 const FULFILLMENT_OPTIONS = [
   { value: "DIGITAL", label: "دیجیتال" },
   { value: "PHYSICAL", label: "فیزیکی" },
+];
+
+const CURRENCY_OPTIONS = [
+  { value: "IRT", label: "تومان (بدون تبدیل)" },
+  { value: "USD", label: "دلار آمریکا (USD)" },
+  { value: "EUR", label: "یورو (EUR)" },
 ];
 
 type ColorOption = {
@@ -260,6 +271,11 @@ function editFormFromProduct(product: ProductRow | null) {
     careFa: product?.careFa ?? "",
     status: product?.status ?? "ACTIVE",
     fulfillmentType: product?.fulfillmentType ?? "DIGITAL",
+    seoTitle: product?.seoTitle ?? "",
+    seoDescription: product?.seoDescription ?? "",
+    ogImageUrl: product?.ogImageUrl ?? "",
+    noindex: product?.noindex ?? false,
+    baseCurrency: product?.baseCurrency ?? "IRT",
   };
 }
 
@@ -365,6 +381,11 @@ export function ProductManagement({
     stockPerVariant: "10",
     status: "ACTIVE",
     fulfillmentType: "DIGITAL",
+    baseCurrency: "IRT",
+    seoTitle: "",
+    seoDescription: "",
+    ogImageUrl: "",
+    noindex: false,
   });
   // Real sellable codes (gift-card / CD keys) per variant key, "one code per line".
   const [stockCodesByVariantKey, setStockCodesByVariantKey] = useState<Record<string, string>>({});
@@ -737,6 +758,11 @@ export function ProductManagement({
           }))
           .filter((image) => image.url),
         status: form.status,
+        seoTitle: form.seoTitle || undefined,
+        seoDescription: form.seoDescription || undefined,
+        ogImageUrl: form.ogImageUrl || undefined,
+        noindex: form.noindex,
+        baseCurrency: form.baseCurrency,
       }),
     });
     const result = await response.json();
@@ -768,6 +794,11 @@ export function ProductManagement({
       descriptionFa: product.descriptionFa,
       fitFa: product.fitFa,
       careFa: product.careFa,
+      seoTitle: product.seoTitle,
+      seoDescription: product.seoDescription,
+      ogImageUrl: product.ogImageUrl,
+      noindex: product.noindex,
+      baseCurrency: product.baseCurrency,
       status: product.status,
       fulfillmentType: product.fulfillmentType ?? "DIGITAL",
     });
@@ -816,6 +847,11 @@ export function ProductManagement({
         descriptionFa: editForm.descriptionFa,
         fitFa: editForm.fitFa,
         careFa: editForm.careFa,
+        seoTitle: editForm.seoTitle || null,
+        seoDescription: editForm.seoDescription || null,
+        ogImageUrl: editForm.ogImageUrl || null,
+        noindex: editForm.noindex,
+        baseCurrency: editForm.baseCurrency,
         status: editForm.status,
         fulfillmentType: editForm.fulfillmentType,
         categoryId: editSelectedCategoryId || null,
@@ -1036,6 +1072,11 @@ export function ProductManagement({
               value={form.fulfillmentType}
               onChange={(value) => setField("fulfillmentType", value)}
             />
+            <CurrencySelect
+              label="ارز قیمت‌گذاری"
+              value={form.baseCurrency}
+              onChange={(value) => setField("baseCurrency", value)}
+            />
             <TagPicker
               selectedTags={selectedTags}
               tagQuery={tagQuery}
@@ -1095,6 +1136,44 @@ export function ProductManagement({
               value={form.careFa}
               onChange={(value) => setField("careFa", value)}
             />
+
+            {/* SEO overrides — optional; fall back to title/summary/image when empty. */}
+            <div className="lg:col-span-2">
+              <fieldset className="border border-border bg-muted/30 p-4">
+                <legend className="px-2 text-sm font-black">سئو</legend>
+                <div className="mt-2 grid gap-4 md:grid-cols-2">
+                  <Input
+                    label="عنوان سئو (title)"
+                    value={form.seoTitle}
+                    onChange={(value) => setField("seoTitle", value)}
+                  />
+                  <Input
+                    label="تصویر OG (URL)"
+                    value={form.ogImageUrl}
+                    onChange={(value) => setField("ogImageUrl", value)}
+                    dir="ltr"
+                  />
+                  <div className="md:col-span-2">
+                    <Textarea
+                      label="توضیحات سئو (meta description)"
+                      value={form.seoDescription}
+                      onChange={(value) => setField("seoDescription", value)}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm font-bold md:col-span-2">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={form.noindex}
+                      onChange={(event) =>
+                        setForm((current) => ({ ...current, noindex: event.target.checked }))
+                      }
+                    />
+                    عدم نمایه‌سازی در موتورهای جستجو (noindex)
+                  </label>
+                </div>
+              </fieldset>
+            </div>
 
             <div className="lg:col-span-2">
               <div className="mb-3 flex items-center justify-between gap-3">
@@ -1335,6 +1414,11 @@ export function ProductManagement({
               value={editForm.fulfillmentType}
               onChange={(value) => setEditField("fulfillmentType", value)}
             />
+            <CurrencySelect
+              label="ارز قیمت‌گذاری"
+              value={editForm.baseCurrency}
+              onChange={(value) => setEditField("baseCurrency", value)}
+            />
             <TagPicker
               selectedTags={editSelectedTags}
               tagQuery={editTagQuery}
@@ -1366,6 +1450,44 @@ export function ProductManagement({
               value={editForm.careFa}
               onChange={(value) => setEditField("careFa", value)}
             />
+
+            {/* SEO overrides — optional; fall back to title/summary/image when empty. */}
+            <div className="lg:col-span-2">
+              <fieldset className="border border-border bg-muted/30 p-4">
+                <legend className="px-2 text-sm font-black">سئو</legend>
+                <div className="mt-2 grid gap-4 md:grid-cols-2">
+                  <Input
+                    label="عنوان سئو (title)"
+                    value={editForm.seoTitle}
+                    onChange={(value) => setEditField("seoTitle", value)}
+                  />
+                  <Input
+                    label="تصویر OG (URL)"
+                    value={editForm.ogImageUrl}
+                    onChange={(value) => setEditField("ogImageUrl", value)}
+                    dir="ltr"
+                  />
+                  <div className="md:col-span-2">
+                    <Textarea
+                      label="توضیحات سئو (meta description)"
+                      value={editForm.seoDescription}
+                      onChange={(value) => setEditField("seoDescription", value)}
+                    />
+                  </div>
+                  <label className="flex items-center gap-2 text-sm font-bold md:col-span-2">
+                    <input
+                      type="checkbox"
+                      className="size-4"
+                      checked={editForm.noindex}
+                      onChange={(event) =>
+                        setEditForm((current) => ({ ...current, noindex: event.target.checked }))
+                      }
+                    />
+                    عدم نمایه‌سازی در موتورهای جستجو (noindex)
+                  </label>
+                </div>
+              </fieldset>
+            </div>
 
             <ImageRowsEditor
               title="تصاویر محصول"
@@ -2288,6 +2410,33 @@ function FulfillmentSelect({
         className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
       >
         {FULFILLMENT_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function CurrencySelect({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-2 block text-sm font-bold">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
+      >
+        {CURRENCY_OPTIONS.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
           </option>

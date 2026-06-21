@@ -3,6 +3,7 @@ import { apiError, apiOk, readJson } from "@/lib/api";
 import { getDb } from "@/lib/db";
 import { generateOtpCode, hashOtp } from "@/lib/otp";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 import type { OtpDeliveryStatus } from "@/lib/sms/delivery";
 import { sendKavenegarOtp } from "@/lib/sms/kavenegar";
 import { sendTelegramLoginOtp } from "@/lib/sms/telegram";
@@ -17,6 +18,12 @@ export async function POST(request: Request) {
 
   if (!isValidIranPhone(phone)) {
     return apiError("INVALID_PHONE", "شماره موبایل معتبر نیست.");
+  }
+
+  // Per-IP cap stops one source from spraying OTPs across many numbers (SMS bomb)
+  // beyond the per-phone 60s cooldown below.
+  if (!rateLimit(`request-otp:${clientIp(request)}`, 5, 60_000).ok) {
+    return apiError("OTP_RATE_LIMITED", "تلاش بیش از حد. کمی بعد دوباره تلاش کنید.", 429);
   }
 
   const recentOtp = await getDb().query.loginOtps.findFirst({

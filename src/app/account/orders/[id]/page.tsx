@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
+import { isOrderCancellable } from "@/lib/orders/account-orders";
 import { CopyButton } from "./copy-button";
+import { OrderActions } from "./order-actions";
 
 // ─── Label helpers ────────────────────────────────────────────────────────────
 
@@ -180,6 +182,11 @@ export default async function OrderDetailPage({ params }: PageProps) {
         >
           دانلود فاکتور
         </a>
+      </div>
+
+      {/* Order actions: buy again + cancel (when eligible) */}
+      <div className="mb-6">
+        <OrderActions orderId={order.id} cancellable={isOrderCancellable(order.status)} />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">

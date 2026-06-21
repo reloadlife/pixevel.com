@@ -6,6 +6,7 @@ import { ContactForm } from "./contact-form";
 export const metadata: Metadata = {
   title: "تماس با ما",
   description: "راه‌های ارتباط با پشتیبانی پیسکول: تلفن، ایمیل و تلگرام.",
+  alternates: { canonical: "/contact" },
 };
 
 const channels = [

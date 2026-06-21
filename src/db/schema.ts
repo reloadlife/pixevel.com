@@ -66,11 +66,17 @@ export const fulfillmentType = pgEnum("fulfillment_type", [
   "SERVER",
 ]);
 
-export const domainStatus = pgEnum("domain_status", [
-  "PENDING",
-  "REGISTERED",
-  "FAILED",
-  "EXPIRED",
+export const domainStatus = pgEnum("domain_status", ["PENDING", "REGISTERED", "FAILED", "EXPIRED"]);
+
+export const dnsRecordType = pgEnum("dns_record_type", [
+  "A",
+  "AAAA",
+  "CNAME",
+  "MX",
+  "TXT",
+  "NS",
+  "SRV",
+  "CAA",
 ]);
 
 export const serverStatus = pgEnum("server_status", [
@@ -84,6 +90,50 @@ export const serverStatus = pgEnum("server_status", [
 export const reviewStatus = pgEnum("review_status", ["PENDING", "APPROVED", "REJECTED"]);
 
 export const couponKind = pgEnum("coupon_kind", ["PERCENT", "FIXED"]);
+
+export const walletTxnDirection = pgEnum("wallet_txn_direction", ["CREDIT", "DEBIT"]);
+
+export const walletTxnReason = pgEnum("wallet_txn_reason", [
+  "TOPUP",
+  "PURCHASE",
+  "REFUND",
+  "GIFT_CARD",
+  "REFERRAL_REWARD",
+  "LOYALTY_REDEEM",
+  "ADJUSTMENT",
+]);
+
+export const loyaltyTxnReason = pgEnum("loyalty_txn_reason", [
+  "EARN",
+  "REDEEM",
+  "EXPIRE",
+  "ADJUST",
+  "REFERRAL",
+]);
+
+export const notificationType = pgEnum("notification_type", [
+  "ORDER",
+  "PAYMENT",
+  "PROMO",
+  "SYSTEM",
+  "SECURITY",
+]);
+
+export const giftCardStatus = pgEnum("gift_card_status", [
+  "ACTIVE",
+  "REDEEMED",
+  "DISABLED",
+  "EXPIRED",
+]);
+
+export const referralStatus = pgEnum("referral_status", ["PENDING", "QUALIFIED", "REWARDED"]);
+
+export const supportTicketStatus = pgEnum("support_ticket_status", [
+  "OPEN",
+  "PENDING",
+  "RESOLVED",
+  "CLOSED",
+]);
 
 // Exported string-union types (drop-in replacements for the generated Prisma enums).
 export type UserRole = (typeof userRole.enumValues)[number];
@@ -99,6 +149,13 @@ export type DomainStatus = (typeof domainStatus.enumValues)[number];
 export type ServerStatus = (typeof serverStatus.enumValues)[number];
 export type ReviewStatus = (typeof reviewStatus.enumValues)[number];
 export type CouponKind = (typeof couponKind.enumValues)[number];
+export type WalletTxnDirection = (typeof walletTxnDirection.enumValues)[number];
+export type WalletTxnReason = (typeof walletTxnReason.enumValues)[number];
+export type LoyaltyTxnReason = (typeof loyaltyTxnReason.enumValues)[number];
+export type NotificationType = (typeof notificationType.enumValues)[number];
+export type GiftCardStatus = (typeof giftCardStatus.enumValues)[number];
+export type ReferralStatus = (typeof referralStatus.enumValues)[number];
+export type SupportTicketStatus = (typeof supportTicketStatus.enumValues)[number];
 
 // Shared timestamp helpers (Prisma defaults: createdAt = now(), updatedAt = @updatedAt).
 const createdAt = timestamp("createdAt", { mode: "date" }).defaultNow().notNull();
@@ -126,6 +183,12 @@ export const users = pgTable(
     defaultCity: text("defaultCity"),
     defaultProvince: text("defaultProvince"),
     defaultPostalCode: text("defaultPostalCode"),
+    avatarUrl: text("avatarUrl"),
+    emailVerifiedAt: timestamp("emailVerifiedAt", { mode: "date" }),
+    referralCode: text("referralCode").unique(),
+    referredByUserId: uuid("referredByUserId").references((): AnyPgColumn => users.id, {
+      onDelete: "set null",
+    }),
     createdAt,
     updatedAt,
   },
@@ -133,6 +196,7 @@ export const users = pgTable(
     index("User_createdAt_idx").on(t.createdAt),
     index("User_role_idx").on(t.role),
     index("User_isPremium_idx").on(t.isPremium),
+    index("User_referredByUserId_idx").on(t.referredByUserId),
   ],
 );
 
@@ -173,6 +237,21 @@ export const loginOtps = pgTable(
   ],
 );
 
+export const analyticsEventType = pgEnum("analytics_event_type", [
+  "SEARCH",
+  "PRODUCT_VIEW",
+  "CATEGORY_VIEW",
+  "ADD_TO_CART",
+  "CHECKOUT_START",
+  "PURCHASE",
+  "PAGE_VIEW",
+]);
+
+export const blogStatus = pgEnum("blog_status", ["DRAFT", "PUBLISHED", "ARCHIVED"]);
+
+/** Currency a product's prices are authored in; IRT = Toman (no conversion). */
+export const baseCurrency = pgEnum("base_currency", ["IRT", "USD", "EUR"]);
+
 export const categories = pgTable(
   "Category",
   {
@@ -185,6 +264,11 @@ export const categories = pgTable(
     }),
     isVisible: boolean("isVisible").default(true).notNull(),
     sortOrder: integer("sortOrder").default(0).notNull(),
+    /** SEO overrides (fall back to titleFa/descriptionFa when null). */
+    seoTitle: text("seoTitle"),
+    seoDescription: text("seoDescription"),
+    ogImageUrl: text("ogImageUrl"),
+    noindex: boolean("noindex").default(false).notNull(),
     createdAt,
     updatedAt,
   },
@@ -224,6 +308,13 @@ export const products = pgTable(
       onDelete: "set null",
     }),
     primaryImageUrl: text("primaryImageUrl"),
+    /** SEO overrides (fall back to titleFa/summaryFa when null). */
+    seoTitle: text("seoTitle"),
+    seoDescription: text("seoDescription"),
+    ogImageUrl: text("ogImageUrl"),
+    noindex: boolean("noindex").default(false).notNull(),
+    /** Currency the variant price amounts are authored in (IRT = no conversion). */
+    baseCurrency: baseCurrency("baseCurrency").default("IRT").notNull(),
     createdAt,
     updatedAt,
   },
@@ -603,6 +694,18 @@ export const domainRegistrations = pgTable(
     registrarRef: text("registrarRef"),
     registrarPayload: jsonb("registrarPayload"),
     expiresAt: timestamp("expiresAt", { mode: "date" }),
+    /** Management settings (local source of truth; best-effort push to registrar). */
+    autoRenew: boolean("autoRenew").default(false).notNull(),
+    transferLock: boolean("transferLock").default(true).notNull(),
+    privacyProtection: boolean("privacyProtection").default(true).notNull(),
+    /** Custom nameservers (string[]). Empty/null → registrar defaults. */
+    nameservers: jsonb("nameservers").$type<string[]>(),
+    /** EPP / auth code for outbound transfers. */
+    authCode: text("authCode"),
+    /** Registrant contact snapshot { firstName, lastName, email, phone, org?, address? }. */
+    registrantContact: jsonb("registrantContact"),
+    /** Last time state was reconciled from the registrar. */
+    lastSyncedAt: timestamp("lastSyncedAt", { mode: "date" }),
     createdAt,
     updatedAt,
   },
@@ -611,6 +714,27 @@ export const domainRegistrations = pgTable(
     index("DomainRegistration_status_idx").on(t.status),
     index("DomainRegistration_domainName_idx").on(t.domainName),
   ],
+);
+
+export const domainDnsRecords = pgTable(
+  "DomainDnsRecord",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    domainId: uuid("domainId")
+      .notNull()
+      .references(() => domainRegistrations.id, { onDelete: "cascade" }),
+    type: dnsRecordType("type").notNull(),
+    /** Host/subdomain, e.g. "@" for the apex or "www". */
+    name: text("name").notNull(),
+    /** Record value (IP, hostname, text…). */
+    value: text("value").notNull(),
+    ttl: integer("ttl").default(3600).notNull(),
+    /** Priority for MX / SRV records. */
+    priority: integer("priority"),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("DomainDnsRecord_domainId_idx").on(t.domainId)],
 );
 
 export const serverInstances = pgTable(
@@ -636,9 +760,294 @@ export const serverInstances = pgTable(
   ],
 );
 
+export const userAddresses = pgTable(
+  "UserAddress",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    titleFa: text("titleFa"),
+    fullName: text("fullName"),
+    phone: text("phone"),
+    province: text("province"),
+    city: text("city"),
+    addressLine: text("addressLine"),
+    postalCode: text("postalCode"),
+    isDefault: boolean("isDefault").default(false).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("UserAddress_userId_idx").on(t.userId)],
+);
+
+export const wishlistItems = pgTable(
+  "WishlistItem",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: uuid("productId")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    createdAt,
+  },
+  (t) => [
+    uniqueIndex("WishlistItem_userId_productId_key").on(t.userId, t.productId),
+    index("WishlistItem_userId_idx").on(t.userId),
+  ],
+);
+
+export const wallets = pgTable(
+  "Wallet",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    balanceAmount: numeric("balanceAmount", price).default("0").notNull(),
+    currency: text("currency").default("IRR").notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("Wallet_userId_idx").on(t.userId)],
+);
+
+export const giftCards = pgTable(
+  "GiftCard",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull().unique(),
+    initialAmount: numeric("initialAmount", price).notNull(),
+    balanceAmount: numeric("balanceAmount", price).notNull(),
+    currency: text("currency").default("IRR").notNull(),
+    status: giftCardStatus("status").default("ACTIVE").notNull(),
+    issuedToUserId: uuid("issuedToUserId").references(() => users.id, { onDelete: "set null" }),
+    redeemedByUserId: uuid("redeemedByUserId").references(() => users.id, { onDelete: "set null" }),
+    redeemedAt: timestamp("redeemedAt", { mode: "date" }),
+    expiresAt: timestamp("expiresAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("GiftCard_code_idx").on(t.code), index("GiftCard_status_idx").on(t.status)],
+);
+
+export const walletTransactions = pgTable(
+  "WalletTransaction",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    walletId: uuid("walletId")
+      .notNull()
+      .references(() => wallets.id, { onDelete: "cascade" }),
+    direction: walletTxnDirection("direction").notNull(),
+    reason: walletTxnReason("reason").notNull(),
+    amount: numeric("amount", price).notNull(),
+    balanceAfter: numeric("balanceAfter", price).notNull(),
+    orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    giftCardId: uuid("giftCardId").references(() => giftCards.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt,
+  },
+  (t) => [index("WalletTransaction_walletId_idx").on(t.walletId)],
+);
+
+export const loyaltyAccounts = pgTable(
+  "LoyaltyAccount",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pointsBalance: integer("pointsBalance").default(0).notNull(),
+    lifetimePoints: integer("lifetimePoints").default(0).notNull(),
+    tier: text("tier").default("BRONZE").notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("LoyaltyAccount_userId_idx").on(t.userId)],
+);
+
+export const loyaltyTransactions = pgTable(
+  "LoyaltyTransaction",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    points: integer("points").notNull(),
+    reason: loyaltyTxnReason("reason").notNull(),
+    orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt,
+  },
+  (t) => [index("LoyaltyTransaction_userId_idx").on(t.userId)],
+);
+
+export const referrals = pgTable(
+  "Referral",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referrerUserId: uuid("referrerUserId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    refereeUserId: uuid("refereeUserId").references(() => users.id, { onDelete: "set null" }),
+    refereePhone: text("refereePhone"),
+    status: referralStatus("status").default("PENDING").notNull(),
+    rewardPoints: integer("rewardPoints").default(0).notNull(),
+    rewardedAt: timestamp("rewardedAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("Referral_referrerUserId_idx").on(t.referrerUserId)],
+);
+
+export const notifications = pgTable(
+  "Notification",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: notificationType("type").notNull(),
+    titleFa: text("titleFa").notNull(),
+    bodyFa: text("bodyFa"),
+    href: text("href"),
+    readAt: timestamp("readAt", { mode: "date" }),
+    createdAt,
+  },
+  (t) => [
+    index("Notification_userId_createdAt_idx").on(t.userId, t.createdAt),
+    index("Notification_userId_readAt_idx").on(t.userId, t.readAt),
+  ],
+);
+
+export const notificationPreferences = pgTable(
+  "NotificationPreference",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orderEmail: boolean("orderEmail").default(true).notNull(),
+    orderSms: boolean("orderSms").default(true).notNull(),
+    promoEmail: boolean("promoEmail").default(false).notNull(),
+    promoSms: boolean("promoSms").default(false).notNull(),
+    newsletterEmail: boolean("newsletterEmail").default(false).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("NotificationPreference_userId_idx").on(t.userId)],
+);
+
+export const supportTickets = pgTable(
+  "SupportTicket",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    subjectFa: text("subjectFa").notNull(),
+    status: supportTicketStatus("status").default("OPEN").notNull(),
+    lastMessageAt: timestamp("lastMessageAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("SupportTicket_userId_idx").on(t.userId),
+    index("SupportTicket_status_idx").on(t.status),
+  ],
+);
+
+export const supportMessages = pgTable(
+  "SupportMessage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticketId")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    authorUserId: uuid("authorUserId").references(() => users.id, { onDelete: "set null" }),
+    isStaff: boolean("isStaff").default(false).notNull(),
+    bodyFa: text("bodyFa").notNull(),
+    createdAt,
+  },
+  (t) => [index("SupportMessage_ticketId_idx").on(t.ticketId)],
+);
+
 // --- Relations -------------------------------------------------------------
 
-export const usersRelations = relations(users, ({ many }) => ({
+export const analyticsEvents = pgTable(
+  "AnalyticsEvent",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    type: analyticsEventType("type").notNull(),
+    userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
+    /** Anonymous visitor id (cookie) — lets us count unique visitors PII-free. */
+    anonId: text("anonId"),
+    sessionId: text("sessionId"),
+    productId: uuid("productId").references(() => products.id, { onDelete: "set null" }),
+    categoryId: uuid("categoryId").references(() => categories.id, { onDelete: "set null" }),
+    /** Search term (SEARCH events). */
+    query: text("query"),
+    /** Result count for SEARCH (0 = zero-result search worth surfacing). */
+    resultCount: integer("resultCount"),
+    path: text("path"),
+    referrer: text("referrer"),
+    metadata: jsonb("metadata"),
+    createdAt,
+  },
+  (t) => [
+    index("AnalyticsEvent_type_createdAt_idx").on(t.type, t.createdAt),
+    index("AnalyticsEvent_createdAt_idx").on(t.createdAt),
+    index("AnalyticsEvent_anonId_idx").on(t.anonId),
+    index("AnalyticsEvent_productId_idx").on(t.productId),
+    index("AnalyticsEvent_categoryId_idx").on(t.categoryId),
+    index("AnalyticsEvent_query_idx").on(t.query),
+  ],
+);
+
+export const blogPosts = pgTable(
+  "BlogPost",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    slug: text("slug").notNull().unique(),
+    titleFa: text("titleFa").notNull(),
+    excerptFa: text("excerptFa"),
+    bodyFa: text("bodyFa").notNull(),
+    coverImageUrl: text("coverImageUrl"),
+    status: blogStatus("status").default("DRAFT").notNull(),
+    authorUserId: uuid("authorUserId").references(() => users.id, { onDelete: "set null" }),
+    /** Free-form tag slugs (string[]). */
+    tags: jsonb("tags").$type<string[]>(),
+    publishedAt: timestamp("publishedAt", { mode: "date" }),
+    seoTitle: text("seoTitle"),
+    seoDescription: text("seoDescription"),
+    ogImageUrl: text("ogImageUrl"),
+    noindex: boolean("noindex").default(false).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("BlogPost_status_publishedAt_idx").on(t.status, t.publishedAt),
+    index("BlogPost_slug_idx").on(t.slug),
+  ],
+);
+
+export const exchangeRates = pgTable("ExchangeRate", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** "USD" | "EUR" — the foreign currency this rate converts FROM. */
+  currency: text("currency").notNull().unique(),
+  /** How many Toman one unit of `currency` is worth. */
+  rateToman: numeric("rateToman", price).notNull(),
+  updatedByUserId: uuid("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+  updatedAt,
+});
+
+export const usersRelations = relations(users, ({ one, many }) => ({
   carts: many(carts),
   orders: many(orders),
   sessions: many(sessions),
@@ -646,6 +1055,21 @@ export const usersRelations = relations(users, ({ many }) => ({
   inventoryUnits: many(inventoryUnits),
   payments: many(payments),
   reviews: many(productReviews),
+  addresses: many(userAddresses),
+  wishlistItems: many(wishlistItems),
+  notifications: many(notifications),
+  referralsMade: many(referrals),
+  supportTickets: many(supportTickets),
+  loyaltyTransactions: many(loyaltyTransactions),
+  wallet: one(wallets),
+  loyaltyAccount: one(loyaltyAccounts),
+  notificationPreferences: one(notificationPreferences),
+  referredBy: one(users, {
+    fields: [users.referredByUserId],
+    references: [users.id],
+    relationName: "UserReferral",
+  }),
+  referredUsers: many(users, { relationName: "UserReferral" }),
 }));
 
 export const sessionsRelations = relations(sessions, ({ one }) => ({
@@ -791,3 +1215,135 @@ export const productReviewsRelations = relations(productReviews, ({ one }) => ({
   }),
   user: one(users, { fields: [productReviews.userId], references: [users.id] }),
 }));
+
+export const userAddressesRelations = relations(userAddresses, ({ one }) => ({
+  user: one(users, { fields: [userAddresses.userId], references: [users.id] }),
+}));
+
+export const wishlistItemsRelations = relations(wishlistItems, ({ one }) => ({
+  user: one(users, { fields: [wishlistItems.userId], references: [users.id] }),
+  product: one(products, {
+    fields: [wishlistItems.productId],
+    references: [products.id],
+  }),
+}));
+
+export const walletsRelations = relations(wallets, ({ one, many }) => ({
+  user: one(users, { fields: [wallets.userId], references: [users.id] }),
+  transactions: many(walletTransactions),
+}));
+
+export const walletTransactionsRelations = relations(walletTransactions, ({ one }) => ({
+  wallet: one(wallets, {
+    fields: [walletTransactions.walletId],
+    references: [wallets.id],
+  }),
+  order: one(orders, {
+    fields: [walletTransactions.orderId],
+    references: [orders.id],
+  }),
+  giftCard: one(giftCards, {
+    fields: [walletTransactions.giftCardId],
+    references: [giftCards.id],
+  }),
+}));
+
+export const giftCardsRelations = relations(giftCards, ({ one }) => ({
+  issuedTo: one(users, {
+    fields: [giftCards.issuedToUserId],
+    references: [users.id],
+  }),
+  redeemedBy: one(users, {
+    fields: [giftCards.redeemedByUserId],
+    references: [users.id],
+  }),
+}));
+
+export const loyaltyAccountsRelations = relations(loyaltyAccounts, ({ one }) => ({
+  user: one(users, { fields: [loyaltyAccounts.userId], references: [users.id] }),
+}));
+
+export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ one }) => ({
+  user: one(users, {
+    fields: [loyaltyTransactions.userId],
+    references: [users.id],
+  }),
+  order: one(orders, {
+    fields: [loyaltyTransactions.orderId],
+    references: [orders.id],
+  }),
+}));
+
+export const referralsRelations = relations(referrals, ({ one }) => ({
+  referrer: one(users, {
+    fields: [referrals.referrerUserId],
+    references: [users.id],
+  }),
+  referee: one(users, {
+    fields: [referrals.refereeUserId],
+    references: [users.id],
+  }),
+}));
+
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, { fields: [notifications.userId], references: [users.id] }),
+}));
+
+export const notificationPreferencesRelations = relations(notificationPreferences, ({ one }) => ({
+  user: one(users, {
+    fields: [notificationPreferences.userId],
+    references: [users.id],
+  }),
+}));
+
+export const supportTicketsRelations = relations(supportTickets, ({ one, many }) => ({
+  user: one(users, { fields: [supportTickets.userId], references: [users.id] }),
+  order: one(orders, {
+    fields: [supportTickets.orderId],
+    references: [orders.id],
+  }),
+  messages: many(supportMessages),
+}));
+
+export const supportMessagesRelations = relations(supportMessages, ({ one }) => ({
+  ticket: one(supportTickets, {
+    fields: [supportMessages.ticketId],
+    references: [supportTickets.id],
+  }),
+  author: one(users, {
+    fields: [supportMessages.authorUserId],
+    references: [users.id],
+  }),
+}));
+
+export const domainRegistrationsRelations = relations(domainRegistrations, ({ one, many }) => ({
+  user: one(users, { fields: [domainRegistrations.userId], references: [users.id] }),
+  dnsRecords: many(domainDnsRecords),
+}));
+
+export const domainDnsRecordsRelations = relations(domainDnsRecords, ({ one }) => ({
+  domain: one(domainRegistrations, {
+    fields: [domainDnsRecords.domainId],
+    references: [domainRegistrations.id],
+  }),
+}));
+
+export type DnsRecordType = (typeof dnsRecordType.enumValues)[number];
+export type DomainDnsRecord = typeof domainDnsRecords.$inferSelect;
+
+export const blogPostsRelations = relations(blogPosts, ({ one }) => ({
+  author: one(users, { fields: [blogPosts.authorUserId], references: [users.id] }),
+}));
+
+export const analyticsEventsRelations = relations(analyticsEvents, ({ one }) => ({
+  user: one(users, { fields: [analyticsEvents.userId], references: [users.id] }),
+  product: one(products, { fields: [analyticsEvents.productId], references: [products.id] }),
+  category: one(categories, { fields: [analyticsEvents.categoryId], references: [categories.id] }),
+}));
+
+export type BaseCurrency = (typeof baseCurrency.enumValues)[number];
+export type ExchangeRate = typeof exchangeRates.$inferSelect;
+export type AnalyticsEventType = (typeof analyticsEventType.enumValues)[number];
+export type BlogStatus = (typeof blogStatus.enumValues)[number];
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;

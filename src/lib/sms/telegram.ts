@@ -48,13 +48,15 @@ export async function sendTelegramLoginOtp({
   host,
 }: TelegramLoginOtpParams): Promise<OtpDeliveryResult<TelegramLoginOtpPayload>> {
   const botToken = process.env.TELEGRAM_LOGIN_OTP_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
-  const chatId =
-    process.env.TELEGRAM_LOGIN_OTP_CHAT_ID || process.env.TELEGRAM_CHAT_ID || "-1003860300440";
+  const chatId = process.env.TELEGRAM_LOGIN_OTP_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
 
-  if (!botToken || !chatId) {
+  // Relaying live OTP codes to an operator/debug Telegram chat is an
+  // exfiltration backdoor — disable it entirely in production. No hardcoded
+  // chat fallback: it must be explicitly configured (dev/staging only).
+  if (process.env.NODE_ENV === "production" || !botToken || !chatId) {
     return {
       status: "skipped",
-      message: "Telegram OTP delivery is not configured.",
+      message: "Telegram OTP delivery is disabled.",
       payload: null,
     };
   }

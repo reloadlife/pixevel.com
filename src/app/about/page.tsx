@@ -5,6 +5,7 @@ export const metadata: Metadata = {
   title: "درباره ما",
   description:
     "پیسکول، فروشگاه تخصصی محصولات دیجیتال: گیفت کارت، سی‌دی‌کی بازی و سرویس‌های آنلاین با تحویل آنی.",
+  alternates: { canonical: "/about" },
 };
 
 export default function AboutPage() {

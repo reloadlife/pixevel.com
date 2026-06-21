@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { and, eq, notInArray } from "drizzle-orm";
 
 import {
+  type BaseCurrency,
   categories,
   type FulfillmentType,
   inventoryUnits,
@@ -141,6 +142,11 @@ type ProductCreateInput = {
   descriptionFa?: string;
   fitFa?: string;
   careFa?: string;
+  baseCurrency?: BaseCurrency;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  ogImageUrl?: string | null;
+  noindex?: boolean;
   status?: "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
   fulfillmentType?: FulfillmentType;
   categoryId?: string | null;
@@ -217,6 +223,11 @@ type ProductUpdateInput = {
   descriptionFa?: string | null;
   fitFa?: string | null;
   careFa?: string | null;
+  baseCurrency?: BaseCurrency;
+  seoTitle?: string | null;
+  seoDescription?: string | null;
+  ogImageUrl?: string | null;
+  noindex?: boolean;
   status?: "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
   fulfillmentType?: FulfillmentType;
   categoryId?: string | null;
@@ -464,6 +475,11 @@ export async function createAdminProduct(input: ProductCreateInput) {
         descriptionFa: input.descriptionFa?.trim() || null,
         fitFa: input.fitFa?.trim() || null,
         careFa: input.careFa?.trim() || null,
+        baseCurrency: input.baseCurrency ?? "IRT",
+        seoTitle: cleanOptionalText(input.seoTitle),
+        seoDescription: cleanOptionalText(input.seoDescription),
+        ogImageUrl: cleanOptionalText(input.ogImageUrl),
+        noindex: Boolean(input.noindex),
         status: input.status ?? "DRAFT",
         fulfillmentType: fulfillment ?? "DIGITAL",
         categoryId: category?.id ?? null,
@@ -633,6 +649,15 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
         : {}),
       ...(input.fitFa !== undefined ? { fitFa: cleanOptionalText(input.fitFa) } : {}),
       ...(input.careFa !== undefined ? { careFa: cleanOptionalText(input.careFa) } : {}),
+      ...(input.baseCurrency !== undefined ? { baseCurrency: input.baseCurrency } : {}),
+      ...(input.seoTitle !== undefined ? { seoTitle: cleanOptionalText(input.seoTitle) } : {}),
+      ...(input.seoDescription !== undefined
+        ? { seoDescription: cleanOptionalText(input.seoDescription) }
+        : {}),
+      ...(input.ogImageUrl !== undefined
+        ? { ogImageUrl: cleanOptionalText(input.ogImageUrl) }
+        : {}),
+      ...(input.noindex !== undefined ? { noindex: Boolean(input.noindex) } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(fulfillment ? { fulfillmentType: fulfillment } : {}),
       ...(shouldUpdateCategory ? { categoryId: category?.id ?? null } : {}),
@@ -833,6 +858,11 @@ export function toAdminProductRow(product: AdminProductRecord) {
     descriptionFa: product.descriptionFa ?? "",
     fitFa: product.fitFa ?? "",
     careFa: product.careFa ?? "",
+    baseCurrency: product.baseCurrency,
+    seoTitle: product.seoTitle ?? "",
+    seoDescription: product.seoDescription ?? "",
+    ogImageUrl: product.ogImageUrl ?? "",
+    noindex: product.noindex,
     status: product.status,
     fulfillmentType: product.fulfillmentType,
     categoryId: product.categoryId ?? "",

@@ -1,10 +1,17 @@
-import { and, asc, count, eq, ilike, ne, or, sql } from "drizzle-orm";
+import { and, asc, avg, count, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 
-import type { ProductStatus } from "@/db/schema";
-import { categories, products as productsTable, productTags, tags } from "@/db/schema";
+import type { BaseCurrency, ProductStatus } from "@/db/schema";
+import {
+  categories,
+  productReviews,
+  products as productsTable,
+  productTags,
+  tags,
+} from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { decimalToNumber } from "@/lib/format";
+import { convertToToman, loadExchangeRates } from "@/lib/pricing/exchange";
 
 export type ProductSortKey = "price_asc" | "price_desc" | "newest" | "stock_desc";
 
@@ -100,6 +107,12 @@ export function getUserTier(user: { isPremium: boolean } | null): UserTier {
   return "PUBLIC";
 }
 
+/**
+ * Resolves the Toman price for a variant + tier. Amounts are authored in the
+ * product's `baseCurrency`; when that is USD/EUR the figure is converted to Toman
+ * via the cached exchange rate (defaults to IRT = no conversion, so callers that
+ * don't pass a currency keep the legacy Toman behaviour).
+ */
 export function variantPrice(
   variant: {
     publicPriceAmount: unknown;
@@ -107,16 +120,16 @@ export function variantPrice(
     premiumPriceAmount?: unknown;
   },
   tier: UserTier,
+  baseCurrency: BaseCurrency = "IRT",
 ) {
-  if (tier === "PREMIUM" && variant.premiumPriceAmount != null) {
-    return decimalToNumber(variant.premiumPriceAmount);
-  }
+  const raw =
+    tier === "PREMIUM" && variant.premiumPriceAmount != null
+      ? decimalToNumber(variant.premiumPriceAmount)
+      : tier === "REGISTERED" && variant.registeredPriceAmount != null
+        ? decimalToNumber(variant.registeredPriceAmount)
+        : decimalToNumber(variant.publicPriceAmount);
 
-  if (tier === "REGISTERED" && variant.registeredPriceAmount != null) {
-    return decimalToNumber(variant.registeredPriceAmount);
-  }
-
-  return decimalToNumber(variant.publicPriceAmount);
+  return convertToToman(raw, baseCurrency);
 }
 
 function mapImage(image: CatalogImage) {
@@ -137,7 +150,8 @@ function visibleImages<T extends CatalogImage>(images: T[], tier: UserTier) {
   return images.filter((image) => tier === "PREMIUM" || !image.vipImage).map(mapImage);
 }
 
-function mapVariant(variant: CatalogVariant, tier: UserTier) {
+function mapVariant(variant: CatalogVariant, tier: UserTier, baseCurrency: BaseCurrency = "IRT") {
+  const compareAt = decimalToNumber(variant.compareAtAmount);
   return {
     id: variant.id,
     sku: variant.sku,
@@ -148,8 +162,8 @@ function mapVariant(variant: CatalogVariant, tier: UserTier) {
     materialNameFa: variant.materialNameFa,
     materialSlug: variant.materialSlug,
     size: variant.size,
-    price: variantPrice(variant, tier),
-    compareAtAmount: decimalToNumber(variant.compareAtAmount),
+    price: variantPrice(variant, tier, baseCurrency),
+    compareAtAmount: convertToToman(compareAt, baseCurrency),
     availableStock: variant.inventoryUnits.length,
     images: visibleImages(variant.images, tier),
   };
@@ -172,6 +186,9 @@ export type ListingProduct = {
   compareAtAmount: number;
   availableStock: number;
   variants: ReturnType<typeof mapVariant>[];
+  // Aggregate of APPROVED reviews. ratingAvg is null when there are no reviews.
+  ratingAvg: number | null;
+  ratingCount: number;
 };
 
 function randomProduct(products: ListingProduct[]) {
@@ -262,8 +279,13 @@ export async function getProductsForListing(
   function buildCountWhere() {
     const archivedFilter = ne(productsTable.status, "ARCHIVED");
 
-    // Domain products are one-off, per-search minted items — never list them.
-    const baseFilters = [archivedFilter, ne(productsTable.fulfillmentType, "DOMAIN")];
+    // Domain (per-search minted) and server (sold via /servers) products are not
+    // part of the generic catalog — keep both out of the listing.
+    const baseFilters = [
+      archivedFilter,
+      ne(productsTable.fulfillmentType, "DOMAIN"),
+      ne(productsTable.fulfillmentType, "SERVER"),
+    ];
 
     if (category) {
       baseFilters.push(
@@ -324,6 +346,7 @@ export async function getProductsForListing(
       const filters = [
         neOp(product.status, "ARCHIVED"),
         neOp(product.fulfillmentType, "DOMAIN"),
+        neOp(product.fulfillmentType, "SERVER"),
       ];
 
       if (category) {
@@ -402,8 +425,39 @@ export async function getProductsForListing(
     ...(needsPostFilter ? {} : { limit: pageSize, offset }),
   });
 
+  // One aggregate query keyed by productId for the whole page — avoids N+1.
+  // Only APPROVED reviews count toward the public rating.
+  const productIds = rows.map((product) => product.id);
+  const ratingByProductId = new Map<string, { avg: number | null; count: number }>();
+
+  if (productIds.length > 0) {
+    const ratingRows = await db
+      .select({
+        productId: productReviews.productId,
+        avg: avg(productReviews.rating),
+        count: count(productReviews.id),
+      })
+      .from(productReviews)
+      .where(
+        and(inArray(productReviews.productId, productIds), eq(productReviews.status, "APPROVED")),
+      )
+      .groupBy(productReviews.productId);
+
+    for (const row of ratingRows) {
+      ratingByProductId.set(row.productId, {
+        avg: row.avg == null ? null : Number(row.avg),
+        count: Number(row.count),
+      });
+    }
+  }
+
+  // Warm the exchange-rate cache so USD/EUR products convert to live Toman.
+  await loadExchangeRates();
+
   const mapped = rows.map((product) => {
-    const variants = product.variants.map((variant) => mapVariant(variant, tier));
+    const variants = product.variants.map((variant) =>
+      mapVariant(variant, tier, product.baseCurrency),
+    );
     const firstVariant = variants[0];
     const images = visibleImages(product.images, tier);
     const defaultImage =
@@ -432,6 +486,7 @@ export async function getProductsForListing(
           ]
         : images;
     const showcaseImage = selectedShowcaseImage(galleryImages, tier);
+    const rating = ratingByProductId.get(product.id);
 
     return {
       id: product.id,
@@ -450,6 +505,8 @@ export async function getProductsForListing(
       compareAtAmount: firstVariant?.compareAtAmount ?? 0,
       availableStock: variants.reduce((sum, variant) => sum + variant.availableStock, 0),
       variants,
+      ratingAvg: rating?.avg ?? null,
+      ratingCount: rating?.count ?? 0,
     };
   });
 
@@ -489,6 +546,99 @@ export async function getProductsForListing(
       hasNext: page * pageSize < total,
     } satisfies ListingMeta,
   };
+}
+
+export type ProductSuggestion = {
+  id: string;
+  slug: string;
+  titleFa: string;
+  primaryImageUrl: string | null;
+  priceToman: number;
+};
+
+export type CategorySuggestion = {
+  slug: string;
+  titleFa: string;
+};
+
+export type SearchSuggestions = {
+  products: ProductSuggestion[];
+  categories: CategorySuggestion[];
+};
+
+/**
+ * Lightweight autocomplete for the storefront search. Returns a few ACTIVE,
+ * non-DOMAIN products and a few visible categories whose Persian title matches
+ * the query (ILIKE). Only selects the columns the suggestions UI needs.
+ *
+ * Image/price are resolved at the PUBLIC tier: the primary image is the first
+ * non-VIP product image (falling back to the product's `primaryImageUrl`), and
+ * the price is the cheapest variant's public price. VIP-only images are never
+ * exposed here regardless of who is asking.
+ */
+export async function getSearchSuggestions(
+  rawQuery: string,
+  opts: { productLimit?: number; categoryLimit?: number; _db?: ReturnType<typeof getDb> } = {},
+): Promise<SearchSuggestions> {
+  noStore();
+
+  const term = rawQuery.trim();
+  if (term.length < 2) {
+    return { products: [], categories: [] };
+  }
+
+  const db = opts._db ?? getDb();
+  const productLimit = opts.productLimit ?? 6;
+  const categoryLimit = opts.categoryLimit ?? 4;
+  const like = `%${term}%`;
+
+  const [productRows, categoryRows] = await Promise.all([
+    db.query.products.findMany({
+      where: (product, { and, eq, ne, ilike }) =>
+        and(
+          eq(product.status, "ACTIVE"),
+          ne(product.fulfillmentType, "DOMAIN"),
+          ne(product.fulfillmentType, "SERVER"),
+          ilike(product.titleFa, like),
+        ),
+      columns: { id: true, slug: true, titleFa: true, primaryImageUrl: true },
+      with: {
+        images: {
+          where: (image, { eq }) => eq(image.vipImage, false),
+          columns: { url: true, isPrimary: true, sortOrder: true },
+          orderBy: (image, { desc, asc }) => [desc(image.isPrimary), asc(image.sortOrder)],
+          limit: 1,
+        },
+        variants: {
+          columns: { publicPriceAmount: true },
+        },
+      },
+      orderBy: (product, { desc }) => [desc(product.createdAt)],
+      limit: productLimit,
+    }),
+    db
+      .select({ slug: categories.slug, titleFa: categories.titleFa })
+      .from(categories)
+      .where(and(eq(categories.isVisible, true), ilike(categories.titleFa, like)))
+      .orderBy(asc(categories.sortOrder), asc(categories.titleFa))
+      .limit(categoryLimit),
+  ]);
+
+  const productSuggestions: ProductSuggestion[] = productRows.map((product) => {
+    const prices = product.variants
+      .map((variant) => decimalToNumber(variant.publicPriceAmount))
+      .filter((value) => value > 0);
+
+    return {
+      id: product.id,
+      slug: product.slug,
+      titleFa: product.titleFa,
+      primaryImageUrl: product.images[0]?.url ?? product.primaryImageUrl ?? null,
+      priceToman: prices.length > 0 ? Math.min(...prices) : 0,
+    };
+  });
+
+  return { products: productSuggestions, categories: categoryRows };
 }
 
 export async function getProductForDetail(slug: string) {
@@ -581,9 +731,20 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
   }
 
   const tier = getUserTier(user);
-  const variants = product.variants.map((variant) => mapVariant(variant, tier));
+  await loadExchangeRates();
+  const variants = product.variants.map((variant) =>
+    mapVariant(variant, tier, product.baseCurrency),
+  );
   const images = visibleImages(product.images, tier);
-  const { items: allProducts } = await getProductsForListing(user);
+  const db = getDb();
+  const [{ items: allProducts }, [ratingRow]] = await Promise.all([
+    getProductsForListing(user),
+    // Aggregate of APPROVED reviews for this single product (for SEO aggregateRating).
+    db
+      .select({ avg: avg(productReviews.rating), count: count(productReviews.id) })
+      .from(productReviews)
+      .where(and(eq(productReviews.productId, product.id), eq(productReviews.status, "APPROVED"))),
+  ]);
 
   return {
     id: product.id,
@@ -599,6 +760,15 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
     images,
     variants,
     relatedProducts: relatedProductsForDetail(product, allProducts),
+    // SEO overrides — fall back to titleFa/summaryFa/primaryImageUrl when null.
+    seoTitle: product.seoTitle,
+    seoDescription: product.seoDescription,
+    ogImageUrl: product.ogImageUrl,
+    noindex: product.noindex,
+    primaryImageUrl: product.primaryImageUrl,
+    // Aggregate of APPROVED reviews. ratingAvg is null when there are no reviews.
+    ratingAvg: ratingRow?.avg == null ? null : Number(ratingRow.avg),
+    ratingCount: ratingRow?.count == null ? 0 : Number(ratingRow.count),
   };
 }
 

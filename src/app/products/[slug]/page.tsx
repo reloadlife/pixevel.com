@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { TrackView } from "@/components/analytics/track-view";
 import { ProductCard } from "@/components/shop/product-card";
 import { ProductDetailClient } from "@/components/shop/product-detail-client";
 import { getCurrentUser } from "@/lib/auth";
@@ -27,7 +28,17 @@ function primaryImageUrl(product: ProductView): string | null {
     }
   }
 
-  return null;
+  return product.primaryImageUrl ?? null;
+}
+
+/** Image used for OpenGraph/Twitter cards: explicit override first, else primary image. */
+function ogImageUrl(product: ProductView): string | null {
+  return product.ogImageUrl ?? primaryImageUrl(product);
+}
+
+/** Page <title>: SEO override first, else product title. */
+function metaTitle(product: ProductView): string {
+  return product.seoTitle?.trim() || product.titleFa;
 }
 
 /** Lowest variant price — the figure used for SEO offers and meta description. */
@@ -52,6 +63,10 @@ function isInStock(product: ProductView): boolean {
 }
 
 function metaDescription(product: ProductView): string {
+  if (product.seoDescription?.trim()) {
+    return product.seoDescription.trim();
+  }
+
   if (product.summaryFa) {
     return product.summaryFa;
   }
@@ -75,24 +90,26 @@ export async function generateMetadata({
     return { title: "محصول یافت نشد" };
   }
 
+  const title = metaTitle(product);
   const description = metaDescription(product);
-  const image = primaryImageUrl(product);
-  const canonical = `${siteUrl}/products/${product.slug}`;
+  const image = ogImageUrl(product);
+  const canonical = `/products/${product.slug}`;
 
   return {
-    title: product.titleFa,
+    title,
     description,
     alternates: { canonical },
+    robots: { index: !product.noindex, follow: !product.noindex },
     openGraph: {
       type: "website",
-      title: product.titleFa,
+      title,
       description,
       url: canonical,
       images: image ? [{ url: image, alt: product.titleFa }] : undefined,
     },
     twitter: {
       card: "summary_large_image",
-      title: product.titleFa,
+      title,
       description,
       images: image ? [image] : undefined,
     },
@@ -109,9 +126,10 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   }
 
   const canonical = `${siteUrl}/products/${product.slug}`;
-  const image = primaryImageUrl(product);
+  const image = ogImageUrl(product);
   const price = lowestPrice(product);
   const inStock = isInStock(product);
+  const hasRating = product.ratingAvg != null && product.ratingCount > 0;
 
   const productJsonLd = {
     "@context": "https://schema.org",
@@ -129,6 +147,15 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
       price: String(price),
       availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
     },
+    ...(hasRating
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: String(product.ratingAvg),
+            reviewCount: String(product.ratingCount),
+          },
+        }
+      : {}),
   };
 
   const breadcrumbJsonLd = {
@@ -167,6 +194,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD structured data is server-generated and escaped via jsonLd().
         dangerouslySetInnerHTML={{ __html: jsonLd(breadcrumbJsonLd) }}
       />
+
+      <TrackView type="PRODUCT_VIEW" productId={product.id} />
 
       <ProductDetailClient product={product} isAuthenticated={Boolean(user)} />
       {product.relatedProducts.length > 0 ? (

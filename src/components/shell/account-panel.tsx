@@ -1,6 +1,19 @@
 "use client";
 
-import { LayoutDashboard, LogOut, UserRound } from "lucide-react";
+import {
+  ChevronLeft,
+  Heart,
+  KeyRound,
+  LayoutDashboard,
+  LogOut,
+  type LucideIcon,
+  MapPin,
+  Package,
+  Settings,
+  Sparkles,
+  UserRound,
+  Wallet,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -8,8 +21,21 @@ import type { CurrentUser } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { ThemeSegmented } from "./theme-segmented";
 
+type Item = { href: string; label: string; icon: LucideIcon; accent?: boolean };
+
+/** Digikala-style vertical list: icon → label → chevron. One accented row (wallet). */
+const ITEMS: Item[] = [
+  { href: "/account/orders", label: "سفارش‌های من", icon: Package },
+  { href: "/account/keys", label: "کدها و لایسنس‌ها", icon: KeyRound },
+  { href: "/account/wallet", label: "کیف پول", icon: Wallet, accent: true },
+  { href: "/account/wishlist", label: "علاقه‌مندی‌ها", icon: Heart },
+  { href: "/account/rewards", label: "باشگاه مشتریان", icon: Sparkles },
+  { href: "/account/addresses", label: "آدرس‌ها", icon: MapPin },
+  { href: "/account/settings", label: "تنظیمات", icon: Settings },
+];
+
 const rowClass =
-  "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-bold text-foreground/80 transition hover:bg-muted hover:text-foreground";
+  "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-foreground/80 transition hover:bg-muted hover:text-foreground";
 
 /** Up to two initials from the user's name, for the avatar fallback. */
 function initials(user: CurrentUser): string | null {
@@ -40,7 +66,12 @@ export function AccountPanel({ user, onNavigate }: { user: CurrentUser; onNaviga
 
   return (
     <div className="flex flex-col">
-      <div className="flex items-center gap-3 px-2.5 py-2">
+      {/* Profile header — tap to open the account dashboard */}
+      <Link
+        href="/account"
+        onClick={onNavigate}
+        className="flex items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-muted"
+      >
         <div
           className={cn(
             "grid size-10 shrink-0 place-items-center rounded-full bg-muted text-sm font-black text-foreground",
@@ -50,7 +81,7 @@ export function AccountPanel({ user, onNavigate }: { user: CurrentUser; onNaviga
           {ini ?? <UserRound className="size-5 text-muted-foreground" />}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-foreground">
+          <p className="truncate text-sm font-black text-foreground">
             {user.fullName ?? "کاربر پیسکول"}
           </p>
           <p className="truncate text-xs text-muted-foreground" dir="ltr">
@@ -61,32 +92,51 @@ export function AccountPanel({ user, onNavigate }: { user: CurrentUser; onNaviga
           <span className="shrink-0 rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-black text-gold">
             VIP
           </span>
-        ) : null}
-      </div>
+        ) : (
+          <ChevronLeft className="size-4 shrink-0 text-muted-foreground/60" />
+        )}
+      </Link>
 
       <div className="my-1.5 border-t border-border" />
 
-      <Link href="/account" className={rowClass} onClick={onNavigate}>
-        <UserRound className="size-4" />
-        حساب کاربری
-      </Link>
+      {/* Section list */}
+      <nav className="flex flex-col">
+        {ITEMS.map(({ href, label, icon: Icon, accent }) => (
+          <Link key={href} href={href} onClick={onNavigate} className={rowClass}>
+            <Icon
+              className={cn("size-[18px] shrink-0", accent ? "text-gold" : "text-muted-foreground")}
+            />
+            <span className="flex-1">{label}</span>
+            <ChevronLeft className="size-4 shrink-0 text-muted-foreground/50" />
+          </Link>
+        ))}
+      </nav>
+
       {user.role === "ADMIN" ? (
-        <Link href="/admin" className={rowClass} onClick={onNavigate}>
-          <LayoutDashboard className="size-4" />
-          پنل مدیریت
-        </Link>
+        <>
+          <div className="my-1.5 border-t border-border" />
+          <Link href="/admin" onClick={onNavigate} className={rowClass}>
+            <LayoutDashboard className="size-[18px] shrink-0 text-muted-foreground" />
+            <span className="flex-1">پنل مدیریت</span>
+            <ChevronLeft className="size-4 shrink-0 text-muted-foreground/50" />
+          </Link>
+        </>
       ) : null}
 
       <div className="my-1.5 border-t border-border" />
-      <div className="px-1.5 pb-1.5">
+      <div className="px-1.5 pb-1">
         <p className="mb-1.5 px-1 text-xs font-bold text-muted-foreground">پوسته</p>
         <ThemeSegmented />
       </div>
       <div className="my-1.5 border-t border-border" />
 
-      <button type="button" onClick={logout} className={rowClass}>
-        <LogOut className="size-4" />
-        خروج
+      <button
+        type="button"
+        onClick={logout}
+        className={cn(rowClass, "text-red-600 hover:bg-red-500/10 hover:text-red-600")}
+      >
+        <LogOut className="size-[18px] shrink-0" />
+        <span className="flex-1 text-right">خروج از حساب</span>
       </button>
     </div>
   );

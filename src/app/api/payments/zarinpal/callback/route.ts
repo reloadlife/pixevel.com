@@ -70,8 +70,21 @@ export async function GET(req: NextRequest) {
     const result = await zarinpalProvider.verify(payment, { authority, status });
 
     if (result.status === "PAID") {
-      await confirmPayment(orderId, { reference: result.reference });
-      return resultPage("success");
+      try {
+        await confirmPayment(orderId, { reference: result.reference });
+        return resultPage("success");
+      } catch (confirmErr) {
+        // Funds captured at the gateway but local confirmation failed. Persist a
+        // recoverable AUTHORIZED marker (never leave it UNPAID/lost) so a
+        // reconcile job/admin can finish fulfillment; show the user "pending".
+        console.error(`[zarinpal/callback] CAPTURED-BUT-UNCONFIRMED order ${orderId}`, confirmErr);
+        await db
+          .update(payments)
+          .set({ status: "AUTHORIZED", reference: result.reference ?? null })
+          .where(eq(payments.orderId, orderId))
+          .catch(() => {});
+        return resultPage("pending");
+      }
     }
 
     await failPayment(orderId);

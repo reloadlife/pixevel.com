@@ -6,8 +6,9 @@ import { apiError, apiOk, readJson } from "@/lib/api";
 import { getAdminPhones } from "@/lib/auth";
 import { CART_COOKIE, mergeAnonymousCart } from "@/lib/cart";
 import { getDb } from "@/lib/db";
-import { hashOtp } from "@/lib/otp";
+import { isOtpCodeShape, MAX_OTP_ATTEMPTS, verifyOtpHash } from "@/lib/otp";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { createSession, SESSION_COOKIE, sessionCookieOptions } from "@/lib/session";
 
 type VerifyOtpPayload = {
@@ -20,8 +21,14 @@ export async function POST(request: Request) {
   const phone = normalizeIranPhone(body?.phone ?? "");
   const code = (body?.code ?? "").trim();
 
-  if (!isValidIranPhone(phone) || !/^\d{4}$/.test(code)) {
+  if (!isValidIranPhone(phone) || !isOtpCodeShape(code)) {
     return apiError("INVALID_OTP", "کد تایید یا شماره موبایل معتبر نیست.");
+  }
+
+  // Throttle verification attempts per IP+phone to slow distributed guessing on
+  // top of the durable per-OTP attempt cap below.
+  if (!rateLimit(`verify-otp:${clientIp(request)}:${phone}`, 10, 60_000).ok) {
+    return apiError("RATE_LIMITED", "تلاش بیش از حد. کمی بعد دوباره امتحان کنید.", 429);
   }
 
   const otp = await getDb().query.loginOtps.findFirst({
@@ -30,13 +37,27 @@ export async function POST(request: Request) {
     orderBy: (item, { desc }) => [desc(item.createdAt)],
   });
 
-  if (!otp || otp.codeHash !== hashOtp(phone, code)) {
-    if (otp) {
-      await getDb()
-        .update(loginOtps)
-        .set({ attempts: sql`${loginOtps.attempts} + 1` })
-        .where(eq(loginOtps.id, otp.id));
-    }
+  if (!otp) {
+    return apiError("INVALID_OTP", "کد وارد شده صحیح نیست.");
+  }
+
+  // Durable brute-force guard: once the attempt cap is hit, burn the OTP so it
+  // can never be guessed further — the user must request a fresh code.
+  if (otp.attempts >= MAX_OTP_ATTEMPTS) {
+    await getDb().update(loginOtps).set({ consumedAt: new Date() }).where(eq(loginOtps.id, otp.id));
+    return apiError("OTP_LOCKED", "تعداد تلاش‌ها بیش از حد مجاز است. کد جدید بگیرید.", 429);
+  }
+
+  if (!verifyOtpHash(phone, code, otp.codeHash)) {
+    const nextAttempts = otp.attempts + 1;
+    await getDb()
+      .update(loginOtps)
+      .set({
+        attempts: sql`${loginOtps.attempts} + 1`,
+        // Burn the OTP on the final allowed miss.
+        ...(nextAttempts >= MAX_OTP_ATTEMPTS ? { consumedAt: new Date() } : {}),
+      })
+      .where(eq(loginOtps.id, otp.id));
 
     return apiError("INVALID_OTP", "کد وارد شده صحیح نیست.");
   }

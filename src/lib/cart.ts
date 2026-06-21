@@ -1,9 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import type { FulfillmentType } from "@/db/schema";
 import { cartItems, carts, inventoryUnits } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { getDb } from "@/lib/db";
+import { loadExchangeRates } from "@/lib/pricing/exchange";
 
 export const CART_COOKIE = "pixevel_cart";
 
@@ -40,6 +41,25 @@ async function availableStock(variantId: string) {
     inventoryUnits,
     and(eq(inventoryUnits.variantId, variantId), eq(inventoryUnits.status, "AVAILABLE")),
   );
+}
+
+/**
+ * Batched available-stock counts for many variants in ONE grouped query — avoids
+ * the per-line N+1 in {@link getCartView}. Returns a variantId → count map
+ * (missing variants ⇒ 0).
+ */
+async function availableStockByVariants(variantIds: string[]): Promise<Map<string, number>> {
+  if (variantIds.length === 0) {
+    return new Map();
+  }
+  const rows = await getDb()
+    .select({ variantId: inventoryUnits.variantId, n: count() })
+    .from(inventoryUnits)
+    .where(
+      and(inArray(inventoryUnits.variantId, variantIds), eq(inventoryUnits.status, "AVAILABLE")),
+    )
+    .groupBy(inventoryUnits.variantId);
+  return new Map(rows.map((r) => [r.variantId, Number(r.n)]));
 }
 
 /**
@@ -111,6 +131,11 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
     },
   });
 
+  // One grouped stock query for all lines (no per-line N+1).
+  const stockMap = await availableStockByVariants(
+    rows.filter((row) => row.variant).map((row) => row.variantId),
+  );
+
   const items: CartLine[] = [];
 
   for (const row of rows) {
@@ -118,7 +143,7 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
       continue;
     }
 
-    const stock = await availableStock(row.variantId);
+    const stock = stockMap.get(row.variantId) ?? 0;
     const unitPrice = Number(row.unitPrice);
 
     items.push({
@@ -166,7 +191,7 @@ export async function addToCart(
   const variant = await db.query.productVariants.findFirst({
     where: (item, { eq }) => eq(item.id, variantId),
     with: {
-      product: { columns: { status: true } },
+      product: { columns: { status: true, baseCurrency: true } },
     },
   });
 
@@ -186,7 +211,9 @@ export async function addToCart(
 
   const cart = (await resolveCart(identity, true))!;
   const tier = getUserTier(identity.user);
-  const unitPrice = variantPrice(variant, tier);
+  // Snapshot the converted Toman price (USD/EUR products use the live rate).
+  await loadExchangeRates();
+  const unitPrice = variantPrice(variant, tier, variant.product.baseCurrency);
 
   const existing = await db.query.cartItems.findFirst({
     where: (item, { and, eq }) => and(eq(item.cartId, cart.id), eq(item.variantId, variantId)),

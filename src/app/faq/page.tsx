@@ -4,7 +4,16 @@ import Link from "next/link";
 export const metadata: Metadata = {
   title: "سوالات متداول",
   description: "پاسخ پرتکرارترین سوال‌ها درباره خرید، تحویل و پرداخت در پیسکول.",
+  alternates: { canonical: "/faq" },
 };
+
+/**
+ * Serializes JSON-LD for safe embedding inside a <script> tag. Escapes `<` so a
+ * stray `</script>` inside any text cannot break out of the element.
+ */
+function jsonLd(data: unknown): string {
+  return JSON.stringify(data).replace(/</g, "\\u003c");
+}
 
 const faqs = [
   {
@@ -30,8 +39,26 @@ const faqs = [
 ];
 
 export default function FaqPage() {
+  const faqJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.a,
+      },
+    })),
+  };
+
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-12 text-foreground sm:px-6" dir="rtl">
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD structured data is server-generated and escaped via jsonLd().
+        dangerouslySetInnerHTML={{ __html: jsonLd(faqJsonLd) }}
+      />
       <h1 className="text-4xl font-black">سوالات متداول</h1>
       <p className="mt-3 text-sm text-muted-foreground">
         پاسخ سوال‌های پرتکرار. اگر پاسخ خود را نیافتید، با پشتیبانی در تماس باشید.

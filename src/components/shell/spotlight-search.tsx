@@ -2,26 +2,41 @@
 
 import { Dialog } from "@base-ui/react/dialog";
 import { Command } from "cmdk";
-import { Search } from "lucide-react";
+import { LayoutGrid, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useEffect, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { formatToman } from "@/lib/format";
+import { categoryHref } from "@/lib/nav-items";
 import { cn } from "@/lib/utils";
 
 type ProductHit = {
   id: string;
   slug: string;
   titleFa: string;
-  price: number;
-  imageUrl?: string | null;
+  primaryImageUrl?: string | null;
+  priceToman: number;
+};
+
+type CategoryHit = {
+  slug: string;
+  titleFa: string;
+};
+
+type SuggestResponse = {
+  ok: boolean;
+  data?: {
+    products?: ProductHit[];
+    categories?: CategoryHit[];
+  };
 };
 
 export function SpotlightSearch({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ProductHit[]>([]);
+  const [products, setProducts] = useState<ProductHit[]>([]);
+  const [categories, setCategories] = useState<CategoryHit[]>([]);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -37,8 +52,10 @@ export function SpotlightSearch({ className }: { className?: string }) {
   const deferredQuery = useDeferredValue(query);
 
   useEffect(() => {
-    if (deferredQuery.length < 2) {
-      setResults([]);
+    const term = deferredQuery.trim();
+    if (term.length < 2) {
+      setProducts([]);
+      setCategories([]);
       setLoading(false);
       return;
     }
@@ -48,20 +65,19 @@ export function SpotlightSearch({ className }: { className?: string }) {
 
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/products?q=${encodeURIComponent(deferredQuery)}&pageSize=8`);
+        const res = await fetch(`/api/products/suggest?q=${encodeURIComponent(term)}`);
         if (!res.ok) return;
-        const data = (await res.json()) as {
-          data: { products: ProductHit[] };
-        };
+        const body = (await res.json()) as SuggestResponse;
         if (!cancelled) {
-          setResults(data.data?.products ?? []);
+          setProducts(body.data?.products ?? []);
+          setCategories(body.data?.categories ?? []);
         }
       } catch {
         // silently ignore network errors in the palette
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }, 250);
+    }, 200);
 
     return () => {
       cancelled = true;
@@ -72,7 +88,8 @@ export function SpotlightSearch({ className }: { className?: string }) {
   function close() {
     setOpen(false);
     setQuery("");
-    setResults([]);
+    setProducts([]);
+    setCategories([]);
   }
 
   function navigateTo(path: string) {
@@ -86,9 +103,12 @@ export function SpotlightSearch({ className }: { className?: string }) {
     }
   }
 
-  const showHint = deferredQuery.length < 2 && !loading;
-  const showLoading = loading;
-  const showEmpty = !loading && deferredQuery.length >= 2 && results.length === 0;
+  const trimmed = deferredQuery.trim();
+  const hasResults = products.length > 0 || categories.length > 0;
+  const showHint = trimmed.length < 2 && !loading;
+  const showLoading = loading && !hasResults;
+  const showEmpty = !loading && trimmed.length >= 2 && !hasResults;
+  const showAllRow = query.trim().length >= 2;
 
   return (
     <>
@@ -143,6 +163,12 @@ export function SpotlightSearch({ className }: { className?: string }) {
                   placeholder="نام محصول را بنویسید…"
                   className="flex h-12 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
                 />
+                {loading ? (
+                  <span
+                    className="ms-2 size-4 shrink-0 animate-spin rounded-full border-2 border-muted border-t-foreground"
+                    aria-hidden="true"
+                  />
+                ) : null}
               </div>
 
               <Command.List className="max-h-80 overflow-y-auto overscroll-contain p-2">
@@ -167,22 +193,24 @@ export function SpotlightSearch({ className }: { className?: string }) {
                   </Command.Empty>
                 )}
 
-                {/* Results */}
-                {results.length > 0 && (
-                  <Command.Group>
-                    {results.map((product) => (
+                {/* Product suggestions */}
+                {products.length > 0 && (
+                  <Command.Group
+                    heading="محصولات"
+                    className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:text-muted-foreground"
+                  >
+                    {products.map((product) => (
                       <Command.Item
                         key={product.id}
-                        value={product.id}
+                        value={`product-${product.id}`}
                         onSelect={() => navigateTo(`/products/${product.slug}`)}
                         className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
                       >
                         {/* Thumbnail */}
-                        {product.imageUrl ? (
+                        {product.primaryImageUrl ? (
                           <div className="size-10 shrink-0 overflow-hidden rounded-md border bg-muted">
-                            {/* biome-ignore lint/performance/noImgElement: admin-entered media URLs. */}
                             <img
-                              src={product.imageUrl}
+                              src={product.primaryImageUrl}
                               alt={product.titleFa}
                               className="h-full w-full object-cover"
                             />
@@ -194,22 +222,48 @@ export function SpotlightSearch({ className }: { className?: string }) {
                         {/* Title + price */}
                         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                           <span className="truncate font-medium">{product.titleFa}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatToman(product.price)}
-                          </span>
+                          {product.priceToman > 0 ? (
+                            <span className="text-xs text-muted-foreground">
+                              {formatToman(product.priceToman)}
+                            </span>
+                          ) : null}
                         </div>
                       </Command.Item>
                     ))}
-
-                    {/* "See all results" row */}
-                    <Command.Item
-                      value={`__all__${query}`}
-                      onSelect={() => navigateTo(`/products?q=${encodeURIComponent(query.trim())}`)}
-                      className="mt-1 flex cursor-pointer items-center justify-center rounded-lg border-t px-3 py-2.5 text-xs text-muted-foreground aria-selected:bg-accent aria-selected:text-accent-foreground"
-                    >
-                      همه نتایج برای «{query}»
-                    </Command.Item>
                   </Command.Group>
+                )}
+
+                {/* Category suggestions */}
+                {categories.length > 0 && (
+                  <Command.Group
+                    heading="دسته‌بندی‌ها"
+                    className="[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:text-muted-foreground"
+                  >
+                    {categories.map((category) => (
+                      <Command.Item
+                        key={category.slug}
+                        value={`category-${category.slug}`}
+                        onSelect={() => navigateTo(categoryHref(category.slug))}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm aria-selected:bg-accent aria-selected:text-accent-foreground"
+                      >
+                        <div className="grid size-10 shrink-0 place-items-center rounded-md border bg-muted text-muted-foreground">
+                          <LayoutGrid className="size-4" aria-hidden="true" />
+                        </div>
+                        <span className="truncate font-medium">{category.titleFa}</span>
+                      </Command.Item>
+                    ))}
+                  </Command.Group>
+                )}
+
+                {/* "See all results" row */}
+                {showAllRow && (
+                  <Command.Item
+                    value={`__all__${query}`}
+                    onSelect={() => navigateTo(`/products?q=${encodeURIComponent(query.trim())}`)}
+                    className="mt-1 flex cursor-pointer items-center justify-center rounded-lg border-t px-3 py-2.5 text-xs text-muted-foreground aria-selected:bg-accent aria-selected:text-accent-foreground"
+                  >
+                    همه نتایج برای «{query.trim()}»
+                  </Command.Item>
                 )}
               </Command.List>
             </Command>

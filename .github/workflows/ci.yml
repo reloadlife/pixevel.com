@@ -19,3 +19,34 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Biome CI check
         run: bunx biome ci
+
+  test:
+    name: Tests (Vitest)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: pixevel
+          POSTGRES_USER: pixevel
+          POSTGRES_PASSWORD: pixevel_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pixevel -d pixevel"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://pixevel:pixevel_password@localhost:5432/pixevel
+      SESSION_SECRET: ci-test-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      - name: Apply schema to test DB
+        run: bun run db:push
+      - name: Run tests
+        run: bun run test

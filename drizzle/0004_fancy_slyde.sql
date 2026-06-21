@@ -1,0 +1,1 @@
+CREATE INDEX "AnalyticsEvent_anonId_idx" ON "AnalyticsEvent" USING btree ("anonId");

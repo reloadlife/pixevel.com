@@ -86,7 +86,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         if (!body.unitId) {
           return apiError("INVALID_BODY", "شناسه واحد موجودی الزامی است.");
         }
-        await markUnitDamaged(body.unitId);
+        await markUnitDamaged(body.unitId, id);
         break;
       default:
         return apiError("INVALID_ACTION", "عملیات معتبر نیست.");
@@ -101,6 +101,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     if (error instanceof Error && error.message === "ORDER_NOT_PAID") {
       return apiError("ORDER_NOT_PAID", "ارسال مجدد کدها فقط برای سفارش پرداخت‌شده ممکن است.");
+    }
+
+    if (error instanceof Error && error.message === "ORDER_NOT_REFUNDABLE") {
+      return apiError("ORDER_NOT_REFUNDABLE", "فقط سفارش پرداخت‌شده قابل استرداد است.", 409);
+    }
+
+    if (error instanceof Error && error.message === "UNIT_NOT_IN_ORDER") {
+      return apiError("UNIT_NOT_IN_ORDER", "این واحد موجودی به این سفارش تعلق ندارد.", 400);
     }
 
     return apiError("ORDER_ACTION_FAILED", "عملیات سفارش انجام نشد.", 500);

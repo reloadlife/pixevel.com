@@ -1,0 +1,20 @@
+[Unit]
+Description=Pixevel Next.js app (standalone)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User={{ app_user }}
+WorkingDirectory={{ app_dir }}
+EnvironmentFile={{ env_file }}
+Environment=PORT={{ node_port }}
+Environment=HOSTNAME=127.0.0.1
+ExecStart={{ node_bin }} {{ app_dir }}/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

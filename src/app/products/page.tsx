@@ -1,3 +1,7 @@
+import type { Metadata } from "next";
+import { permanentRedirect, redirect } from "next/navigation";
+
+import { TrackSearch } from "@/components/analytics/track-search";
 import { CatalogFilters } from "@/components/shop/catalog-filters";
 import { ProductCard } from "@/components/shop/product-card";
 import { getCurrentUser } from "@/lib/auth";
@@ -9,6 +13,20 @@ import {
   type ProductSortKey,
 } from "@/lib/catalog";
 import { formatToman } from "@/lib/format";
+import { WORLD_ROUTES } from "@/lib/nav-items";
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixevel.com";
+
+type ListingSearchParams = {
+  q?: string;
+  page?: string;
+  category?: string;
+  tag?: string;
+  sort?: string;
+  minPrice?: string;
+  maxPrice?: string;
+  inStock?: string;
+};
 
 function parsePositiveAmount(raw: string | undefined): number | undefined {
   if (raw == null || raw.trim() === "") return undefined;
@@ -17,19 +35,78 @@ function parsePositiveAmount(raw: string | undefined): number | undefined {
   return value;
 }
 
+/**
+ * Canonical URL for the current listing: only the SEO-meaningful params
+ * (q/category/tag/sort) are kept, in a stable order, so paginated/price-filtered
+ * variants of the same search consolidate onto one canonical.
+ */
+function canonicalListingUrl(params: ListingSearchParams): string {
+  const search = new URLSearchParams();
+  if (params.q?.trim()) search.set("q", params.q.trim());
+  if (params.category) search.set("category", params.category);
+  if (params.tag) search.set("tag", params.tag);
+  if (params.sort) search.set("sort", params.sort);
+  const query = search.toString();
+  return query ? `${siteUrl}/products?${query}` : `${siteUrl}/products`;
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<ListingSearchParams>;
+}): Promise<Metadata> {
+  const params = await searchParams;
+  const { q, category, tag } = params;
+
+  const [allCategories, allTags] = await Promise.all([listCategories(), listTags()]);
+  const categoryTitle = category
+    ? (allCategories.find((c) => c.slug === category)?.titleFa ?? null)
+    : null;
+  const tagTitle = tag ? (allTags.find((t) => t.slug === tag)?.titleFa ?? null) : null;
+
+  const titleParts: string[] = [];
+  if (q?.trim()) titleParts.push(`جستجو: ${q.trim()}`);
+  if (categoryTitle) titleParts.push(categoryTitle);
+  if (tagTitle) titleParts.push(tagTitle);
+
+  const title = titleParts.length > 0 ? titleParts.join(" - ") : "محصولات";
+
+  let description: string;
+  if (q?.trim()) {
+    description = `نتایج جستجوی «${q.trim()}» در فروشگاه دیجیتال پیسکول؛ گیفت کارت، سی‌دی‌کی و سرویس‌های آنلاین.`;
+  } else if (categoryTitle) {
+    description = `خرید ${categoryTitle} با تحویل آنی از پیسکول؛ بهترین قیمت و پرداخت امن.`;
+  } else if (tagTitle) {
+    description = `محصولات دیجیتال با برچسب ${tagTitle} در پیسکول؛ تحویل آنی و پرداخت امن.`;
+  } else {
+    description =
+      "همه محصولات دیجیتال پیسکول؛ گیفت کارت، سی‌دی‌کی بازی و سرویس‌های آنلاین با تحویل آنی.";
+  }
+
+  const canonical = canonicalListingUrl(params);
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    openGraph: {
+      type: "website",
+      title,
+      description,
+      url: canonical,
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+    },
+  };
+}
+
 export default async function ProductsPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    q?: string;
-    page?: string;
-    category?: string;
-    tag?: string;
-    sort?: string;
-    minPrice?: string;
-    maxPrice?: string;
-    inStock?: string;
-  }>;
+  searchParams: Promise<ListingSearchParams>;
 }) {
   const {
     q,
@@ -41,6 +118,28 @@ export default async function ProductsPage({
     maxPrice: maxPriceParam,
     inStock: inStockParam,
   } = await searchParams;
+
+  // World categories own dedicated storefronts (domains → /domains). Bounce those
+  // slugs there instead of rendering an empty/hidden product listing.
+  if (category && WORLD_ROUTES[category]) {
+    redirect(WORLD_ROUTES[category]);
+  }
+
+  // Non-world categories have a dedicated SEO route (/category/<slug>). Permanently
+  // (308) consolidate ?category= onto it, preserving the other listing params so the
+  // dedicated route can honor an active search/tag/sort.
+  if (category) {
+    const carried = new URLSearchParams();
+    if (q?.trim()) carried.set("q", q.trim());
+    if (tag) carried.set("tag", tag);
+    if (sortParam) carried.set("sort", sortParam);
+    if (minPriceParam) carried.set("minPrice", minPriceParam);
+    if (maxPriceParam) carried.set("maxPrice", maxPriceParam);
+    if (inStockParam === "true") carried.set("inStock", "true");
+    const query = carried.toString();
+    // 308 permanent redirect — consolidates link equity onto the dedicated route.
+    permanentRedirect(`/category/${category}${query ? `?${query}` : ""}`);
+  }
 
   const page = Math.max(1, Number(pageParam ?? "1") || 1);
   const sort = PRODUCT_SORT_KEYS.includes(sortParam as ProductSortKey)
@@ -105,6 +204,7 @@ export default async function ProductsPage({
 
   return (
     <main className="bg-background px-4 pt-4 text-foreground sm:px-8 lg:px-14" dir="rtl">
+      {q?.trim() ? <TrackSearch query={q.trim()} resultCount={meta.total} /> : null}
       <header className="mb-6">
         <p className="text-xs font-black uppercase tracking-[0.24em] text-muted-foreground">
           Pixevel Shop

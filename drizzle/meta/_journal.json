@@ -8,6 +8,41 @@
       "when": 1781808573305,
       "tag": "0000_remarkable_millenium_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1781980142486,
+      "tag": "0001_busy_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781985474830,
+      "tag": "0002_bent_nicolaos",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781993432240,
+      "tag": "0003_round_nightcrawler",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782001798786,
+      "tag": "0004_fancy_slyde",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782004180214,
+      "tag": "0005_smooth_old_lace",
+      "breakpoints": true
     }
   ]
 }

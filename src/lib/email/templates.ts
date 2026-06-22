@@ -52,7 +52,7 @@ export type EmailContent = {
 
 // ─── Escaping ──────────────────────────────────────────────────────────────────
 
-function escapeHtml(value: string) {
+export function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => {
     switch (char) {
       case "&":
@@ -73,7 +73,7 @@ function escapeHtml(value: string) {
 
 // ─── Shared chrome ──────────────────────────────────────────────────────────────
 
-function shell(title: string, inner: string) {
+export function shell(title: string, inner: string) {
   return `<!doctype html>
 <html lang="fa" dir="rtl">
 <head>

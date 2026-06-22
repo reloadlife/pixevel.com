@@ -118,6 +118,12 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: "RESEND_API_KEY", label: "Resend: کلید API", group: "email", secret: true },
   { key: "EMAIL_FROM", label: "ایمیل فرستنده", group: "email" },
   { key: "EMAIL_TIMEOUT_MS", label: "ایمیل: تایم‌اوت (ms)", group: "email", default: "10000" },
+  {
+    key: "OPS_NOTIFY_EMAIL",
+    label: "ایمیل اطلاع‌رسانی پشتیبانی",
+    group: "email",
+    hint: "رویدادهای پشتیبانی (تیکت جدید/پاسخ کاربر) به این ایمیل ارسال می‌شود.",
+  },
 
   // ── Payments ──
   { key: "ZARINPAL_MERCHANT_ID", label: "زرین‌پال: مرچنت", group: "payments", secret: true },

@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { orderItems, orders, payments, products, productVariants } from "@/db/schema";
-import { sendEmailLogged, sendOrderCodesLogged } from "@/lib/comms/send";
+import { notify } from "@/lib/comms/dispatch";
+import { sendEmailLogged } from "@/lib/comms/send";
 import { getDb } from "@/lib/db";
 import {
   type DigitalCodeGroup,
@@ -9,6 +10,7 @@ import {
   type OrderEmailSummary,
   orderReceiptEmail,
 } from "@/lib/email/templates";
+import { formatToman } from "@/lib/format";
 import { dispatchFulfillment } from "./fulfillment";
 import { releaseUnits, sellReservedUnits } from "./inventory";
 
@@ -246,21 +248,38 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
     }
   }
 
-  // (c) Digital codes → SMS, alongside email. Best-effort: a missing SMS config
-  // or a delivery failure must never affect the (already-committed) payment.
-  // recipientPhone is only ever persisted for gift orders, so this resolves to
-  // the recipient for gifts and the buyer's own phone otherwise.
+  // (c) Digital codes → SMS, via the admin-editable DIGITAL_CODES_DELIVERED
+  // template event. recipientPhone is only persisted for gift orders, so this
+  // resolves to the recipient for gifts and the buyer's own phone otherwise.
   const smsTo = order.recipientPhone ?? order.customerPhone;
   if (smsTo && digitalUnits.length > 0) {
     const codes = digitalUnits.map((unit) => unit.code);
-    const sms = await sendOrderCodesLogged(
-      { phone: smsTo, orderNumber: order.orderNumber, codes },
-      { userId: order.userId, orderId },
+    await notify(
+      "DIGITAL_CODES_DELIVERED",
+      { phone: smsTo, userId: order.userId, orderId },
+      {
+        order_number: order.orderNumber,
+        codes: codes.join("\n"),
+        codes_count: String(codes.length),
+        href: `/account/orders/${orderId}`,
+      },
     );
-    if (sms.status === "failed") {
-      console.error(`[payments] codes SMS failed for ${order.orderNumber}: ${sms.message}`);
-    }
   }
+
+  // (d) Payment confirmation → SMS + in-app to the buyer. The rich itemized
+  // receipt email above IS the email channel for this event, so ORDER_PAID's
+  // own channels are SMS + in-app only (no duplicate paid email).
+  await notify(
+    "ORDER_PAID",
+    { userId: order.userId, email: order.customerEmail, phone: order.customerPhone, orderId },
+    {
+      order_number: order.orderNumber,
+      customer_name: order.customerName ?? "",
+      total: formatToman(order.totalAmount),
+      status: order.status,
+      href: `/account/orders/${orderId}`,
+    },
+  );
 }
 
 /**
@@ -288,6 +307,18 @@ export async function failPayment(orderId: string, opts: TransactionOptions = {}
   } else {
     const db = getDb();
     await db.transaction(run);
+    // Best-effort: tell the buyer the payment failed (never throws).
+    const order = await db.query.orders.findFirst({
+      where: (o, { eq: e }) => e(o.id, orderId),
+      columns: { orderNumber: true, userId: true, customerEmail: true },
+    });
+    if (order) {
+      await notify(
+        "PAYMENT_FAILED",
+        { userId: order.userId, email: order.customerEmail, orderId },
+        { order_number: order.orderNumber, href: `/account/orders/${orderId}` },
+      );
+    }
   }
 }
 

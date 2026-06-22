@@ -136,7 +136,13 @@ export async function sendOrderCodesLogged(
 
 export async function sendEmailLogged(
   params: SendEmailParams,
-  opts?: { userId?: string | null; orderId?: string | null; kind?: "NOTIFICATION" | "OTHER" },
+  opts?: {
+    userId?: string | null;
+    orderId?: string | null;
+    kind?: "NOTIFICATION" | "OTHER" | "EVENT";
+    eventKey?: string | null;
+    templateId?: string | null;
+  },
 ): Promise<EmailDeliveryResult> {
   const result = await sendEmail(params);
   const to = Array.isArray(params.to) ? params.to.join(", ") : params.to;
@@ -151,6 +157,8 @@ export async function sendEmailLogged(
     providerMessageId: result.id,
     userId: opts?.userId ?? null,
     orderId: opts?.orderId ?? null,
+    eventKey: opts?.eventKey ?? null,
+    templateId: opts?.templateId ?? null,
   });
   return result;
 }

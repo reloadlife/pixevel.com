@@ -9,8 +9,10 @@ import {
   users,
 } from "@/db/schema";
 import { getUserTier, variantPrice } from "@/lib/catalog";
+import { notify } from "@/lib/comms/dispatch";
 import { decrementCouponUsage, incrementCouponUsage, validateCoupon } from "@/lib/coupons";
 import { getDb } from "@/lib/db";
+import { formatToman } from "@/lib/format";
 import { isPaymentMethod } from "@/lib/payments/methods";
 import { getProvider, type PaymentMethod } from "@/lib/payments/provider";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
@@ -440,6 +442,22 @@ export async function placeOrder(
     throw new OrderError(
       "PAYMENT_INIT_FAILED",
       "اتصال به درگاه پرداخت ممکن نشد. دوباره تلاش کنید.",
+    );
+  }
+
+  // Best-effort "order created" notification — committed (non-composed) path
+  // only, after gateway init succeeds. Never throws.
+  if (!opts.tx) {
+    await notify(
+      "ORDER_CREATED",
+      { userId, email: customerEmail, phone: orderRow.customerPhone, orderId: orderId! },
+      {
+        order_number: orderNumber!,
+        customer_name: orderRow.customerName ?? "",
+        total: formatToman(resolvedTotal),
+        status: orderRow.status,
+        href: `/account/orders/${orderId!}`,
+      },
     );
   }
 

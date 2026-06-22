@@ -1,6 +1,7 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 
 import { orders, type SupportTicketStatus, supportMessages, supportTickets } from "@/db/schema";
+import { notify } from "@/lib/comms/dispatch";
 import { getDb } from "@/lib/db";
 import type { StatusTone } from "@/lib/status-labels";
 
@@ -181,9 +182,9 @@ export async function createTicket(input: {
     orderId = owned ? owned.id : null;
   }
 
-  return db.transaction(async (tx) => {
+  const ticket = await db.transaction(async (tx) => {
     const now = new Date();
-    const [ticket] = await tx
+    const [created] = await tx
       .insert(supportTickets)
       .values({
         userId: input.userId,
@@ -195,14 +196,27 @@ export async function createTicket(input: {
       .returning();
 
     await tx.insert(supportMessages).values({
-      ticketId: ticket.id,
+      ticketId: created.id,
       authorUserId: input.userId,
       isStaff: false,
       bodyFa: input.bodyFa,
     });
 
-    return ticket;
+    return created;
   });
+
+  // Notify support staff a new ticket arrived (best-effort, never throws).
+  await notify(
+    "TICKET_CREATED",
+    { orderId: ticket.orderId },
+    {
+      ticket_id: ticket.id,
+      ticket_subject: ticket.subjectFa,
+      href: `/admin/support/${ticket.id}`,
+    },
+  );
+
+  return ticket;
 }
 
 /**
@@ -218,9 +232,9 @@ export async function addUserReply(input: {
 }): Promise<SupportMessageRow> {
   const db = getDb();
 
-  return db.transaction(async (tx) => {
+  const message = await db.transaction(async (tx) => {
     const now = new Date();
-    const [message] = await tx
+    const [inserted] = await tx
       .insert(supportMessages)
       .values({
         ticketId: input.ticketId,
@@ -239,6 +253,23 @@ export async function addUserReply(input: {
       .set({ lastMessageAt: now, status: nextStatus, updatedAt: now })
       .where(eq(supportTickets.id, input.ticketId));
 
-    return message;
+    return inserted;
   });
+
+  // Notify staff the customer replied (best-effort, never throws).
+  const ticket = await db.query.supportTickets.findFirst({
+    where: eq(supportTickets.id, input.ticketId),
+    columns: { subjectFa: true },
+  });
+  await notify(
+    "TICKET_REPLIED_TO_STAFF",
+    {},
+    {
+      ticket_id: input.ticketId,
+      ticket_subject: ticket?.subjectFa ?? "",
+      href: `/admin/support/${input.ticketId}`,
+    },
+  );
+
+  return message;
 }

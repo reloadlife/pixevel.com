@@ -124,6 +124,9 @@ export type RecordOutboundInput = {
   providerMessageId?: string | null;
   userId?: string | null;
   orderId?: string | null;
+  /** Dispatch provenance (set by the notify() engine). */
+  eventKey?: string | null;
+  templateId?: string | null;
 };
 
 export async function recordOutbound(input: RecordOutboundInput): Promise<string | null> {
@@ -148,6 +151,8 @@ export async function recordOutbound(input: RecordOutboundInput): Promise<string
         payload: redactCommPayload(input.payload) ?? null,
         userId: input.userId ?? null,
         orderId: input.orderId ?? null,
+        eventKey: input.eventKey ?? null,
+        templateId: input.templateId ?? null,
       })
       .returning({ id: commLogs.id });
     return row?.id ?? null;

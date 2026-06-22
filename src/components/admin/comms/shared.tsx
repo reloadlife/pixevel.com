@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 export type LogRow = {
   id: string;
   direction: "OUTBOUND" | "INBOUND";
-  channel: "SMS" | "VOICE" | "EMAIL" | "TELEGRAM";
+  channel: "SMS" | "VOICE" | "EMAIL" | "TELEGRAM" | "INAPP" | "PUSH";
   provider: string;
   kind: string;
   status: string;
@@ -19,6 +19,8 @@ export type LogRow = {
   errorMessage: string | null;
   cost: string | null;
   payload: unknown;
+  eventKey: string | null;
+  templateId: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -51,6 +53,8 @@ export const CHANNEL_FA: Record<string, string> = {
   VOICE: "تماس",
   EMAIL: "ایمیل",
   TELEGRAM: "تلگرام",
+  INAPP: "اعلان داخلی",
+  PUSH: "پوش",
 };
 
 export const STATUS_FA: Record<string, string> = {

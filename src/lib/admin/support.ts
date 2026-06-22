@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, ilike, or, type SQL } from "drizzle-orm";
 
 import type { SupportTicketStatus } from "@/db/schema";
 import { supportMessages, supportTickets, users } from "@/db/schema";
+import { notify } from "@/lib/comms/dispatch";
 import { getDb } from "@/lib/db";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -231,6 +232,24 @@ export async function adminReplyToTicket(
       .set({ lastMessageAt: now, status: "PENDING", updatedAt: now })
       .where(eq(supportTickets.id, ticketId));
   });
+
+  // Notify the ticket owner that support replied (best-effort, never throws).
+  const ticket = await db.query.supportTickets.findFirst({
+    where: eq(supportTickets.id, ticketId),
+    columns: { userId: true, subjectFa: true, orderId: true },
+    with: { user: { columns: { email: true } } },
+  });
+  if (ticket) {
+    await notify(
+      "TICKET_REPLIED_TO_USER",
+      { userId: ticket.userId, email: ticket.user?.email ?? null, orderId: ticket.orderId },
+      {
+        ticket_id: ticketId,
+        ticket_subject: ticket.subjectFa,
+        href: `/account/support/${ticketId}`,
+      },
+    );
+  }
 
   return getAdminTicket(ticketId);
 }

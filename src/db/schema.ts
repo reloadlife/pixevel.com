@@ -1365,11 +1365,19 @@ export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
 // --- Communications (SMS / voice / email / Telegram) -----------------------
 
 export const commDirection = pgEnum("comm_direction", ["OUTBOUND", "INBOUND"]);
-export const commChannel = pgEnum("comm_channel", ["SMS", "VOICE", "EMAIL", "TELEGRAM"]);
+export const commChannel = pgEnum("comm_channel", [
+  "SMS",
+  "VOICE",
+  "EMAIL",
+  "TELEGRAM",
+  "INAPP",
+  "PUSH",
+]);
 export const commKind = pgEnum("comm_kind", [
   "OTP",
   "ORDER_CODES",
   "NOTIFICATION",
+  "EVENT",
   "INBOUND",
   "TEST",
   "OTHER",
@@ -1386,12 +1394,38 @@ export const commStatus = pgEnum("comm_status", [
 ]);
 
 /**
+ * Admin-editable message templates, one row per (eventKey × channel). A row here
+ * overrides the seeded code default in `src/lib/comms/templates.ts`; absence
+ * falls back to that default (or skips the channel). `subject` doubles as the
+ * title for INAPP/PUSH; `body` is the SMS text / INAPP body / EMAIL inner HTML.
+ */
+export const commTemplates = pgTable(
+  "CommTemplate",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventKey: text("eventKey").notNull(),
+    channel: commChannel("channel").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    subject: text("subject"),
+    body: text("body").notNull(),
+    bodyText: text("bodyText"),
+    /** SMS only: send via a provider-registered pattern instead of free text. */
+    isPattern: boolean("isPattern").default(false).notNull(),
+    updatedByUserId: uuid("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [uniqueIndex("CommTemplate_eventKey_channel_uq").on(t.eventKey, t.channel)],
+);
+
+/**
  * The message ledger: one row per outbound or inbound message across every
  * channel. Written by the comms dispatch layer (`src/lib/comms`) on send, and
  * mutated by delivery-status callbacks (matched on `providerMessageId`).
  *
- * Security: OTP-kind rows never store the live code — `body` holds a marker and
- * `payload` is redacted of token/code/secret fields before persist.
+ * Full-data logging: `body` and `payload` are stored as sent; only long-lived
+ * credentials are stripped from payloads (see `src/lib/comms/record.ts`). Rows
+ * carry `eventKey`/`templateId` when produced by the dispatch engine.
  */
 export const commLogs = pgTable(
   "CommLog",
@@ -1411,6 +1445,9 @@ export const commLogs = pgTable(
     payload: jsonb("payload"),
     userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
     orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    /** Dispatch event that produced this row (null for OTP/legacy sends). */
+    eventKey: text("eventKey"),
+    templateId: uuid("templateId").references(() => commTemplates.id, { onDelete: "set null" }),
     createdAt,
     updatedAt,
   },
@@ -1419,6 +1456,7 @@ export const commLogs = pgTable(
     index("CommLog_toAddress_createdAt_idx").on(t.toAddress, t.createdAt),
     index("CommLog_providerMessageId_idx").on(t.providerMessageId),
     index("CommLog_status_idx").on(t.status),
+    index("CommLog_eventKey_createdAt_idx").on(t.eventKey, t.createdAt),
   ],
 );
 
@@ -1466,3 +1504,4 @@ export type CommKind = (typeof commKind.enumValues)[number];
 export type CommStatus = (typeof commStatus.enumValues)[number];
 export type CommLog = typeof commLogs.$inferSelect;
 export type CommWebhookEvent = typeof commWebhookEvents.$inferSelect;
+export type CommTemplate = typeof commTemplates.$inferSelect;

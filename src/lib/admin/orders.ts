@@ -1,7 +1,10 @@
 import { and, count, desc, eq, gte, ilike, isNotNull, lte, or, sql } from "drizzle-orm";
 import type { OrderStatus, PaymentStatus } from "@/db/schema";
 import { inventoryUnits, orders, payments } from "@/db/schema";
+import { notify } from "@/lib/comms/dispatch";
+import type { CommEventKey } from "@/lib/comms/events";
 import { getDb } from "@/lib/db";
+import { formatToman } from "@/lib/format";
 import { releaseExpiredReservations, releaseUnits } from "@/lib/orders/inventory";
 import {
   confirmPayment,
@@ -275,14 +278,48 @@ export async function resendOrderCodes(id: string): Promise<void> {
   await resendOrderCodesEmail(id);
 }
 
+/**
+ * Load an order's recipient + identifiers and dispatch a customer-facing order
+ * event (best-effort, never throws). Called after a status mutation commits.
+ */
+async function notifyOrderStatus(
+  orderId: string,
+  eventKey: CommEventKey,
+  extra: Record<string, string> = {},
+): Promise<void> {
+  const order = await getDb().query.orders.findFirst({
+    where: (o, { eq: e }) => e(o.id, orderId),
+    columns: {
+      orderNumber: true,
+      userId: true,
+      customerEmail: true,
+      customerPhone: true,
+      customerName: true,
+    },
+  });
+  if (!order) return;
+  await notify(
+    eventKey,
+    { userId: order.userId, email: order.customerEmail, phone: order.customerPhone, orderId },
+    {
+      order_number: order.orderNumber,
+      customer_name: order.customerName ?? "",
+      href: `/account/orders/${orderId}`,
+      ...extra,
+    },
+  );
+}
+
 /** Mark order as physically shipped. */
 export async function markShipped(id: string): Promise<void> {
   await getDb().update(orders).set({ status: "SHIPPED" }).where(eq(orders.id, id));
+  await notifyOrderStatus(id, "ORDER_SHIPPED");
 }
 
 /** Mark order as physically delivered. */
 export async function markDelivered(id: string): Promise<void> {
   await getDb().update(orders).set({ status: "DELIVERED" }).where(eq(orders.id, id));
+  await notifyOrderStatus(id, "ORDER_DELIVERED");
 }
 
 /** Cancel an order and release all reserved inventory units. */
@@ -291,6 +328,7 @@ export async function cancelOrder(id: string): Promise<void> {
     await releaseUnits(tx, id);
     await tx.update(orders).set({ status: "CANCELLED" }).where(eq(orders.id, id));
   });
+  await notifyOrderStatus(id, "ORDER_CANCELLED");
 }
 
 export type RefundOutcome = {
@@ -343,6 +381,8 @@ export async function refundOrder(id: string): Promise<RefundOutcome> {
       .where(eq(orders.id, id));
     await tx.update(payments).set({ status: "REFUNDED" }).where(eq(payments.orderId, id));
   });
+
+  await notifyOrderStatus(id, "ORDER_REFUNDED", { amount: formatToman(latestPayment?.amount) });
 
   // Best-effort gateway refund (Zarinpal only for now).
   if (latestPayment?.provider === "ZARINPAL" && latestPayment.status === "PAID") {

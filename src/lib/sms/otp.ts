@@ -1,22 +1,23 @@
-import { getSetting } from "@/lib/settings";
 import type { OtpDeliveryResult } from "@/lib/sms/delivery";
-import { sendIppanelOtp } from "@/lib/sms/ippanel";
-import { type KavenegarChannel, sendKavenegarOtp } from "@/lib/sms/kavenegar";
+import type { KavenegarChannel } from "@/lib/sms/kavenegar";
+import { getSmsProvider, resolveSmsProvider, resolveVoiceProvider } from "@/lib/sms/providers";
 
 /**
- * Dispatches an OTP to the configured SMS provider (`SMS_OTP_PROVIDER`:
- * "kavenegar" | "ippanel"). IPPanel handles SMS patterns only; voice ("call")
- * always goes through Kavenegar's lookup type=call.
+ * Dispatches an OTP via the registry-resolved provider.
+ * - SMS channel: resolved by `resolveSmsProvider()` (SMS_PROVIDER → SMS_OTP_PROVIDER → kavenegar).
+ * - Voice channel: resolved by `resolveVoiceProvider()` (VOICE_PROVIDER → kavenegar).
+ *   If the resolved voice provider does not support voice, falls back to kavenegar.
  */
 export async function sendOtp(
   phone: string,
   code: string,
   channel: KavenegarChannel,
 ): Promise<OtpDeliveryResult<unknown>> {
-  const provider = (await getSetting("SMS_OTP_PROVIDER"))?.toLowerCase() ?? "kavenegar";
-
-  if (provider === "ippanel" && channel === "sms") {
-    return sendIppanelOtp(phone, code);
+  if (channel === "call") {
+    const voiceProvider = await resolveVoiceProvider();
+    const provider = voiceProvider.supportsVoice ? voiceProvider : getSmsProvider("kavenegar");
+    return provider.sendOtp(phone, code, channel);
   }
-  return sendKavenegarOtp(phone, code, channel);
+  const provider = await resolveSmsProvider();
+  return provider.sendOtp(phone, code, channel);
 }

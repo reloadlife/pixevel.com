@@ -1,13 +1,16 @@
 import "server-only";
 
 import { type EmailDeliveryResult, type SendEmailParams, sendEmail } from "@/lib/email/client";
-import { getSetting } from "@/lib/settings";
 import type { OtpDeliveryResult } from "@/lib/sms/delivery";
 import type { KavenegarChannel } from "@/lib/sms/kavenegar";
 import { type OrderCodesSmsInput, sendOrderCodesSms } from "@/lib/sms/order-codes";
 import { sendOtp } from "@/lib/sms/otp";
+import {
+  resolveSmsProvider,
+  resolveSmsProviderId,
+  resolveVoiceProviderId,
+} from "@/lib/sms/providers";
 import { sendTelegramLoginOtp } from "@/lib/sms/telegram";
-import { sendSmsText } from "@/lib/sms/text";
 import { recordOutbound } from "./record";
 
 /**
@@ -17,12 +20,6 @@ import { recordOutbound } from "./record";
  * client; the return value is the raw client result, unchanged.
  */
 
-/** Which provider `sendOtp` dispatches to, for ledger attribution. */
-async function otpProvider(channel: KavenegarChannel): Promise<string> {
-  if (channel === "call") return "kavenegar"; // voice always goes through Kavenegar
-  return (await getSetting("SMS_OTP_PROVIDER"))?.toLowerCase() ?? "kavenegar";
-}
-
 export async function sendOtpLogged(
   phone: string,
   code: string,
@@ -30,9 +27,11 @@ export async function sendOtpLogged(
   opts?: { userId?: string | null },
 ): Promise<OtpDeliveryResult<unknown>> {
   const result = await sendOtp(phone, code, channel);
+  const provider =
+    channel === "call" ? await resolveVoiceProviderId() : await resolveSmsProviderId();
   await recordOutbound({
     channel: channel === "call" ? "VOICE" : "SMS",
-    provider: await otpProvider(channel),
+    provider,
     kind: "OTP",
     toAddress: phone,
     status: result.status,
@@ -69,10 +68,10 @@ export async function sendOrderCodesLogged(
   input: OrderCodesSmsInput,
   opts?: { userId?: string | null; orderId?: string | null },
 ): Promise<OtpDeliveryResult<unknown>> {
-  const result = await sendOrderCodesSms(input);
+  const [result, provider] = await Promise.all([sendOrderCodesSms(input), resolveSmsProviderId()]);
   await recordOutbound({
     channel: "SMS",
-    provider: "kavenegar",
+    provider,
     kind: "ORDER_CODES",
     toAddress: input.phone,
     body: `سفارش ${input.orderNumber}: ${input.codes.length} کد`,
@@ -106,15 +105,16 @@ export async function sendEmailLogged(
   return result;
 }
 
-/** Admin "send test SMS" — generic free text via Kavenegar, recorded as kind TEST. */
+/** Admin "send test SMS" — generic free text via the resolved SMS provider, recorded as kind TEST. */
 export async function sendTestSms(
   phone: string,
   text: string,
 ): Promise<OtpDeliveryResult<unknown>> {
-  const result = await sendSmsText(phone, text);
+  const [provider, providerId] = await Promise.all([resolveSmsProvider(), resolveSmsProviderId()]);
+  const result = await provider.sendText(phone, text);
   const logId = await recordOutbound({
     channel: "SMS",
-    provider: "kavenegar",
+    provider: providerId,
     kind: "TEST",
     toAddress: phone,
     body: text,

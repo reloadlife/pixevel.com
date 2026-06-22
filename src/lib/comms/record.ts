@@ -97,6 +97,10 @@ export function extractProviderMessageId(provider: string, payload: unknown): st
       const id = result?.messageId ?? result?.message_id;
       return id != null ? String(id) : null;
     }
+    case "selfhosted": {
+      const id = p.id;
+      return id != null && id !== "" ? String(id) : null;
+    }
     default:
       return null;
   }

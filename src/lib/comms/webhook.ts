@@ -50,6 +50,13 @@ export function mapKavenegarDeliveryStatus(code: number | string): CommStatus {
   }
 }
 
+export function mapSelfhostedDeliveryStatus(raw: string): CommStatus {
+  const s = raw.toLowerCase();
+  if (s === "delivered") return "DELIVERED";
+  if (s === "failed" || s === "undelivered") return "UNDELIVERED";
+  return "PENDING";
+}
+
 export function mapIppanelDeliveryStatus(raw: number | string): CommStatus {
   const s = String(raw).toLowerCase();
   if (s === "delivered" || s === "2") return "DELIVERED";

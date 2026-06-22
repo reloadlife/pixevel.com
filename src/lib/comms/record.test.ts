@@ -87,6 +87,17 @@ describe("extractProviderMessageId", () => {
     );
   });
 
+  test("selfhosted — payload.id", () => {
+    expect(extractProviderMessageId("selfhosted", { id: "msg-abc-123" })).toBe("msg-abc-123");
+    expect(extractProviderMessageId("selfhosted", { id: 42 })).toBe("42");
+  });
+
+  test("selfhosted — returns null when id absent or empty", () => {
+    expect(extractProviderMessageId("selfhosted", {})).toBeNull();
+    expect(extractProviderMessageId("selfhosted", { id: "" })).toBeNull();
+    expect(extractProviderMessageId("selfhosted", null)).toBeNull();
+  });
+
   test("returns null when absent / unknown provider", () => {
     expect(extractProviderMessageId("kavenegar", { return: { status: 400 } })).toBeNull();
     expect(extractProviderMessageId("nope", { id: "x" })).toBeNull();

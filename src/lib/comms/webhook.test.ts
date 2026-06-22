@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { mapIppanelDeliveryStatus, mapKavenegarDeliveryStatus, safeEqual } from "./webhook";
+import {
+  mapIppanelDeliveryStatus,
+  mapKavenegarDeliveryStatus,
+  mapSelfhostedDeliveryStatus,
+  safeEqual,
+} from "./webhook";
 
 describe("safeEqual", () => {
   test("true only on exact match", () => {
@@ -31,6 +36,26 @@ describe("mapKavenegarDeliveryStatus", () => {
 
   test("coerces string codes", () => {
     expect(mapKavenegarDeliveryStatus("10")).toBe("DELIVERED");
+  });
+});
+
+describe("mapSelfhostedDeliveryStatus", () => {
+  test("delivered → DELIVERED", () => {
+    expect(mapSelfhostedDeliveryStatus("delivered")).toBe("DELIVERED");
+  });
+
+  test("failed → UNDELIVERED", () => {
+    expect(mapSelfhostedDeliveryStatus("failed")).toBe("UNDELIVERED");
+  });
+
+  test("undelivered → UNDELIVERED", () => {
+    expect(mapSelfhostedDeliveryStatus("undelivered")).toBe("UNDELIVERED");
+  });
+
+  test("anything else → PENDING", () => {
+    expect(mapSelfhostedDeliveryStatus("sent")).toBe("PENDING");
+    expect(mapSelfhostedDeliveryStatus("queued")).toBe("PENDING");
+    expect(mapSelfhostedDeliveryStatus("unknown")).toBe("PENDING");
   });
 });
 

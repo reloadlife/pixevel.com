@@ -1047,6 +1047,20 @@ export const exchangeRates = pgTable("ExchangeRate", {
   updatedAt,
 });
 
+/**
+ * Admin-editable runtime configuration (replaces most env vars). `value` holds
+ * plaintext for normal config and an AES-256-GCM blob when `isSecret` is true.
+ * The registry of valid keys + metadata lives in `src/lib/settings.ts`.
+ */
+export const appSettings = pgTable("AppSetting", {
+  key: text("key").primaryKey(),
+  value: text("value"),
+  isSecret: boolean("isSecret").default(false).notNull(),
+  updatedByUserId: uuid("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+  updatedAt,
+});
+export type AppSetting = typeof appSettings.$inferSelect;
+
 export const usersRelations = relations(users, ({ one, many }) => ({
   carts: many(carts),
   orders: many(orders),
@@ -1347,3 +1361,108 @@ export type AnalyticsEventType = (typeof analyticsEventType.enumValues)[number];
 export type BlogStatus = (typeof blogStatus.enumValues)[number];
 export type BlogPost = typeof blogPosts.$inferSelect;
 export type AnalyticsEvent = typeof analyticsEvents.$inferSelect;
+
+// --- Communications (SMS / voice / email / Telegram) -----------------------
+
+export const commDirection = pgEnum("comm_direction", ["OUTBOUND", "INBOUND"]);
+export const commChannel = pgEnum("comm_channel", ["SMS", "VOICE", "EMAIL", "TELEGRAM"]);
+export const commKind = pgEnum("comm_kind", [
+  "OTP",
+  "ORDER_CODES",
+  "NOTIFICATION",
+  "INBOUND",
+  "TEST",
+  "OTHER",
+]);
+export const commStatus = pgEnum("comm_status", [
+  "QUEUED",
+  "SENT",
+  "PENDING",
+  "DELIVERED",
+  "FAILED",
+  "SKIPPED",
+  "RECEIVED",
+  "UNDELIVERED",
+]);
+
+/**
+ * The message ledger: one row per outbound or inbound message across every
+ * channel. Written by the comms dispatch layer (`src/lib/comms`) on send, and
+ * mutated by delivery-status callbacks (matched on `providerMessageId`).
+ *
+ * Security: OTP-kind rows never store the live code — `body` holds a marker and
+ * `payload` is redacted of token/code/secret fields before persist.
+ */
+export const commLogs = pgTable(
+  "CommLog",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    direction: commDirection("direction").notNull(),
+    channel: commChannel("channel").notNull(),
+    provider: text("provider").notNull(),
+    kind: commKind("kind").notNull(),
+    status: commStatus("status").notNull(),
+    toAddress: text("toAddress").notNull(),
+    fromAddress: text("fromAddress"),
+    body: text("body"),
+    providerMessageId: text("providerMessageId"),
+    errorMessage: text("errorMessage"),
+    cost: numeric("cost", price),
+    payload: jsonb("payload"),
+    userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
+    orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("CommLog_channel_createdAt_idx").on(t.channel, t.createdAt),
+    index("CommLog_toAddress_createdAt_idx").on(t.toAddress, t.createdAt),
+    index("CommLog_providerMessageId_idx").on(t.providerMessageId),
+    index("CommLog_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Raw audit of every provider callback/webhook POST — delivery receipts and
+ * inbound-message notifications — recorded exactly as received, including
+ * unauthenticated or unmatched hits. The Callbacks tab reads this; it's the
+ * first place to look when a provider webhook is misconfigured.
+ */
+export const commWebhookEvents = pgTable(
+  "CommWebhookEvent",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: text("provider").notNull(),
+    channel: commChannel("channel").notNull(),
+    /** "delivery_status" | "inbound" */
+    type: text("type").notNull(),
+    rawPayload: jsonb("rawPayload"),
+    matchedLogId: uuid("matchedLogId").references(() => commLogs.id, { onDelete: "set null" }),
+    signatureValid: boolean("signatureValid").notNull(),
+    receivedAt: timestamp("receivedAt", { mode: "date" }).defaultNow().notNull(),
+  },
+  (t) => [
+    index("CommWebhookEvent_provider_receivedAt_idx").on(t.provider, t.receivedAt),
+    index("CommWebhookEvent_type_idx").on(t.type),
+  ],
+);
+
+export const commLogsRelations = relations(commLogs, ({ one, many }) => ({
+  user: one(users, { fields: [commLogs.userId], references: [users.id] }),
+  order: one(orders, { fields: [commLogs.orderId], references: [orders.id] }),
+  webhookEvents: many(commWebhookEvents),
+}));
+
+export const commWebhookEventsRelations = relations(commWebhookEvents, ({ one }) => ({
+  matchedLog: one(commLogs, {
+    fields: [commWebhookEvents.matchedLogId],
+    references: [commLogs.id],
+  }),
+}));
+
+export type CommDirection = (typeof commDirection.enumValues)[number];
+export type CommChannel = (typeof commChannel.enumValues)[number];
+export type CommKind = (typeof commKind.enumValues)[number];
+export type CommStatus = (typeof commStatus.enumValues)[number];
+export type CommLog = typeof commLogs.$inferSelect;
+export type CommWebhookEvent = typeof commWebhookEvents.$inferSelect;

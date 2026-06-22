@@ -1,4 +1,5 @@
-import { formatDeliveryError, type OtpDeliveryResult, resolveTimeoutMs } from "@/lib/sms/delivery";
+import { getSetting, getSettingNumber } from "@/lib/settings";
+import { formatDeliveryError, type OtpDeliveryResult } from "@/lib/sms/delivery";
 
 // Kavenegar plain-text send endpoint response shape. Unlike the OTP
 // verify/lookup flow, order codes are free-text and go through `sms/send.json`.
@@ -48,8 +49,8 @@ export async function sendOrderCodesSms(
 ): Promise<OtpDeliveryResult<KavenegarSendResponse>> {
   const { phone, orderNumber, codes } = input;
 
-  const apiKey = process.env.KAVENEGAR_TOKEN;
-  const sender = process.env.KAVENEGAR_SENDER;
+  const apiKey = await getSetting("KAVENEGAR_TOKEN");
+  const sender = await getSetting("KAVENEGAR_SENDER");
 
   if (!apiKey) {
     return {
@@ -92,7 +93,7 @@ export async function sendOrderCodesSms(
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
-      signal: AbortSignal.timeout(resolveTimeoutMs(process.env.KAVENEGAR_TIMEOUT_MS, 10_000)),
+      signal: AbortSignal.timeout(await getSettingNumber("KAVENEGAR_TIMEOUT_MS", 10_000)),
     });
 
     let payload: KavenegarSendResponse;

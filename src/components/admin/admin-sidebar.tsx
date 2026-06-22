@@ -11,6 +11,7 @@ import {
   LayoutGridIcon,
   LifeBuoyIcon,
   MailIcon,
+  MessageSquareIcon,
   NewspaperIcon,
   PackageIcon,
   PlusIcon,
@@ -57,6 +58,7 @@ const navItems = [
   { href: "/admin/referrals", label: "معرفی دوستان", icon: Share2Icon, exact: false },
   { href: "/admin/newsletter", label: "خبرنامه", icon: MailIcon, exact: false },
   { href: "/admin/blog", label: "بلاگ", icon: NewspaperIcon, exact: false },
+  { href: "/admin/communications", label: "ارتباطات", icon: MessageSquareIcon, exact: false },
   { href: "/admin/settings", label: "تنظیمات", icon: SettingsIcon, exact: false },
   { href: "/", label: "مشاهده سایت", icon: ExternalLinkIcon, exact: true },
 ];

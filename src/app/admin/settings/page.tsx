@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { ExchangeRateManagement } from "@/components/admin/exchange-rate-management";
+import { SettingsManagement } from "@/components/admin/settings-management";
 import { getCurrentUser } from "@/lib/auth";
 import { getRatesForAdmin } from "@/lib/pricing/exchange";
+import { getSettingsForAdmin } from "@/lib/settings";
 
 export default async function AdminSettingsPage() {
   const user = await getCurrentUser();
@@ -14,7 +16,9 @@ export default async function AdminSettingsPage() {
     redirect("/admin");
   }
 
-  const rates = await getRatesForAdmin();
+  const [rates, allSettings] = await Promise.all([getRatesForAdmin(), getSettingsForAdmin()]);
+  // SMS/email config now lives in the dedicated /admin/communications hub.
+  const settings = allSettings.filter((s) => s.group !== "sms" && s.group !== "email");
 
   return (
     <div className="grid gap-8" dir="rtl">
@@ -30,6 +34,16 @@ export default async function AdminSettingsPage() {
           می‌شوند. با تغییر نرخ، همهٔ قیمت‌های ارزی بلافاصله به‌روز می‌شوند.
         </p>
         <ExchangeRateManagement initialRates={rates} />
+      </section>
+
+      <section>
+        <h2 className="mb-1 font-black">پیکربندی سرویس‌ها</h2>
+        <p className="mb-4 max-w-2xl text-sm text-muted-foreground">
+          کلیدها و تنظیمات سرویس‌های خارجی (پرداخت، دامنه، سرور و عمومی). مقادیر حساس رمزنگاری‌شده
+          ذخیره می‌شوند. اگر خالی بماند، از متغیر محیطی یا پیش‌فرض استفاده می‌شود. تنظیمات پیامک و
+          ایمیل به صفحهٔ «ارتباطات» منتقل شده‌اند.
+        </p>
+        <SettingsManagement initialSettings={settings} />
       </section>
     </div>
   );

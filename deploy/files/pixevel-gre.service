@@ -1,0 +1,13 @@
+[Unit]
+Description=Pixevel GRE uplink (internet via MikroTik CHR)
+After=network-online.target
+Wants=network-online.target
+Before=postgresql.service nginx.service pixevel.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/pixevel-gre.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,17 +1,8 @@
 import { eq } from "drizzle-orm";
 import { payments } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { getSetting, getSettingBool } from "@/lib/settings";
 import { type PaymentProvider, registerProvider } from "./provider";
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-const MERCHANT_ID = process.env.ZARINPAL_MERCHANT_ID ?? "00000000-0000-0000-0000-000000000000";
-
-const isSandbox = process.env.ZARINPAL_SANDBOX !== "false";
-
-const BASE_URL = isSandbox ? "https://sandbox.zarinpal.com/pg" : "https://payment.zarinpal.com/pg";
-
-const APP_BASE_URL = process.env.APP_BASE_URL ?? "http://localhost:4000";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -28,19 +19,27 @@ export const zarinpalProvider: PaymentProvider = {
   method: "ZARINPAL",
 
   async initiate(order, payment) {
+    const merchantId =
+      (await getSetting("ZARINPAL_MERCHANT_ID")) ?? "00000000-0000-0000-0000-000000000000";
+    const isSandbox = await getSettingBool("ZARINPAL_SANDBOX", false);
+    const baseUrl = isSandbox
+      ? "https://sandbox.zarinpal.com/pg"
+      : "https://payment.zarinpal.com/pg";
+    const appBaseUrl = (await getSetting("APP_BASE_URL")) ?? "http://localhost:4000";
+
     // Zarinpal v4 accepts amounts in Toman.
     const amount = Math.round(Number(order.totalAmount));
 
-    const callbackUrl = `${APP_BASE_URL}/api/payments/zarinpal/callback?orderId=${order.id}`;
+    const callbackUrl = `${appBaseUrl}/api/payments/zarinpal/callback?orderId=${order.id}`;
 
     const body = {
-      merchant_id: MERCHANT_ID,
+      merchant_id: merchantId,
       amount,
       callback_url: callbackUrl,
       description: `Order ${order.orderNumber}`,
     };
 
-    const res = await fetch(`${BASE_URL}/v4/payment/request.json`, {
+    const res = await fetch(`${baseUrl}/v4/payment/request.json`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(body),
@@ -64,11 +63,18 @@ export const zarinpalProvider: PaymentProvider = {
     const db = getDb();
     await db.update(payments).set({ reference: authority }).where(eq(payments.id, payment.id));
 
-    const redirectUrl = `${BASE_URL}/StartPay/${authority}`;
+    const redirectUrl = `${baseUrl}/StartPay/${authority}`;
     return { redirectUrl };
   },
 
   async verify(payment, params) {
+    const merchantId =
+      (await getSetting("ZARINPAL_MERCHANT_ID")) ?? "00000000-0000-0000-0000-000000000000";
+    const isSandbox = await getSettingBool("ZARINPAL_SANDBOX", false);
+    const baseUrl = isSandbox
+      ? "https://sandbox.zarinpal.com/pg"
+      : "https://payment.zarinpal.com/pg";
+
     const { authority, status } = params as { authority: string; status: string };
 
     // If the user cancelled / gateway returned NOK, no need to call verify.
@@ -79,7 +85,7 @@ export const zarinpalProvider: PaymentProvider = {
     const amount = Math.round(Number(payment.amount));
 
     const body = {
-      merchant_id: MERCHANT_ID,
+      merchant_id: merchantId,
       amount,
       authority,
     };
@@ -87,7 +93,7 @@ export const zarinpalProvider: PaymentProvider = {
     let json: { data?: { code?: number; ref_id?: number | string }; errors?: unknown };
 
     try {
-      const res = await fetch(`${BASE_URL}/v4/payment/verify.json`, {
+      const res = await fetch(`${baseUrl}/v4/payment/verify.json`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify(body),
@@ -146,7 +152,7 @@ export async function refundZarinpalPayment({
   reference: string | null | undefined;
   amount: number | string;
 }): Promise<ZarinpalRefundResult> {
-  const accessToken = process.env.ZARINPAL_ACCESS_TOKEN;
+  const accessToken = await getSetting("ZARINPAL_ACCESS_TOKEN");
 
   if (!accessToken) {
     return {
@@ -168,6 +174,7 @@ export async function refundZarinpalPayment({
     return { status: "failed", message: "مبلغ استرداد نامعتبر است." };
   }
 
+  const isSandbox = await getSettingBool("ZARINPAL_SANDBOX", false);
   const graphqlEndpoint = isSandbox
     ? "https://next.sandbox.zarinpal.com/api/v4/graphql"
     : "https://next.zarinpal.com/api/v4/graphql";

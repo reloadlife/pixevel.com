@@ -12,6 +12,8 @@
  *   EMAIL_TIMEOUT_MS — Optional request timeout (default 10000ms).
  */
 
+import { getSetting, getSettingNumber } from "@/lib/settings";
+
 export type EmailDeliveryStatus = "sent" | "skipped" | "failed";
 
 export type EmailDeliveryResult = {
@@ -39,12 +41,6 @@ function formatEmailError(error: unknown) {
   return error instanceof Error ? error.message : "Unknown email delivery error.";
 }
 
-function resolveTimeoutMs(value: string | undefined, fallbackMs: number) {
-  const timeoutMs = Number(value ?? fallbackMs);
-
-  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : fallbackMs;
-}
-
 /**
  * Send a transactional email. Best-effort: returns a status object and never
  * throws. "skipped" when unconfigured, "failed" on a provider/network error,
@@ -56,8 +52,8 @@ export async function sendEmail({
   html,
   text,
 }: SendEmailParams): Promise<EmailDeliveryResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+  const apiKey = await getSetting("RESEND_API_KEY");
+  const from = await getSetting("EMAIL_FROM");
 
   if (!apiKey || !from) {
     // No-op fallback. Log in development so the omission is visible locally.
@@ -93,7 +89,7 @@ export async function sendEmail({
         ...(text ? { text } : {}),
       }),
       cache: "no-store",
-      signal: AbortSignal.timeout(resolveTimeoutMs(process.env.EMAIL_TIMEOUT_MS, 10_000)),
+      signal: AbortSignal.timeout(await getSettingNumber("EMAIL_TIMEOUT_MS", 10_000)),
     });
 
     let payload: ResendSendResponse;

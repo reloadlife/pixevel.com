@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { orderItems, orders, payments, products, productVariants } from "@/db/schema";
+import { sendEmailLogged, sendOrderCodesLogged } from "@/lib/comms/send";
 import { getDb } from "@/lib/db";
-import { sendEmail } from "@/lib/email/client";
 import {
   type DigitalCodeGroup,
   digitalCodesEmail,
@@ -9,7 +9,6 @@ import {
   type OrderEmailSummary,
   orderReceiptEmail,
 } from "@/lib/email/templates";
-import { sendOrderCodesSms } from "@/lib/sms/order-codes";
 import { dispatchFulfillment } from "./fulfillment";
 import { releaseUnits, sellReservedUnits } from "./inventory";
 
@@ -176,12 +175,15 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
     }));
 
     const receipt = orderReceiptEmail(summary, items);
-    const res = await sendEmail({
-      to: order.customerEmail,
-      subject: receipt.subject,
-      html: receipt.html,
-      text: receipt.text,
-    });
+    const res = await sendEmailLogged(
+      {
+        to: order.customerEmail,
+        subject: receipt.subject,
+        html: receipt.html,
+        text: receipt.text,
+      },
+      { userId: order.userId, orderId },
+    );
     if (res.status === "failed") {
       console.error(`[payments] receipt email failed for ${order.orderNumber}: ${res.message}`);
     }
@@ -229,12 +231,15 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
 
     if (groups.length > 0) {
       const codesMail = digitalCodesEmail({ order: summary, codes: groups });
-      const res = await sendEmail({
-        to: codesTo,
-        subject: codesMail.subject,
-        html: codesMail.html,
-        text: codesMail.text,
-      });
+      const res = await sendEmailLogged(
+        {
+          to: codesTo,
+          subject: codesMail.subject,
+          html: codesMail.html,
+          text: codesMail.text,
+        },
+        { userId: order.userId, orderId },
+      );
       if (res.status === "failed") {
         console.error(`[payments] codes email failed for ${order.orderNumber}: ${res.message}`);
       }
@@ -248,11 +253,10 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
   const smsTo = order.recipientPhone ?? order.customerPhone;
   if (smsTo && digitalUnits.length > 0) {
     const codes = digitalUnits.map((unit) => unit.code);
-    const sms = await sendOrderCodesSms({
-      phone: smsTo,
-      orderNumber: order.orderNumber,
-      codes,
-    });
+    const sms = await sendOrderCodesLogged(
+      { phone: smsTo, orderNumber: order.orderNumber, codes },
+      { userId: order.userId, orderId },
+    );
     if (sms.status === "failed") {
       console.error(`[payments] codes SMS failed for ${order.orderNumber}: ${sms.message}`);
     }

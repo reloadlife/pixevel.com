@@ -1,9 +1,5 @@
+import { getSetting } from "@/lib/settings";
 import { type PaymentProvider, registerProvider } from "./provider";
-
-// ─── Config ───────────────────────────────────────────────────────────────────
-
-const CARD_NUMBER = process.env.CARD_TO_CARD_NUMBER ?? "6219-8610-0000-0000";
-const CARD_HOLDER = process.env.CARD_TO_CARD_HOLDER ?? "پیکسول";
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -21,15 +17,18 @@ const cardToCardProvider: PaymentProvider = {
   method: "CARD_TO_CARD",
 
   async initiate(order, _payment) {
+    const cardNumber = (await getSetting("CARD_TO_CARD_NUMBER")) ?? "6219-8610-0000-0000";
+    const cardHolder = (await getSetting("CARD_TO_CARD_HOLDER")) ?? "پیکسول";
+
     const totalFormatted = new Intl.NumberFormat("fa-IR").format(
       Math.round(Number(order.totalAmount)),
     );
 
     return {
       instructions: {
-        cardNumber: CARD_NUMBER,
-        holder: CARD_HOLDER,
-        fa: `لطفاً مبلغ ${totalFormatted} تومان را به شماره کارت ${CARD_NUMBER} به نام ${CARD_HOLDER} واریز کنید و تصویر رسید واریزی را آپلود نمایید. پس از تأیید توسط مدیر، سفارش شما پردازش خواهد شد.`,
+        cardNumber,
+        holder: cardHolder,
+        fa: `لطفاً مبلغ ${totalFormatted} تومان را به شماره کارت ${cardNumber} به نام ${cardHolder} واریز کنید و تصویر رسید واریزی را آپلود نمایید. پس از تأیید توسط مدیر، سفارش شما پردازش خواهد شد.`,
       },
     };
   },

@@ -19,6 +19,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "setup": "bun run db:push",
+    "deploy": "bash deploy/deploy.sh",
+    "deploy:dry": "bash deploy/deploy.sh --dry",
     "deploy:prepare": "bun run db:push && bun run build",
     "deploy:server": "bash scripts/deploy-server.sh",
     "db:seed": "tsx scripts/seed.ts",

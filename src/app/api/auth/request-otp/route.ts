@@ -1,20 +1,23 @@
 import { loginOtps } from "@/db/schema";
 import { apiError, apiOk, readJson } from "@/lib/api";
+import { sendOtpLogged, sendTelegramLoginOtpLogged } from "@/lib/comms/send";
 import { getDb } from "@/lib/db";
 import { generateOtpCode, hashOtp } from "@/lib/otp";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
+import { getSettingBool } from "@/lib/settings";
 import type { OtpDeliveryStatus } from "@/lib/sms/delivery";
-import { sendKavenegarOtp } from "@/lib/sms/kavenegar";
-import { sendTelegramLoginOtp } from "@/lib/sms/telegram";
 
 type RequestOtpPayload = {
   phone?: string;
+  /** "sms" (default) or "call" — a voice call that reads the code aloud. */
+  method?: "sms" | "call";
 };
 
 export async function POST(request: Request) {
   const body = await readJson<RequestOtpPayload>(request);
   const phone = normalizeIranPhone(body?.phone ?? "");
+  const method = body?.method === "call" ? "call" : "sms";
 
   if (!isValidIranPhone(phone)) {
     return apiError("INVALID_PHONE", "شماره موبایل معتبر نیست.");
@@ -38,15 +41,26 @@ export async function POST(request: Request) {
 
   const code = generateOtpCode();
   const host = getRequestHost(request);
+  // SMS via the configured provider (Kavenegar/IPPanel) or voice via Kavenegar.
+  // Telegram is only a dev/staging relay for the SMS channel — skipped for calls.
   const [sms, telegram] = await Promise.all([
-    sendKavenegarOtp(phone, code),
-    sendTelegramLoginOtp({ phone, code, host }),
+    sendOtpLogged(phone, code, method),
+    method === "sms"
+      ? sendTelegramLoginOtpLogged({ phone, code, host })
+      : Promise.resolve({ status: "skipped" as const, message: "voice channel", payload: null }),
   ]);
   const providerStatus = resolveProviderStatus([sms.status, telegram.status]);
   const sent = hasDeliveredOtp([sms.status, telegram.status]);
-  const providerMessage = [`kavenegar: ${sms.message}`, `telegram: ${telegram.message}`].join(
-    " | ",
-  );
+
+  // Staging affordance: until SMS delivery is wired up, write the code to the
+  // service journal so an operator can read it (`journalctl -u pixevel | grep otp`).
+  // Gated by an explicit env flag (default OFF), server-side only — turn it OFF the
+  // moment real SMS works (plaintext OTP in logs is a security risk otherwise).
+  if (await getSettingBool("OTP_DEBUG_LOG", false)) {
+    console.warn(`[otp] phone=${phone} code=${code} method=${method} sent=${sent}`);
+  }
+
+  const providerMessage = [`sms: ${sms.message}`, `telegram: ${telegram.message}`].join(" | ");
 
   await getDb()
     .insert(loginOtps)
@@ -54,11 +68,11 @@ export async function POST(request: Request) {
       phone,
       codeHash: hashOtp(phone, code),
       expiresAt: new Date(Date.now() + 5 * 60_000),
-      provider: "kavenegar+telegram",
+      provider: `sms:${method}`,
       providerStatus,
       providerMessage,
       providerPayload: {
-        kavenegar: {
+        sms: {
           status: sms.status,
           message: sms.message,
           payload: sms.payload,

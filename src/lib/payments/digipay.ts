@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { payments } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { getSetting } from "@/lib/settings";
 import { type PaymentProvider, registerProvider } from "./provider";
 
 /**
@@ -27,24 +28,29 @@ import { type PaymentProvider, registerProvider } from "./provider";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const APP_BASE_URL = process.env.APP_BASE_URL ?? "http://localhost:4000";
-
-// Production base; override for UAT (https://uat.mydigipay.info/digipay/api).
-const BASE_URL = (process.env.DIGIPAY_BASE_URL ?? "https://api.mydigipay.com/digipay/api").replace(
-  /\/+$/,
-  "",
-);
-
-// Gateway product type. 13 = BNPL / خرید اقساطی.
-const PAYMENT_TYPE = process.env.DIGIPAY_PAYMENT_TYPE ?? "13";
-
 const TOMAN_TO_RIAL = 10;
 
-function readConfig() {
-  const clientId = process.env.DIGIPAY_CLIENT_ID;
-  const clientSecret = process.env.DIGIPAY_CLIENT_SECRET;
-  const username = process.env.DIGIPAY_USERNAME;
-  const password = process.env.DIGIPAY_PASSWORD;
+async function appBaseUrl(): Promise<string> {
+  return (await getSetting("APP_BASE_URL")) ?? "http://localhost:4000";
+}
+
+// Production base; override for UAT (https://uat.mydigipay.info/digipay/api).
+async function baseUrl(): Promise<string> {
+  return (
+    (await getSetting("DIGIPAY_BASE_URL")) ?? "https://api.mydigipay.com/digipay/api"
+  ).replace(/\/+$/, "");
+}
+
+// Gateway product type. 13 = BNPL / خرید اقساطی.
+async function paymentType(): Promise<string> {
+  return (await getSetting("DIGIPAY_PAYMENT_TYPE")) ?? "13";
+}
+
+async function readConfig() {
+  const clientId = await getSetting("DIGIPAY_CLIENT_ID");
+  const clientSecret = await getSetting("DIGIPAY_CLIENT_SECRET");
+  const username = await getSetting("DIGIPAY_USERNAME");
+  const password = await getSetting("DIGIPAY_PASSWORD");
 
   if (!clientId || !clientSecret || !username || !password) {
     throw new Error("درگاه پرداخت پیکربندی نشده است.");
@@ -64,7 +70,7 @@ async function getAccessToken(): Promise<string> {
     return cachedToken.token;
   }
 
-  const { clientId, clientSecret, username, password } = readConfig();
+  const { clientId, clientSecret, username, password } = await readConfig();
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   const form = new URLSearchParams({
@@ -76,7 +82,7 @@ async function getAccessToken(): Promise<string> {
   let json: { access_token?: string; expires_in?: number };
 
   try {
-    const res = await fetch(`${BASE_URL}/oauth/token`, {
+    const res = await fetch(`${await baseUrl()}/oauth/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${basic}`,
@@ -115,7 +121,7 @@ export const digipayProvider: PaymentProvider = {
     // providerId is our merchant-side unique reference; the payment row id is
     // stable and lets the callback resolve the payment deterministically.
     const providerId = payment.id;
-    const callbackUrl = `${APP_BASE_URL}/api/payments/digipay/callback?orderId=${order.id}`;
+    const callbackUrl = `${await appBaseUrl()}/api/payments/digipay/callback?orderId=${order.id}`;
 
     const requestBody = {
       amount: amountRial,
@@ -131,7 +137,7 @@ export const digipayProvider: PaymentProvider = {
     let json: DigiTicketResponse | null = null;
 
     try {
-      const res = await fetch(`${BASE_URL}/tickets/business?type=${PAYMENT_TYPE}`, {
+      const res = await fetch(`${await baseUrl()}/tickets/business?type=${await paymentType()}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -187,7 +193,7 @@ export const digipayProvider: PaymentProvider = {
     try {
       const token = await getAccessToken();
 
-      const res = await fetch(`${BASE_URL}/purchases/verify?type=${PAYMENT_TYPE}`, {
+      const res = await fetch(`${await baseUrl()}/purchases/verify?type=${await paymentType()}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,

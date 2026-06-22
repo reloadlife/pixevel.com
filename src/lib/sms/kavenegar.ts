@@ -1,4 +1,5 @@
-import { formatDeliveryError, type OtpDeliveryResult, resolveTimeoutMs } from "@/lib/sms/delivery";
+import { getSetting, getSettingNumber } from "@/lib/settings";
+import { formatDeliveryError, type OtpDeliveryResult } from "@/lib/sms/delivery";
 
 type KavenegarLookupResponse = Array<{
   messageid?: number;
@@ -15,12 +16,15 @@ type KavenegarPayload = {
   error?: string;
 };
 
+export type KavenegarChannel = "sms" | "call";
+
 export async function sendKavenegarOtp(
   phone: string,
   code: string,
+  channel: KavenegarChannel = "sms",
 ): Promise<OtpDeliveryResult<KavenegarPayload>> {
-  const apiKey = process.env.KAVENEGAR_TOKEN;
-  const template = process.env.KAVENEGAR_OTP_TEMPLATE ?? "cancelappointmentotp";
+  const apiKey = await getSetting("KAVENEGAR_TOKEN");
+  const template = (await getSetting("KAVENEGAR_OTP_TEMPLATE")) ?? "cancelappointmentotp";
 
   if (!apiKey) {
     return {
@@ -30,10 +34,12 @@ export async function sendKavenegarOtp(
     };
   }
 
+  // verify/lookup `type`: "sms" delivers a text, "call" places a voice call that
+  // reads the token aloud (TTS). Same endpoint + template.
   const body = new URLSearchParams({
     receptor: phone,
     template,
-    type: "sms",
+    type: channel === "call" ? "call" : "sms",
     token: code,
   });
 
@@ -44,7 +50,7 @@ export async function sendKavenegarOtp(
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body,
-      signal: AbortSignal.timeout(resolveTimeoutMs(process.env.KAVENEGAR_TIMEOUT_MS, 10_000)),
+      signal: AbortSignal.timeout(await getSettingNumber("KAVENEGAR_TIMEOUT_MS", 10_000)),
     });
 
     let payload: KavenegarPayload;

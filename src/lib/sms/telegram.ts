@@ -1,4 +1,5 @@
-import { formatDeliveryError, type OtpDeliveryResult, resolveTimeoutMs } from "@/lib/sms/delivery";
+import { getSetting, getSettingNumber } from "@/lib/settings";
+import { formatDeliveryError, type OtpDeliveryResult } from "@/lib/sms/delivery";
 
 type TelegramLoginOtpParams = {
   phone: string;
@@ -47,8 +48,10 @@ export async function sendTelegramLoginOtp({
   code,
   host,
 }: TelegramLoginOtpParams): Promise<OtpDeliveryResult<TelegramLoginOtpPayload>> {
-  const botToken = process.env.TELEGRAM_LOGIN_OTP_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_LOGIN_OTP_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+  const botToken =
+    (await getSetting("TELEGRAM_LOGIN_OTP_BOT_TOKEN")) || (await getSetting("TELEGRAM_BOT_TOKEN"));
+  const chatId =
+    (await getSetting("TELEGRAM_LOGIN_OTP_CHAT_ID")) || (await getSetting("TELEGRAM_CHAT_ID"));
 
   // Relaying live OTP codes to an operator/debug Telegram chat is an
   // exfiltration backdoor — disable it entirely in production. No hardcoded
@@ -74,9 +77,7 @@ export async function sendTelegramLoginOtp({
         text: buildTelegramOtpMessage({ phone, code, host }),
       }),
       cache: "no-store",
-      signal: AbortSignal.timeout(
-        resolveTimeoutMs(process.env.TELEGRAM_LOGIN_OTP_TIMEOUT_MS, 10_000),
-      ),
+      signal: AbortSignal.timeout(await getSettingNumber("TELEGRAM_LOGIN_OTP_TIMEOUT_MS", 10_000)),
     });
 
     let payload: TelegramApiPayload;

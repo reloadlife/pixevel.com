@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { payments } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { getSetting } from "@/lib/settings";
 import { type PaymentProvider, registerProvider } from "./provider";
 
 /**
@@ -26,19 +27,23 @@ import { type PaymentProvider, registerProvider } from "./provider";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const APP_BASE_URL = process.env.APP_BASE_URL ?? "http://localhost:4000";
+const TOMAN_TO_RIAL = 10;
+
+async function appBaseUrl(): Promise<string> {
+  return (await getSetting("APP_BASE_URL")) ?? "http://localhost:4000";
+}
 
 // Production base. SnappPay does not expose a public sandbox host; an override
 // is supported for staging/UAT without leaking it into the disabled-method gate.
-const BASE_URL = (process.env.SNAPPPAY_BASE_URL ?? "https://api.snapppay.ir").replace(/\/+$/, "");
+async function baseUrl(): Promise<string> {
+  return ((await getSetting("SNAPPPAY_BASE_URL")) ?? "https://api.snapppay.ir").replace(/\/+$/, "");
+}
 
-const TOMAN_TO_RIAL = 10;
-
-function readConfig() {
-  const clientId = process.env.SNAPPPAY_CLIENT_ID;
-  const clientSecret = process.env.SNAPPPAY_CLIENT_SECRET;
-  const username = process.env.SNAPPPAY_USERNAME;
-  const password = process.env.SNAPPPAY_PASSWORD;
+async function readConfig() {
+  const clientId = await getSetting("SNAPPPAY_CLIENT_ID");
+  const clientSecret = await getSetting("SNAPPPAY_CLIENT_SECRET");
+  const username = await getSetting("SNAPPPAY_USERNAME");
+  const password = await getSetting("SNAPPPAY_PASSWORD");
 
   if (!clientId || !clientSecret || !username || !password) {
     throw new Error("درگاه پرداخت پیکربندی نشده است.");
@@ -62,7 +67,7 @@ async function getAccessToken(): Promise<string> {
     return cachedToken.token;
   }
 
-  const { clientId, clientSecret, username, password } = readConfig();
+  const { clientId, clientSecret, username, password } = await readConfig();
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   const form = new URLSearchParams({
@@ -75,7 +80,7 @@ async function getAccessToken(): Promise<string> {
   let json: { access_token?: string; expires_in?: number };
 
   try {
-    const res = await fetch(`${BASE_URL}/api/online/v1/oauth/token`, {
+    const res = await fetch(`${await baseUrl()}/api/online/v1/oauth/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${basic}`,
@@ -113,7 +118,7 @@ async function snappFetch<T>(
   body: unknown,
   token: string,
 ): Promise<SnappEnvelope<T> | null> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${await baseUrl()}${path}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -139,7 +144,7 @@ export const snapppayProvider: PaymentProvider = {
     // We key the gateway transaction on the payment row id so the callback can
     // resolve the correct payment deterministically.
     const transactionId = payment.id;
-    const returnURL = `${APP_BASE_URL}/api/payments/snapppay/callback?orderId=${order.id}`;
+    const returnURL = `${await appBaseUrl()}/api/payments/snapppay/callback?orderId=${order.id}`;
 
     // SnappPay requires a cartList. With no per-line breakdown surfaced here we
     // send a single cart holding the whole order; amounts are in RIAL.

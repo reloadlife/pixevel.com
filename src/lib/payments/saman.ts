@@ -1,13 +1,10 @@
 import { eq } from "drizzle-orm";
 import { payments } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { getSetting } from "@/lib/settings";
 import { type PaymentProvider, registerProvider } from "./provider";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-
-const TERMINAL_ID = process.env.SAMAN_TERMINAL_ID ?? "";
-
-const APP_BASE_URL = process.env.APP_BASE_URL ?? "http://localhost:4000";
 
 // SEP (Saman Electronic Payment) REST endpoints.
 const TOKEN_URL = "https://sep.shaparak.ir/onlinepg/onlinepg";
@@ -17,8 +14,8 @@ const VERIFY_URL = "https://sep.shaparak.ir/verifyTxnRandomSessionkey/ipg/Verify
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function isConfigured(): boolean {
-  return Boolean(TERMINAL_ID);
+function isConfigured(terminalId: string): boolean {
+  return Boolean(terminalId);
 }
 
 function configError(): never {
@@ -59,17 +56,20 @@ export const samanProvider: PaymentProvider = {
   method: "SAMAN",
 
   async initiate(order, payment) {
-    if (!isConfigured()) {
+    const terminalId = (await getSetting("SAMAN_TERMINAL_ID")) ?? "";
+    const appBaseUrl = (await getSetting("APP_BASE_URL")) ?? "http://localhost:4000";
+
+    if (!isConfigured(terminalId)) {
       configError();
     }
 
     // Toman → Rial.
     const amountRial = Math.round(Number(order.totalAmount)) * 10;
-    const redirectUrl = `${APP_BASE_URL}/api/payments/saman/callback?orderId=${order.id}`;
+    const redirectUrl = `${appBaseUrl}/api/payments/saman/callback?orderId=${order.id}`;
 
     const body: Record<string, unknown> = {
       Action: "token",
-      TerminalId: TERMINAL_ID,
+      TerminalId: terminalId,
       Amount: amountRial,
       ResNum: resNum(payment),
       RedirectUrl: redirectUrl,
@@ -130,7 +130,9 @@ export const samanProvider: PaymentProvider = {
   },
 
   async verify(payment, params) {
-    if (!isConfigured()) {
+    const terminalId = (await getSetting("SAMAN_TERMINAL_ID")) ?? "";
+
+    if (!isConfigured(terminalId)) {
       return { status: "FAILED" };
     }
 
@@ -166,7 +168,7 @@ export const samanProvider: PaymentProvider = {
       const res = await fetch(VERIFY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ RefNum: refNum, TerminalNumber: Number(TERMINAL_ID) }),
+        body: JSON.stringify({ RefNum: refNum, TerminalNumber: Number(terminalId) }),
       });
 
       json = (await res.json()) as typeof json;

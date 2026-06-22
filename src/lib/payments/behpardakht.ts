@@ -1,15 +1,10 @@
 import { eq } from "drizzle-orm";
 import { payments } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { getSetting } from "@/lib/settings";
 import { type PaymentProvider, registerProvider } from "./provider";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-
-const TERMINAL_ID = process.env.BEHPARDAKHT_TERMINAL_ID ?? "";
-const USERNAME = process.env.BEHPARDAKHT_USERNAME ?? "";
-const PASSWORD = process.env.BEHPARDAKHT_PASSWORD ?? "";
-
-const APP_BASE_URL = process.env.APP_BASE_URL ?? "http://localhost:4000";
 
 // Operational SOAP endpoint (Shaparak). The WSDL lives at `${SERVICE_URL}?wsdl`.
 const SERVICE_URL = "https://bpm.shaparak.ir/pgwchannel/services/pgw";
@@ -22,8 +17,8 @@ const SOAP_NS = "http://interfaces.core.sw.bps.com/";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function isConfigured(): boolean {
-  return Boolean(TERMINAL_ID && USERNAME && PASSWORD);
+function isConfigured(terminalId: string, username: string, password: string): boolean {
+  return Boolean(terminalId && username && password);
 }
 
 function configError(): never {
@@ -157,14 +152,19 @@ export const behpardakhtProvider: PaymentProvider = {
   method: "BEHPARDAKHT",
 
   async initiate(order, payment) {
-    if (!isConfigured()) {
+    const terminalId = (await getSetting("BEHPARDAKHT_TERMINAL_ID")) ?? "";
+    const username = (await getSetting("BEHPARDAKHT_USERNAME")) ?? "";
+    const password = (await getSetting("BEHPARDAKHT_PASSWORD")) ?? "";
+    const appBaseUrl = (await getSetting("APP_BASE_URL")) ?? "http://localhost:4000";
+
+    if (!isConfigured(terminalId, username, password)) {
       configError();
     }
 
     // Toman → Rial.
     const amountRial = Math.round(Number(order.totalAmount)) * 10;
     const saleOrderId = numericOrderId(payment);
-    const callBackUrl = `${APP_BASE_URL}/api/payments/behpardakht/callback?orderId=${order.id}`;
+    const callBackUrl = `${appBaseUrl}/api/payments/behpardakht/callback?orderId=${order.id}`;
 
     let resCode: string;
     let refId: string;
@@ -173,9 +173,9 @@ export const behpardakhtProvider: PaymentProvider = {
       // Arg order per the WSDL: terminalId, userName, userPassword, orderId,
       // amount, localDate, localTime, callBackUrl, payerId.
       const result = await callSoap("bpPayRequest", [
-        ["terminalId", TERMINAL_ID],
-        ["userName", USERNAME],
-        ["userPassword", PASSWORD],
+        ["terminalId", terminalId],
+        ["userName", username],
+        ["userPassword", password],
         ["orderId", saleOrderId],
         ["amount", amountRial],
         ["localDate", localDate()],
@@ -218,7 +218,11 @@ export const behpardakhtProvider: PaymentProvider = {
   },
 
   async verify(payment, params) {
-    if (!isConfigured()) {
+    const terminalId = (await getSetting("BEHPARDAKHT_TERMINAL_ID")) ?? "";
+    const username = (await getSetting("BEHPARDAKHT_USERNAME")) ?? "";
+    const password = (await getSetting("BEHPARDAKHT_PASSWORD")) ?? "";
+
+    if (!isConfigured(terminalId, username, password)) {
       // Defensive: should never reach verify if not configured.
       return { status: "FAILED" };
     }
@@ -248,9 +252,9 @@ export const behpardakhtProvider: PaymentProvider = {
     }
 
     const verifyArgs: Array<[string, string | number]> = [
-      ["terminalId", TERMINAL_ID],
-      ["userName", USERNAME],
-      ["userPassword", PASSWORD],
+      ["terminalId", terminalId],
+      ["userName", username],
+      ["userPassword", password],
       ["orderId", saleOrderId],
       ["saleOrderId", saleOrderId],
       ["saleReferenceId", saleReferenceId],

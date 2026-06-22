@@ -19,7 +19,7 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
   const [debugCode, setDebugCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function requestOtp() {
+  async function requestOtp(method: "sms" | "call" = "sms") {
     setLoading(true);
     setMessage("");
     setDebugCode(null);
@@ -27,7 +27,7 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
     const response = await fetch("/api/auth/request-otp", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone, method }),
     });
     const result = await response.json();
 
@@ -39,7 +39,7 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
     }
 
     setDebugCode(result.data.debugCode ?? null);
-    setMessage("کد تایید ارسال شد.");
+    setMessage(method === "call" ? "تماس برقرار می‌شود؛ کد را بشنوید." : "کد تایید پیامک شد.");
     setStep("code");
   }
 
@@ -115,7 +115,7 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
 
         <Button
           className="h-12 w-full text-base font-black"
-          onClick={step === "phone" ? requestOtp : verifyOtp}
+          onClick={step === "phone" ? () => requestOtp("sms") : verifyOtp}
           disabled={loading}
         >
           {loading ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -123,17 +123,27 @@ export function AuthPanel({ defaultRedirect = "/" }: { defaultRedirect?: string 
         </Button>
 
         {step === "code" ? (
-          <button
-            type="button"
-            className="w-full text-sm font-bold text-muted-foreground underline underline-offset-4"
-            onClick={() => {
-              setStep("phone");
-              setCode("");
-              setMessage("");
-            }}
-          >
-            تغییر شماره
-          </button>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              className="text-sm font-bold text-muted-foreground underline underline-offset-4"
+              onClick={() => requestOtp("call")}
+              disabled={loading}
+            >
+              دریافت کد با تماس
+            </button>
+            <button
+              type="button"
+              className="text-sm font-bold text-muted-foreground underline underline-offset-4"
+              onClick={() => {
+                setStep("phone");
+                setCode("");
+                setMessage("");
+              }}
+            >
+              تغییر شماره
+            </button>
+          </div>
         ) : null}
       </div>
     </div>

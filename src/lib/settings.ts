@@ -27,6 +27,8 @@ export type SettingDef = {
   default?: string;
   /** Optional hint shown under the field. */
   hint?: string;
+  /** Allowed values — rendered as a dropdown in the admin UI (Task 5). */
+  choices?: string[];
 };
 
 export const SETTINGS_REGISTRY: SettingDef[] = [
@@ -45,11 +47,25 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
   { key: "TELEGRAM_BOT_TOKEN", label: "تلگرام: توکن بات", group: "sms", secret: true },
   { key: "TELEGRAM_CHAT_ID", label: "تلگرام: چت آیدی", group: "sms" },
   {
+    key: "SMS_PROVIDER",
+    label: "ارائه‌دهنده پیامک",
+    group: "sms",
+    default: "kavenegar",
+    choices: ["kavenegar", "ippanel", "selfhosted"],
+  },
+  {
+    key: "VOICE_PROVIDER",
+    label: "ارائه‌دهنده تماس صوتی",
+    group: "sms",
+    default: "kavenegar",
+    choices: ["kavenegar", "selfhosted"],
+  },
+  {
     key: "SMS_OTP_PROVIDER",
     label: "ارائه‌دهنده پیامک OTP",
     group: "sms",
     default: "kavenegar",
-    hint: "kavenegar یا ippanel — تماس صوتی همیشه از کاوه‌نگار.",
+    hint: "منسوخ — به‌جای آن از SMS_PROVIDER استفاده کنید.",
   },
   { key: "IPPANEL_API_KEY", label: "آی‌پی‌پنل: کلید API", group: "sms", secret: true },
   { key: "IPPANEL_PATTERN_CODE", label: "آی‌پی‌پنل: کد پترن", group: "sms" },
@@ -74,6 +90,28 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
     group: "sms",
     secret: true,
     hint: "در پنل آی‌پی‌پنل آدرس کال‌بک را با ?secret=<این مقدار> تنظیم کنید.",
+  },
+  { key: "SELFHOSTED_SMS_BASE_URL", label: "گیت‌وی اختصاصی: آدرس پایه", group: "sms" },
+  { key: "SELFHOSTED_SMS_TOKEN", label: "گیت‌وی اختصاصی: توکن", group: "sms", secret: true },
+  {
+    key: "SELFHOSTED_SMS_SEND_PATH",
+    label: "گیت‌وی اختصاصی: مسیر ارسال",
+    group: "sms",
+    default: "/messages",
+  },
+  { key: "SELFHOSTED_SENDER", label: "گیت‌وی اختصاصی: شماره فرستنده", group: "sms" },
+  {
+    key: "SELFHOSTED_SMS_TIMEOUT_MS",
+    label: "گیت‌وی اختصاصی: تایم‌اوت (ms)",
+    group: "sms",
+    default: "10000",
+  },
+  {
+    key: "SELFHOSTED_WEBHOOK_SECRET",
+    label: "گیت‌وی اختصاصی: کلید وب‌هوک",
+    group: "sms",
+    secret: true,
+    hint: "آدرس کال‌بک را با ?secret=<این مقدار> در گیت‌وی تنظیم کنید.",
   },
 
   // ── Email ──

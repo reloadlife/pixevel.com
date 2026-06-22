@@ -18,7 +18,7 @@ type IppanelPayload = {
 const ENDPOINT = "https://edge.ippanel.com/v1/api/send";
 
 /** App stores Iran numbers as "09…"; IPPanel wants E.164 ("+98…"). */
-function toE164Iran(phone: string): string {
+export function toE164Iran(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("98")) return `+${digits}`;
   if (digits.startsWith("0")) return `+98${digits.slice(1)}`;

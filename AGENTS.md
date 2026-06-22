@@ -8,9 +8,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Product Identity
 
-Pixevel is an e-commerce clothing store. The primary catalog focus is underwear, lingerie, sleepwear, and costume-related products.
+Pixevel is a general-purpose e-commerce **platform** — it can sell anything and everything. It is NOT tied to a single category: physical goods, digital goods (game keys, gift cards, software licenses), subscriptions, and services are all first-class. Treat the catalog, categories, variants, pricing, inventory, and presentation as category-agnostic; never hardcode assumptions that only fit one product type (no clothing-only sizing, no digital-only delivery, etc.).
 
-The site should feel premium, fast, direct, and fashion-retail oriented. Keep presentation tasteful and polished. Avoid sexualized, explicit, or model-heavy imagery unless the user specifically asks for a different direction.
+The site should feel premium, fast, and direct. Keep presentation tasteful and polished across whatever is being sold.
 
 The project is Persian-first and RTL-first unless the user explicitly changes the locale strategy.
 
@@ -132,24 +132,17 @@ Operators must be able to temporarily disable or re-enable a product.
 
 ## Variant Rules
 
-Variants are generated dynamically from selected option values.
+Variants are generated dynamically from selected option values. Option dimensions are arbitrary and configured per product or category — because the platform sells anything, the variant system must not assume a fixed set of dimensions.
 
-Initial variant dimensions:
+Example dimensions (illustrative, not exhaustive):
 
-- Size.
-- Material.
-- Color.
+- A physical product — Size: S, M, L · Color: red, green · Material: cotton, leather.
+- A digital product — Region: global, europe, iran · Type: CDKey, License, Gift Card · Duration: one-time, monthly, yearly.
 
-Example:
+Selecting values generates one variant per combination. For Color {red, green} × Material {leather} × Size {M}:
 
-- Colors: red, green.
-- Material: leather.
-- Size: M.
-
-This should generate two variants:
-
-- Red / leather / M.
-- Green / leather / M.
+- red / leather / M.
+- green / leather / M.
 
 Each variant can have:
 
@@ -203,7 +196,7 @@ After login, merge or transfer the anonymous basket into the user basket without
 
 Products that are disabled or out of stock must not be addable to basket.
 
-Basket behavior should be smooth and modern, similar to premium fashion-commerce sites.
+Basket behavior should be smooth and modern, similar to premium commerce sites.
 
 ## Homepage Blocks
 
@@ -215,7 +208,7 @@ Each block has a type. Each type has its own design and mobile design.
 
 Starting block types:
 
-- `showcase`: shows a huge product image with price and information, similar to a premium fashion-commerce showcase.
+- `showcase`: shows a huge product image with price and information, similar to a premium commerce showcase.
 - `left_to_right_gallery`: shows a horizontally scrollable product list.
 
 Block product sources:

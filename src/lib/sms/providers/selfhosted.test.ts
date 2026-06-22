@@ -182,3 +182,36 @@ describe("selfhostedProvider.sendOtp", () => {
     expect(result.status).toBe("failed");
   });
 });
+
+describe("selfhostedProvider — URL join normalization", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  async function urlFor(base: string, path: string): Promise<string> {
+    configuredSettings({ SELFHOSTED_SMS_BASE_URL: base, SELFHOSTED_SMS_SEND_PATH: path });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "sent" }), { status: 200 }),
+    );
+    await selfhostedProvider.sendText("09123456789", "hi");
+    const [url] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    return url;
+  }
+
+  it("adds a missing leading slash on the path", async () => {
+    expect(await urlFor("https://x.com", "messages")).toBe("https://x.com/messages");
+  });
+
+  it("collapses a trailing-slash base + no-leading-slash path to a single slash", async () => {
+    expect(await urlFor("https://x.com/", "messages")).toBe("https://x.com/messages");
+  });
+
+  it("collapses a doubled leading slash on the path", async () => {
+    expect(await urlFor("https://x.com", "//messages")).toBe("https://x.com/messages");
+  });
+});

@@ -1,13 +1,7 @@
 import { getSetting, getSettingNumber } from "@/lib/settings";
 import { formatDeliveryError, type OtpDeliveryResult } from "@/lib/sms/delivery";
-import { sendIppanelOtp, toE164Iran } from "@/lib/sms/ippanel";
+import { type IppanelPayload, sendIppanelOtp, toE164Iran } from "@/lib/sms/ippanel";
 import type { SmsChannel, SmsProvider, SmsProviderId } from "./types";
-
-type IppanelSendPayload = {
-  data?: { message_outbox_ids?: number[] };
-  meta?: { status?: boolean; message?: string; message_code?: string };
-  error?: string;
-};
 
 const ENDPOINT = "https://edge.ippanel.com/v1/api/send";
 
@@ -53,9 +47,9 @@ export const ippanelProvider: SmsProvider = {
         signal: AbortSignal.timeout(await getSettingNumber("IPPANEL_TIMEOUT_MS", 10_000)),
       });
 
-      let payload: IppanelSendPayload;
+      let payload: IppanelPayload;
       try {
-        payload = (await response.json()) as IppanelSendPayload;
+        payload = (await response.json()) as IppanelPayload;
       } catch {
         return {
           status: "failed",

@@ -100,6 +100,11 @@ export function SettingsManagement({ initialSettings }: { initialSettings: Row[]
                           dir="ltr"
                           className="h-10 flex-1 rounded-xl border border-border bg-muted/30 px-3 text-sm focus:border-gold/50 focus:outline-none"
                         >
+                          {row.value === "" ? (
+                            <option value="" disabled>
+                              — انتخاب کنید —
+                            </option>
+                          ) : null}
                           {row.choices.map((c) => (
                             <option key={c} value={c}>
                               {c}

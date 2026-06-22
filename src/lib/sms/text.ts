@@ -2,9 +2,9 @@ import { getSetting, getSettingNumber } from "@/lib/settings";
 import { formatDeliveryError, type OtpDeliveryResult } from "@/lib/sms/delivery";
 
 /**
- * Generic free-text SMS via Kavenegar's `sms/send` endpoint. Mirrors
- * {@link import("./order-codes").sendOrderCodesSms} but with a caller-supplied
- * body — used by the admin "send test SMS" action to verify provider config.
+ * Generic free-text SMS via Kavenegar's `sms/send` endpoint — a caller-supplied
+ * body (vs the order-codes body builder), used by the admin "send test SMS"
+ * action to verify provider config.
  * Best-effort: env-gated, never throws, always resolves to a delivery status.
  */
 type KavenegarSendResponse = {

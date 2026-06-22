@@ -52,7 +52,12 @@ async function sendSelfhosted(
   };
   if (fromSender) body.from = fromSender;
 
-  const url = `${baseUrl.replace(/\/$/, "")}${sendPath}`;
+  // Normalize the join so a trailing slash on the base and/or a missing or
+  // doubled leading slash on the path can never produce "x.commessages" or
+  // "x.com//messages": strip trailing slashes off the base, force exactly one
+  // leading slash on the path.
+  const normalizedPath = `/${sendPath.replace(/^\/+/, "")}`;
+  const url = `${baseUrl.replace(/\/+$/, "")}${normalizedPath}`;
 
   try {
     const response = await fetch(url, {

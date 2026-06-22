@@ -9,7 +9,7 @@ import { formatDeliveryError, type OtpDeliveryResult } from "@/lib/sms/delivery"
  * Docs: https://docs.ippanel.com/docs/send/pattern
  */
 
-type IppanelPayload = {
+export type IppanelPayload = {
   data?: { message_outbox_ids?: number[] };
   meta?: { status?: boolean; message?: string; message_code?: string };
   error?: string;

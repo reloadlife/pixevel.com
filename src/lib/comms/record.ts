@@ -30,37 +30,29 @@ export function mapDeliveryStatus(status: OtpDeliveryStatus): CommStatus {
   }
 }
 
-/** OTP codes are never persisted — store a marker instead of the message text. */
-export function redactBody(kind: CommKind, body: string | null | undefined): string | null {
-  if (kind === "OTP") return "[otp]";
-  return body ?? null;
-}
-
-// Keys whose values are secrets/credentials/live codes and must never hit the DB.
-// Normalised (lowercased, separators stripped) so `api_key`, `API-KEY`, `apiKey`
-// all collapse to `apikey`. Status codes like `message_code`/`statusCode` are
-// intentionally NOT matched so the ledger stays debuggable.
+// Full-data logging is intentional: message bodies and provider payloads are
+// stored as-is so operators can see the exact code/text that was sent. Only
+// LONG-LIVED credentials are stripped from stored payloads — API keys,
+// passwords, client secrets, access/refresh tokens, auth headers. Short-lived
+// OTP codes (keys `code`, `otp`, Kavenegar's `token`) are deliberately KEPT, as
+// are status codes like `message_code`/`statusCode`, so the ledger stays useful.
 const REDACT_EXACT = new Set([
-  "code",
-  "token",
-  "otp",
   "secret",
   "password",
   "passwd",
   "apikey",
   "authorization",
   "auth",
+  "bearer",
+  "accesstoken",
+  "refreshtoken",
+  "clientsecret",
 ]);
 
 function isSensitiveKey(key: string): boolean {
   const norm = key.toLowerCase().replace(/[-_\s]/g, "");
   if (REDACT_EXACT.has(norm)) return true;
-  return (
-    norm.includes("secret") ||
-    norm.includes("password") ||
-    norm.includes("apikey") ||
-    norm.includes("token")
-  );
+  return norm.includes("secret") || norm.includes("password") || norm.includes("apikey");
 }
 
 /** Deep-strip sensitive keys from a payload before persisting it. Non-objects pass through. */
@@ -149,7 +141,7 @@ export async function recordOutbound(input: RecordOutboundInput): Promise<string
         status,
         toAddress: input.toAddress,
         fromAddress: input.fromAddress ?? null,
-        body: redactBody(input.kind, input.body),
+        body: input.body ?? null,
         providerMessageId,
         errorMessage: status === "FAILED" ? ((input.message ?? null)?.slice(0, 500) ?? null) : null,
         cost: extractProviderCost(input.provider, input.payload),

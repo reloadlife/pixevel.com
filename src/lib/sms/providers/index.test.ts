@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { getSmsProvider, resolveSmsProviderId } from "./index";
+import {
+  getSmsProvider,
+  resolveSmsProviderId,
+  resolveVoiceProvider,
+  resolveVoiceProviderId,
+} from "./index";
 
 vi.mock("@/lib/settings", () => ({
   getSetting: vi.fn(),
@@ -72,5 +77,45 @@ describe("resolveSmsProviderId", () => {
       return undefined;
     });
     expect(await resolveSmsProviderId()).toBe("ippanel");
+  });
+});
+
+describe("resolveVoiceProviderId", () => {
+  it("honors VOICE_PROVIDER when set to a known value", async () => {
+    mockGetSetting.mockImplementation(async (key: string) => {
+      if (key === "VOICE_PROVIDER") return "selfhosted";
+      return undefined;
+    });
+    expect(await resolveVoiceProviderId()).toBe("selfhosted");
+  });
+
+  it("falls back to kavenegar when VOICE_PROVIDER is unset", async () => {
+    mockGetSetting.mockImplementation(async () => undefined);
+    expect(await resolveVoiceProviderId()).toBe("kavenegar");
+  });
+
+  it("falls back to kavenegar on unknown VOICE_PROVIDER value", async () => {
+    mockGetSetting.mockImplementation(async (key: string) => {
+      if (key === "VOICE_PROVIDER") return "bogus";
+      return undefined;
+    });
+    expect(await resolveVoiceProviderId()).toBe("kavenegar");
+  });
+});
+
+describe("resolveVoiceProvider", () => {
+  it("returns the adapter whose id matches resolveVoiceProviderId", async () => {
+    mockGetSetting.mockImplementation(async (key: string) => {
+      if (key === "VOICE_PROVIDER") return "selfhosted";
+      return undefined;
+    });
+    const provider = await resolveVoiceProvider();
+    expect(provider.id).toBe("selfhosted");
+  });
+
+  it("returns kavenegar adapter when VOICE_PROVIDER is unset", async () => {
+    mockGetSetting.mockImplementation(async () => undefined);
+    const provider = await resolveVoiceProvider();
+    expect(provider.id).toBe("kavenegar");
   });
 });

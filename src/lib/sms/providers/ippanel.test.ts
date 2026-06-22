@@ -68,6 +68,16 @@ describe("ippanelProvider.sendText", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("returns skipped when IPPANEL_SENDER is missing", async () => {
+    mockGetSetting.mockImplementation(async (key: string) => {
+      if (key === "IPPANEL_API_KEY") return "test-api-key";
+      return undefined;
+    });
+    const result = await ippanelProvider.sendText("09123456789", "hello");
+    expect(result.status).toBe("skipped");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("builds correct request for sendText", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(

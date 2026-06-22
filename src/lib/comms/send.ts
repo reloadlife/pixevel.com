@@ -4,7 +4,7 @@ import { type EmailDeliveryResult, type SendEmailParams, sendEmail } from "@/lib
 import type { OtpDeliveryResult } from "@/lib/sms/delivery";
 import type { KavenegarChannel } from "@/lib/sms/kavenegar";
 import { buildOrderCodesSms, type OrderCodesSmsInput } from "@/lib/sms/order-codes";
-import { resolveProviderForChannel } from "@/lib/sms/providers";
+import { getSmsProvider, resolveProviderForChannel, type SmsProviderId } from "@/lib/sms/providers";
 import { sendTelegramLoginOtp } from "@/lib/sms/telegram";
 import { recordOutbound } from "./record";
 
@@ -155,13 +155,19 @@ export async function sendEmailLogged(
   return result;
 }
 
-/** Admin "send test SMS" — generic free text via the resolved SMS provider, recorded as kind TEST. */
+/**
+ * Admin "send test SMS" — generic free text, recorded as kind TEST. Sends via a
+ * specific provider when `forceProvider` is given (per-provider test button),
+ * otherwise via the resolved active SMS provider.
+ */
 export async function sendTestSms(
   phone: string,
   text: string,
+  forceProvider?: SmsProviderId,
 ): Promise<OtpDeliveryResult<unknown>> {
-  // Single resolution — provider and id come from the same call, no divergence.
-  const { provider, id: providerId } = await resolveProviderForChannel("sms");
+  const { provider, id: providerId } = forceProvider
+    ? { provider: getSmsProvider(forceProvider), id: forceProvider }
+    : await resolveProviderForChannel("sms");
   const result = await provider.sendText(phone, text);
   const logId = await recordOutbound({
     channel: "SMS",

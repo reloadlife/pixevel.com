@@ -10,6 +10,7 @@ import { parseBody } from "@/lib/validate";
 const TestSchema = z.object({
   phone: z.string().min(1),
   text: z.string().min(1).max(400),
+  provider: z.enum(["kavenegar", "ippanel", "selfhosted"]).optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,6 +29,6 @@ export async function POST(request: Request) {
     return apiError("INVALID_PHONE", "شماره موبایل معتبر نیست.");
   }
 
-  const result = await sendTestSms(phone, parsed.data.text);
+  const result = await sendTestSms(phone, parsed.data.text, parsed.data.provider);
   return apiOk({ status: result.status, message: result.message });
 }

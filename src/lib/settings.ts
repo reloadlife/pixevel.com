@@ -288,12 +288,17 @@ export type AdminSettingRow = {
   source: "db" | "env" | "default" | "unset";
   /** Allowed values — when present, the admin UI renders a dropdown instead of a text input. */
   choices?: string[];
+  /** ISO timestamp of the last DB write for this key (only when set in the DB). */
+  updatedAt?: string;
 };
 
 export async function getSettingsForAdmin(): Promise<AdminSettingRow[]> {
   await ensureLoaded(true);
   const rows = await getDb().select().from(appSettings);
   const dbHas = new Map(rows.map((r) => [r.key, r.value != null && r.value !== ""]));
+  const dbUpdatedAt = new Map(
+    rows.filter((r) => r.value != null && r.value !== "").map((r) => [r.key, r.updatedAt]),
+  );
 
   return SETTINGS_REGISTRY.map((def) => {
     const hasDb = dbHas.get(def.key) === true;
@@ -318,6 +323,7 @@ export async function getSettingsForAdmin(): Promise<AdminSettingRow[]> {
       source,
       // Choices are only surfaced for non-secret fields (secrets never have choices).
       choices: def.secret ? undefined : def.choices,
+      updatedAt: dbUpdatedAt.get(def.key)?.toISOString(),
     };
   });
 }

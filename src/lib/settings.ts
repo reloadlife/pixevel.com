@@ -286,6 +286,8 @@ export type AdminSettingRow = {
   isSet: boolean;
   /** Where the effective value comes from. */
   source: "db" | "env" | "default" | "unset";
+  /** Allowed values — when present, the admin UI renders a dropdown instead of a text input. */
+  choices?: string[];
 };
 
 export async function getSettingsForAdmin(): Promise<AdminSettingRow[]> {
@@ -314,6 +316,8 @@ export async function getSettingsForAdmin(): Promise<AdminSettingRow[]> {
       value: def.secret ? "" : hasDb ? (cache.get(def.key) ?? "") : "",
       isSet: hasDb || hasEnv,
       source,
+      // Choices are only surfaced for non-secret fields (secrets never have choices).
+      choices: def.secret ? undefined : def.choices,
     };
   });
 }

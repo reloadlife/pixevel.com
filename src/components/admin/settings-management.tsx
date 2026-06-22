@@ -14,6 +14,7 @@ type Row = {
   value: string;
   isSet: boolean;
   source: "db" | "env" | "default" | "unset";
+  choices?: string[];
 };
 
 const GROUP_LABELS: Record<string, string> = {
@@ -74,7 +75,9 @@ export function SettingsManagement({ initialSettings }: { initialSettings: Row[]
               .filter((r) => r.group === group)
               .map((row) => {
                 const draft = drafts[row.key];
-                const dirty = draft !== undefined && draft !== row.value;
+                const dirty =
+                  draft !== undefined &&
+                  (draft !== row.value || (!!row.choices && row.value === ""));
                 return (
                   <div
                     key={row.key}
@@ -90,21 +93,36 @@ export function SettingsManagement({ initialSettings }: { initialSettings: Row[]
                       ) : null}
                     </div>
                     <div className="flex flex-1 items-center gap-2">
-                      <input
-                        type={row.secret ? "password" : "text"}
-                        defaultValue={row.value}
-                        value={draft ?? row.value}
-                        onChange={(e) => setDrafts((d) => ({ ...d, [row.key]: e.target.value }))}
-                        placeholder={
-                          row.secret
-                            ? row.isSet
-                              ? "•••••••• (تنظیم‌شده — برای تغییر وارد کنید)"
-                              : "تنظیم نشده"
-                            : `پیش‌فرض/${SOURCE_LABELS[row.source]}`
-                        }
-                        dir="ltr"
-                        className="h-10 flex-1 rounded-xl border border-border bg-muted/30 px-3 text-sm focus:border-gold/50 focus:outline-none"
-                      />
+                      {row.choices ? (
+                        <select
+                          value={draft ?? row.value}
+                          onChange={(e) => setDrafts((d) => ({ ...d, [row.key]: e.target.value }))}
+                          dir="ltr"
+                          className="h-10 flex-1 rounded-xl border border-border bg-muted/30 px-3 text-sm focus:border-gold/50 focus:outline-none"
+                        >
+                          {row.choices.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={row.secret ? "password" : "text"}
+                          defaultValue={row.value}
+                          value={draft ?? row.value}
+                          onChange={(e) => setDrafts((d) => ({ ...d, [row.key]: e.target.value }))}
+                          placeholder={
+                            row.secret
+                              ? row.isSet
+                                ? "•••••••• (تنظیم‌شده — برای تغییر وارد کنید)"
+                                : "تنظیم نشده"
+                              : `پیش‌فرض/${SOURCE_LABELS[row.source]}`
+                          }
+                          dir="ltr"
+                          className="h-10 flex-1 rounded-xl border border-border bg-muted/30 px-3 text-sm focus:border-gold/50 focus:outline-none"
+                        />
+                      )}
                       <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground sm:inline">
                         {SOURCE_LABELS[row.source]}
                       </span>

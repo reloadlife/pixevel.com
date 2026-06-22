@@ -1,6 +1,6 @@
 import type { OtpDeliveryResult } from "@/lib/sms/delivery";
 import type { KavenegarChannel } from "@/lib/sms/kavenegar";
-import { getSmsProvider, resolveSmsProvider, resolveVoiceProvider } from "@/lib/sms/providers";
+import { resolveProviderForChannel } from "@/lib/sms/providers";
 
 /**
  * Dispatches an OTP via the registry-resolved provider.
@@ -13,11 +13,6 @@ export async function sendOtp(
   code: string,
   channel: KavenegarChannel,
 ): Promise<OtpDeliveryResult<unknown>> {
-  if (channel === "call") {
-    const voiceProvider = await resolveVoiceProvider();
-    const provider = voiceProvider.supportsVoice ? voiceProvider : getSmsProvider("kavenegar");
-    return provider.sendOtp(phone, code, channel);
-  }
-  const provider = await resolveSmsProvider();
+  const { provider } = await resolveProviderForChannel(channel === "call" ? "call" : "sms");
   return provider.sendOtp(phone, code, channel);
 }

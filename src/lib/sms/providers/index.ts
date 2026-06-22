@@ -2,7 +2,7 @@ import { getSetting } from "@/lib/settings";
 import { ippanelProvider } from "./ippanel";
 import { kavenegarProvider } from "./kavenegar";
 import { selfhostedProvider } from "./selfhosted";
-import type { SmsProvider, SmsProviderId } from "./types";
+import type { SmsChannel, SmsProvider, SmsProviderId } from "./types";
 
 export type { SmsChannel, SmsProvider, SmsProviderId } from "./types";
 
@@ -40,4 +40,29 @@ export async function resolveSmsProvider(): Promise<SmsProvider> {
 
 export async function resolveVoiceProvider(): Promise<SmsProvider> {
   return getSmsProvider(await resolveVoiceProviderId());
+}
+
+/**
+ * Single-resolution helper used by logged send wrappers.
+ *
+ * For "call": resolves the VOICE_PROVIDER and applies the kavenegar fallback
+ * when the resolved provider has `supportsVoice === false`, so the returned
+ * `id` always equals the provider that will actually place the call.
+ *
+ * For "sms": resolves SMS_PROVIDER → SMS_OTP_PROVIDER → kavenegar.
+ */
+export async function resolveProviderForChannel(
+  channel: SmsChannel,
+): Promise<{ provider: SmsProvider; id: SmsProviderId }> {
+  if (channel === "call") {
+    const voiceProvider = await resolveVoiceProvider();
+    if (voiceProvider.supportsVoice) {
+      return { provider: voiceProvider, id: voiceProvider.id };
+    }
+    // Configured voice provider doesn't support voice — hard-fall to kavenegar.
+    const fallback = getSmsProvider("kavenegar");
+    return { provider: fallback, id: "kavenegar" };
+  }
+  const provider = await resolveSmsProvider();
+  return { provider, id: provider.id };
 }

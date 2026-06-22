@@ -8,50 +8,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Mock the provider registry so we can control which provider is resolved
 // without any real HTTP calls.
 vi.mock("@/lib/sms/providers", () => {
-  const makeMockProvider = (id: string, supportsVoice: boolean) => ({
-    id,
-    supportsVoice,
-    sendOtp: vi
-      .fn()
-      .mockResolvedValue({ status: "sent", message: `${id} otp sent`, payload: null }),
-    sendText: vi
-      .fn()
-      .mockResolvedValue({ status: "sent", message: `${id} text sent`, payload: null }),
-  });
+  const makeMockProvider = (id: "kavenegar" | "ippanel" | "selfhosted", supportsVoice: boolean) =>
+    ({
+      id,
+      supportsVoice,
+      sendOtp: vi
+        .fn()
+        .mockResolvedValue({ status: "sent", message: `${id} otp sent`, payload: null }),
+      sendText: vi
+        .fn()
+        .mockResolvedValue({ status: "sent", message: `${id} text sent`, payload: null }),
+    }) satisfies import("@/lib/sms/providers").SmsProvider;
 
   const ippanel = makeMockProvider("ippanel", false);
   const kavenegar = makeMockProvider("kavenegar", true);
   const selfhosted = makeMockProvider("selfhosted", true);
 
   return {
-    getSmsProvider: vi.fn((id: string) => {
-      if (id === "kavenegar") return kavenegar;
-      if (id === "ippanel") return ippanel;
-      if (id === "selfhosted") return selfhosted;
-      throw new Error(`Unknown SMS provider: "${id}"`);
-    }),
-    resolveSmsProvider: vi.fn().mockResolvedValue(kavenegar),
-    resolveVoiceProvider: vi.fn().mockResolvedValue(kavenegar),
+    resolveProviderForChannel: vi.fn().mockResolvedValue({ provider: kavenegar, id: "kavenegar" }),
     // expose providers for assertion
     __providers: { ippanel, kavenegar, selfhosted },
   };
 });
 
-import { getSmsProvider, resolveSmsProvider, resolveVoiceProvider } from "@/lib/sms/providers";
+import { resolveProviderForChannel } from "@/lib/sms/providers";
 import { sendOtp } from "./otp";
 
 // Unwrap the providers exposed by the mock for assertions.
-// The mock factory attaches __providers which vitest's type doesn't know about;
-// cast through unknown to avoid the noExplicitAny rule.
 type MockModule = typeof import("@/lib/sms/providers") & {
-  __providers: Record<
-    string,
-    ReturnType<typeof import("vitest")["vi"]["fn"]> & {
-      sendOtp: ReturnType<typeof import("vitest")["vi"]["fn"]>;
-      sendText: ReturnType<typeof import("vitest")["vi"]["fn"]>;
-      supportsVoice: boolean;
-    }
-  >;
+  __providers: Record<string, import("@/lib/sms/providers").SmsProvider>;
 };
 const {
   ippanel: ippanelMock,
@@ -59,9 +44,7 @@ const {
   selfhosted: selfhostedMock,
 } = ((await import("@/lib/sms/providers")) as unknown as MockModule).__providers;
 
-const mockResolveSmsProvider = vi.mocked(resolveSmsProvider);
-const mockResolveVoiceProvider = vi.mocked(resolveVoiceProvider);
-const mockGetSmsProvider = vi.mocked(getSmsProvider);
+const mockResolveProviderForChannel = vi.mocked(resolveProviderForChannel);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,19 +52,21 @@ beforeEach(() => {
 
 describe("sendOtp — SMS channel dispatch", () => {
   it("uses ippanel adapter when SMS_PROVIDER=ippanel", async () => {
-    mockResolveSmsProvider.mockResolvedValue(ippanelMock);
+    mockResolveProviderForChannel.mockResolvedValue({ provider: ippanelMock, id: "ippanel" });
 
     await sendOtp("09123456789", "1234", "sms");
 
+    expect(mockResolveProviderForChannel).toHaveBeenCalledWith("sms");
     expect(ippanelMock.sendOtp).toHaveBeenCalledWith("09123456789", "1234", "sms");
     expect(kavenegarMock.sendOtp).not.toHaveBeenCalled();
   });
 
   it("uses kavenegar adapter when SMS_PROVIDER is unset (default)", async () => {
-    mockResolveSmsProvider.mockResolvedValue(kavenegarMock);
+    mockResolveProviderForChannel.mockResolvedValue({ provider: kavenegarMock, id: "kavenegar" });
 
     await sendOtp("09123456789", "5678", "sms");
 
+    expect(mockResolveProviderForChannel).toHaveBeenCalledWith("sms");
     expect(kavenegarMock.sendOtp).toHaveBeenCalledWith("09123456789", "5678", "sms");
     expect(ippanelMock.sendOtp).not.toHaveBeenCalled();
   });
@@ -89,25 +74,23 @@ describe("sendOtp — SMS channel dispatch", () => {
 
 describe("sendOtp — voice channel dispatch", () => {
   it("uses the resolved voice provider when it supports voice", async () => {
-    mockResolveVoiceProvider.mockResolvedValue(selfhostedMock);
+    mockResolveProviderForChannel.mockResolvedValue({ provider: selfhostedMock, id: "selfhosted" });
 
     await sendOtp("09123456789", "9999", "call");
 
+    expect(mockResolveProviderForChannel).toHaveBeenCalledWith("call");
     expect(selfhostedMock.sendOtp).toHaveBeenCalledWith("09123456789", "9999", "call");
     expect(kavenegarMock.sendOtp).not.toHaveBeenCalled();
-    // resolveSmsProvider must NOT be called for voice
-    expect(mockResolveSmsProvider).not.toHaveBeenCalled();
   });
 
   it("falls back to kavenegar when the resolved voice provider does not support voice", async () => {
-    // ippanel.supportsVoice === false
-    mockResolveVoiceProvider.mockResolvedValue(ippanelMock);
-    mockGetSmsProvider.mockReturnValue(kavenegarMock);
+    // resolveProviderForChannel already handles the fallback internally;
+    // it returns kavenegar when the configured voice provider doesn't support voice.
+    mockResolveProviderForChannel.mockResolvedValue({ provider: kavenegarMock, id: "kavenegar" });
 
     await sendOtp("09123456789", "0000", "call");
 
-    // getSmsProvider("kavenegar") must have been called for the fallback
-    expect(mockGetSmsProvider).toHaveBeenCalledWith("kavenegar");
+    expect(mockResolveProviderForChannel).toHaveBeenCalledWith("call");
     expect(kavenegarMock.sendOtp).toHaveBeenCalledWith("09123456789", "0000", "call");
     expect(ippanelMock.sendOtp).not.toHaveBeenCalled();
   });

@@ -3,13 +3,8 @@ import "server-only";
 import { type EmailDeliveryResult, type SendEmailParams, sendEmail } from "@/lib/email/client";
 import type { OtpDeliveryResult } from "@/lib/sms/delivery";
 import type { KavenegarChannel } from "@/lib/sms/kavenegar";
-import { type OrderCodesSmsInput, sendOrderCodesSms } from "@/lib/sms/order-codes";
-import { sendOtp } from "@/lib/sms/otp";
-import {
-  resolveSmsProvider,
-  resolveSmsProviderId,
-  resolveVoiceProviderId,
-} from "@/lib/sms/providers";
+import { buildOrderCodesSms, type OrderCodesSmsInput } from "@/lib/sms/order-codes";
+import { resolveProviderForChannel } from "@/lib/sms/providers";
 import { sendTelegramLoginOtp } from "@/lib/sms/telegram";
 import { recordOutbound } from "./record";
 
@@ -26,12 +21,17 @@ export async function sendOtpLogged(
   channel: KavenegarChannel,
   opts?: { userId?: string | null },
 ): Promise<OtpDeliveryResult<unknown>> {
-  const result = await sendOtp(phone, code, channel);
-  const provider =
-    channel === "call" ? await resolveVoiceProviderId() : await resolveSmsProviderId();
+  // Single resolution — the same provider id used to send is what gets logged.
+  // For voice, resolveProviderForChannel applies the kavenegar fallback when the
+  // configured voice provider has supportsVoice === false, so the logged id is
+  // always the provider that actually placed the call.
+  const { provider, id: providerId } = await resolveProviderForChannel(
+    channel === "call" ? "call" : "sms",
+  );
+  const result = await provider.sendOtp(phone, code, channel);
   await recordOutbound({
     channel: channel === "call" ? "VOICE" : "SMS",
-    provider,
+    provider: providerId,
     kind: "OTP",
     toAddress: phone,
     status: result.status,
@@ -68,10 +68,58 @@ export async function sendOrderCodesLogged(
   input: OrderCodesSmsInput,
   opts?: { userId?: string | null; orderId?: string | null },
 ): Promise<OtpDeliveryResult<unknown>> {
-  const [result, provider] = await Promise.all([sendOrderCodesSms(input), resolveSmsProviderId()]);
+  // Single resolution — provider and id come from the same call.
+  const { provider, id: providerId } = await resolveProviderForChannel("sms");
+
+  if (!input.phone) {
+    const result: OtpDeliveryResult<unknown> = {
+      status: "skipped",
+      message: "No recipient phone number provided.",
+      payload: null,
+    };
+    await recordOutbound({
+      channel: "SMS",
+      provider: providerId,
+      kind: "ORDER_CODES",
+      toAddress: input.phone,
+      body: `سفارش ${input.orderNumber}: ${input.codes.length} کد`,
+      status: result.status,
+      message: result.message,
+      payload: result.payload,
+      userId: opts?.userId ?? null,
+      orderId: opts?.orderId ?? null,
+    });
+    return result;
+  }
+
+  if (input.codes.length === 0) {
+    const result: OtpDeliveryResult<unknown> = {
+      status: "skipped",
+      message: "No codes to deliver.",
+      payload: null,
+    };
+    await recordOutbound({
+      channel: "SMS",
+      provider: providerId,
+      kind: "ORDER_CODES",
+      toAddress: input.phone,
+      body: `سفارش ${input.orderNumber}: ${input.codes.length} کد`,
+      status: result.status,
+      message: result.message,
+      payload: result.payload,
+      userId: opts?.userId ?? null,
+      orderId: opts?.orderId ?? null,
+    });
+    return result;
+  }
+
+  const result = await provider.sendText(
+    input.phone,
+    buildOrderCodesSms(input.orderNumber, input.codes),
+  );
   await recordOutbound({
     channel: "SMS",
-    provider,
+    provider: providerId,
     kind: "ORDER_CODES",
     toAddress: input.phone,
     body: `سفارش ${input.orderNumber}: ${input.codes.length} کد`,
@@ -110,7 +158,8 @@ export async function sendTestSms(
   phone: string,
   text: string,
 ): Promise<OtpDeliveryResult<unknown>> {
-  const [provider, providerId] = await Promise.all([resolveSmsProvider(), resolveSmsProviderId()]);
+  // Single resolution — provider and id come from the same call, no divergence.
+  const { provider, id: providerId } = await resolveProviderForChannel("sms");
   const result = await provider.sendText(phone, text);
   const logId = await recordOutbound({
     channel: "SMS",

@@ -88,6 +88,8 @@ export function LogsView({
               ["VOICE", "تماس"],
               ["EMAIL", "ایمیل"],
               ["TELEGRAM", "تلگرام"],
+              ["INAPP", "اعلان داخلی"],
+              ["PUSH", "پوش"],
             ]}
           />
         ) : null}
@@ -173,6 +175,7 @@ function LogTable({
                   <td colSpan={7} className="p-3">
                     <div className="grid gap-1 text-xs" dir="ltr">
                       <div>provider: {r.provider}</div>
+                      {r.eventKey ? <div>event: {r.eventKey}</div> : null}
                       {r.providerMessageId ? <div>messageId: {r.providerMessageId}</div> : null}
                       {r.cost ? <div>cost: {r.cost}</div> : null}
                       {r.body ? <div>body: {r.body}</div> : null}

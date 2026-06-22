@@ -3,7 +3,7 @@ import { apiError, apiOk } from "@/lib/api";
 import { requireAdmin } from "@/lib/auth";
 import { type CommLogFilters, listCommLogs } from "@/lib/comms/queries";
 
-const CHANNELS = new Set(["SMS", "VOICE", "EMAIL", "TELEGRAM"]);
+const CHANNELS = new Set(["SMS", "VOICE", "EMAIL", "TELEGRAM", "INAPP", "PUSH"]);
 const DIRECTIONS = new Set(["OUTBOUND", "INBOUND"]);
 const STATUSES = new Set([
   "QUEUED",

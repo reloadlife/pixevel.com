@@ -8,6 +8,7 @@ const ITEMS = [
   { href: "/admin/communications/logs", label: "همه پیام‌ها", exact: false },
   { href: "/admin/communications/calls", label: "تماس‌ها", exact: false },
   { href: "/admin/communications/callbacks", label: "کال‌بک‌ها", exact: false },
+  { href: "/admin/communications/templates", label: "قالب‌ها", exact: false },
   { href: "/admin/communications/settings", label: "تنظیمات و توکن‌ها", exact: false },
 ];
 

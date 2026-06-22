@@ -4,7 +4,6 @@ import type { NextConfig } from "next";
 // Next 16 removed `next lint` and the `eslint` config key, so `next build`
 // no longer runs ESLint. Type checking still runs during `next build` via TS.
 const nextConfig: NextConfig = {
-  devIndicators: false,
   output: "standalone",
 };
 

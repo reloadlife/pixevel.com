@@ -141,7 +141,7 @@ function metaDescription(product: ProductView): string {
     return product.descriptionFa.slice(0, 160);
   }
 
-  return `خرید ${product.titleFa} با تحویل آنی کد از پیسکول.`;
+  return `خرید ${product.titleFa} از پیسکول با قیمت مناسب و تجربه خرید سریع و امن.`;
 }
 
 export async function generateMetadata({

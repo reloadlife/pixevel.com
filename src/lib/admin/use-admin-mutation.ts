@@ -15,6 +15,9 @@ export function useAdminMutation<TVars = void>(opts: {
       if (opts.body) {
         init.headers = { "Content-Type": "application/json" };
         init.body = JSON.stringify(opts.body(vars));
+      } else if (opts.method !== "DELETE" && vars != null) {
+        init.headers = { "Content-Type": "application/json" };
+        init.body = JSON.stringify(vars);
       }
       const res = await fetch(opts.url(vars), init);
       const json = await res.json().catch(() => ({}));

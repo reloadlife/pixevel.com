@@ -2,7 +2,7 @@
 export { AdminPage } from "./admin-page";
 // Hooks
 export { ConfirmDialog, useConfirm } from "./confirm-dialog";
-export type { ColumnDef } from "./data-table";
+export type { ColumnDef, DataTableProps } from "./data-table";
 export { DataTable } from "./data-table";
 export type { SelectOption } from "./form-fields";
 // Form fields

@@ -10,6 +10,7 @@ Admin pages follow a server-render → client-island pattern:
    ```tsx
    import { requireAdmin } from "@/lib/admin/guard";
    import { getDb } from "@/lib/db";
+   import type { AdminListResponse } from "@/lib/admin/list-response";
 
    export default async function ReviewsPage() {
      // Enforce admin access at the server level.
@@ -17,13 +18,15 @@ Admin pages follow a server-render → client-island pattern:
 
      // Fetch initial data server-side for SEO and first-paint.
      const db = getDb();
-     const reviews = await db.query.reviews.findMany({
-       limit: 20,
-       offset: 0,
-     });
+     const rawReviews = await db.query.reviews.findMany({ limit: 20, offset: 0 });
+
+     const initialData: AdminListResponse<Review> = {
+       rows: rawReviews,
+       pagination: { page: 1, pageSize: 20, total: rawReviews.length, totalPages: 1 },
+     };
 
      // Pass initial data to client island.
-     return <ReviewsClient initialData={reviews} />;
+     return <ReviewsClient initialData={initialData} />;
    }
    ```
 
@@ -38,40 +41,67 @@ Both hooks live in `src/lib/admin/` and are **not** re-exported from the kit bar
 
 ### useAdminList
 
-Manages paginated list fetching:
+Manages paginated list fetching. Returns a react-query `UseQueryResult`.
 
 ```tsx
 import { useAdminList } from "@/lib/admin/use-admin-list";
+import type { AdminListResponse } from "@/lib/admin/list-response";
 
-const {
-  data,       // Array of items
-  pagination, // { page, pageSize, total, totalPages }
-  loading,    // Boolean
-  setPage,    // (page: number) => void
-} = useAdminList<Review>({
-  url: "/api/admin/reviews",  // Must return ListResponse<Review>
-  pageSize: 20,
-  initialData,                 // From server (optional)
-});
+// Signature:
+// useAdminList<Row>(
+//   resource: string,
+//   filters?: Record<string, string | number | undefined | null>,
+//   opts?: { initialData?: AdminListResponse<Row>; rowsKey?: string; enabled?: boolean }
+// ): UseQueryResult<AdminListResponse<Row>>
+
+const [page, setPage] = useState(1);
+const [status, setStatus] = useState<string | undefined>(undefined);
+
+const result = useAdminList<Review>(
+  "reviews",
+  { page, status },
+  { initialData },          // optional — pass server-fetched data for first paint
+);
+
+// Access data:
+const rows = result.data?.rows ?? [];
+const pagination = result.data?.pagination;
+const isLoading = result.isLoading;
+
+// Trigger a manual refetch (e.g. after a mutation):
+result.refetch();
 ```
 
 ### useAdminMutation
 
-Wraps react-query mutations:
+Wraps react-query mutations. `url` is a **function** that receives the mutation vars and returns the URL string. `invalidate` is **required**.
 
 ```tsx
 import { useAdminMutation } from "@/lib/admin/use-admin-mutation";
 
-const mutation = useAdminMutation<ReviewUpdatePayload>({
-  url: "/api/admin/reviews/123",
+// Signature:
+// useAdminMutation<TVars>({
+//   url: (vars: TVars) => string,   // FUNCTION — not a plain string
+//   method?: "POST" | "PATCH" | "DELETE" | "PUT",
+//   body?: (vars: TVars) => unknown, // optional body transform; defaults to sending vars as JSON
+//   invalidate: string[],            // REQUIRED — query keys to invalidate on success
+//   successMessage?: string,         // optional toast shown on success
+// })
+
+const approveMutation = useAdminMutation<{ id: string; approved: boolean }>({
+  url: (vars) => `/api/admin/reviews/${vars.id}`,  // url is a function
   method: "PATCH",
-  onSuccess: () => {
-    // Called after successful response (e.g., refetch list)
-  },
+  invalidate: ["reviews"],                          // required
+  successMessage: "نظر با موفقیت به‌روز شد.",
 });
 
-await mutation.mutateAsync({ approved: true });
+// To trigger:
+await approveMutation.mutateAsync({ id: review.id, approved: true });
 ```
+
+There is **no** `onSuccess` prop on `useAdminMutation`. For side-effects after success:
+- Pass `successMessage` (string) for a toast notification.
+- Use `useAdminForm`'s `onSuccess` callback when the mutation is driven by a form.
 
 ## DataTable
 
@@ -93,11 +123,12 @@ const columns: ColumnDef<Review>[] = [
   {
     accessorKey: "id",
     header: "شناسه",
-    size: 100,
+    meta: { align: "center" },   // optional: "center" | "end" alignment
   },
   {
     accessorKey: "content",
     header: "متن",
+    // columns share width evenly (flex-1)
   },
   {
     accessorKey: "rating",
@@ -118,15 +149,38 @@ const columns: ColumnDef<Review>[] = [
 // In render:
 <DataTable
   columns={columns}
-  data={data}
-  loading={loading}
-  pagination={pagination}
+  data={rows}
+  loading={result.isLoading}
+  pagination={result.data?.pagination}
   onPageChange={setPage}
   rowActions={(review) => (
-    <ReviewRowMenu review={review} onSuccess={() => refetch()} />
+    <ReviewRowMenu review={review} onSuccess={() => result.refetch()} />
   )}
 />
 ```
+
+### Controlled Sorting
+
+Pass `sorting` and `onSortingChange` to control sorting state externally (e.g. for server-side sort):
+
+```tsx
+import { type SortingState } from "@tanstack/react-table";
+import { DataTable } from "@/components/admin/kit";
+
+const [sorting, setSorting] = useState<SortingState>([]);
+
+<DataTable
+  columns={columns}
+  data={rows}
+  sorting={sorting}
+  onSortingChange={setSorting}
+  loading={result.isLoading}
+  pagination={result.data?.pagination}
+  onPageChange={setPage}
+/>
+```
+
+When `sorting`/`onSortingChange` are omitted, the table manages sorting internally.
 
 ## SheetForm + useAdminForm
 
@@ -161,12 +215,11 @@ export function CouponSheet({
   coupon?: Coupon;
 }) {
   const mutation = useAdminMutation<CouponForm>({
-    url: coupon ? `/api/admin/coupons/${coupon.id}` : "/api/admin/coupons",
+    url: (vars) =>                                             // url is a function
+      coupon ? `/api/admin/coupons/${coupon.id}` : "/api/admin/coupons",
     method: coupon ? "PATCH" : "POST",
-    onSuccess: () => {
-      onOpenChange(false);
-      // Trigger list refetch or re-validate
-    },
+    invalidate: ["coupons"],                                   // required
+    successMessage: "کوپن ذخیره شد.",
   });
 
   const form = useAdminForm({
@@ -177,7 +230,7 @@ export function CouponSheet({
       currency: coupon?.currency ?? "IRT",
     },
     mutation,
-    onSuccess: () => onOpenChange(false),
+    onSuccess: () => onOpenChange(false),                      // close sheet after save
   });
 
   return (
@@ -313,17 +366,18 @@ async function handleDelete() {
 
 ## API Response Contract
 
-The kit expects list APIs to return `ListResponse` from `src/lib/admin/list-response.ts`:
+The kit expects list APIs to return `AdminListResponse` from `src/lib/admin/list-response.ts`:
 
 ```ts
-interface ListResponse<T> {
-  data: T[];
+interface AdminListResponse<Row> {
+  rows: Row[];           // field is `rows`, not `data`
   pagination: {
     page: number;
     pageSize: number;
     total: number;
     totalPages: number;
   };
+  counts?: Record<string, number>;  // optional per-status counts
 }
 ```
 

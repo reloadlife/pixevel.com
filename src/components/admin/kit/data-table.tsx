@@ -5,6 +5,7 @@ import {
   flexRender,
   getCoreRowModel,
   getSortedRowModel,
+  type OnChangeFn,
   type SortingState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -30,6 +31,9 @@ export interface DataTableProps<TData> {
   pagination?: AdminPagination;
   onPageChange?: (page: number) => void;
   rowActions?: (row: TData) => React.ReactNode;
+  /** Controlled sort state; omit to let the table manage it internally. */
+  sorting?: SortingState;
+  onSortingChange?: OnChangeFn<SortingState>;
   /** Virtualize rows when count exceeds this threshold. Default: 50. */
   virtualizeOver?: number;
 }
@@ -127,7 +131,7 @@ function VirtualRows<TData>({
                 transform: `translateY(${virtualRow.start}px)`,
                 width: "100%",
               }}
-              className="flex border-b border-border last:border-b-0"
+              className="flex border-b border-border"
             >
               {row.getVisibleCells().map((cell) => {
                 const align = (cell.column.columnDef.meta as { align?: string } | undefined)?.align;
@@ -208,16 +212,20 @@ export function DataTable<TData>({
   pagination,
   onPageChange,
   rowActions,
+  sorting: controlledSorting,
+  onSortingChange: controlledOnSortingChange,
   virtualizeOver = 50,
 }: DataTableProps<TData>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const sorting = controlledSorting ?? internalSorting;
+  const onSortingChange = controlledOnSortingChange ?? setInternalSorting;
   const hasActions = Boolean(rowActions);
 
   const table = useReactTable({
     data,
     columns,
     state: { sorting },
-    onSortingChange: setSorting,
+    onSortingChange,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     // Server-driven pagination — do NOT use getPaginationRowModel

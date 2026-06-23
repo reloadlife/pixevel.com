@@ -116,7 +116,7 @@ export async function getOrCreateWallet(userId: string, db: DbOrTx = getDb()): P
 
   await db
     .insert(wallets)
-    .values({ userId, balanceAmount: "0", currency: "IRR" })
+    .values({ userId, balanceAmount: "0", currency: "IRT" })
     .onConflictDoNothing({ target: wallets.userId });
 
   const created = await db.query.wallets.findFirst({

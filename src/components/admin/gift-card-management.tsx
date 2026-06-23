@@ -37,7 +37,7 @@ type GenerateForm = {
 const EMPTY_FORM: GenerateForm = {
   count: "10",
   amount: "",
-  currency: "IRR",
+  currency: "IRT",
   expiresAt: "",
 };
 

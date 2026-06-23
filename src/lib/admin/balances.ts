@@ -111,7 +111,7 @@ export function toBalanceRow(row: BalanceListRow) {
     isPremium: row.isPremium,
     createdAt: row.createdAt.toISOString(),
     walletBalance: String(row.walletBalance ?? "0"),
-    walletCurrency: String(row.walletCurrency ?? "IRR"),
+    walletCurrency: String(row.walletCurrency ?? "IRT"),
     pointsBalance: Number(row.pointsBalance ?? 0),
     lifetimePoints: Number(row.lifetimePoints ?? 0),
     tier: String(row.tier ?? "BRONZE"),

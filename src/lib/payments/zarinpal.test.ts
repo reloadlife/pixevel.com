@@ -13,7 +13,7 @@ const fakePayment = {
   reference: null,
   receiptUrl: null,
   amount: "500000", // 500,000 Toman
-  currency: "IRR",
+  currency: "IRT" as const,
   paidAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),

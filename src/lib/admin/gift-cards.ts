@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 
 import { and, count, desc, eq, ilike, type SQL } from "drizzle-orm";
 
-import type { GiftCardStatus } from "@/db/schema";
+import type { CurrencyCode, GiftCardStatus } from "@/db/schema";
 import { giftCards } from "@/db/schema";
 import { getDb } from "@/lib/db";
 
@@ -85,11 +85,15 @@ function toOptionalDate(value: unknown): Date | null {
   return date;
 }
 
-function normalizeCurrency(value: unknown): string {
+const CURRENCIES: CurrencyCode[] = ["IRT", "USD", "EUR"];
+
+function normalizeCurrency(value: unknown): CurrencyCode {
   const currency = String(value ?? "")
     .trim()
     .toUpperCase();
-  return currency || "IRR";
+  // Legacy "IRR" rows mean Toman; map them and anything unknown to IRT.
+  if (currency === "IRR" || currency === "") return "IRT";
+  return CURRENCIES.includes(currency as CurrencyCode) ? (currency as CurrencyCode) : "IRT";
 }
 
 function normalizeStatus(value: unknown): GiftCardStatus {

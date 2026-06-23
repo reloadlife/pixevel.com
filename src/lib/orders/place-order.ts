@@ -15,6 +15,7 @@ import "@/lib/payments/register";
 import { OutOfStockError, releaseExpiredReservations, reserveUnits } from "./inventory";
 import { generateOrderNumber } from "./order-number";
 import { failPayment } from "./payments";
+import { computeOrderTaxes, getVatRatePercent } from "./tax";
 
 // ─── Error ────────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ export interface PlaceOrderResult {
   orderNumber: string;
   subtotalAmount: number;
   discountAmount: number;
+  taxAmount: number;
   totalAmount: number;
   couponCode: string | null;
   payment: {
@@ -167,6 +169,7 @@ export async function placeOrder(
   let paymentRow: typeof payments.$inferSelect;
   let resolvedSubtotal = 0;
   let resolvedDiscount = 0;
+  let resolvedTax = 0;
   let resolvedTotal = 0;
   let appliedCoupon: string | null = null;
 
@@ -214,6 +217,7 @@ export async function placeOrder(
                 fulfillmentType: true,
                 inventoryPolicy: true,
                 baseCurrency: true,
+                taxExempt: true,
               },
             },
             optionValues: {
@@ -246,6 +250,7 @@ export async function placeOrder(
       optionsSnapshot: Array<{ nameFa: string; valueFa: string; slug: string }>;
       fulfillmentType: FulfillmentType;
       tracked: boolean;
+      taxExempt: boolean;
       metadata: unknown;
     };
 
@@ -286,6 +291,7 @@ export async function placeOrder(
         optionsSnapshot: composeOptionsSnapshot(optionPairs),
         fulfillmentType: product.fulfillmentType,
         tracked: product.inventoryPolicy !== "INFINITE",
+        taxExempt: product.taxExempt === true,
         metadata: variant.metadata,
       });
     }
@@ -310,10 +316,19 @@ export async function placeOrder(
       appliedCoupon = couponResult.code;
     }
 
-    const totalToman = Math.max(0, subtotalToman + shippingToman - discountToman);
+    // 7b. VAT on the discounted, non-exempt portion of the order.
+    const vatRate = await getVatRatePercent();
+    const { perLine: lineTaxes, totalTax: taxToman } = computeOrderTaxes(
+      pricedRows.map((r) => ({ lineTotal: r.lineTotal, taxExempt: r.taxExempt })),
+      vatRate,
+      discountToman,
+    );
+
+    const totalToman = Math.max(0, subtotalToman + shippingToman - discountToman + taxToman);
 
     resolvedSubtotal = subtotalToman;
     resolvedDiscount = discountToman;
+    resolvedTax = taxToman;
     resolvedTotal = totalToman;
 
     // 8. Insert order.
@@ -325,9 +340,10 @@ export async function placeOrder(
         userId,
         status: "PENDING",
         paymentStatus: "UNPAID",
-        currency: "IRR",
+        currency: "IRT",
         subtotalAmount: String(subtotalToman),
         shippingAmount: String(shippingToman),
+        taxAmount: String(taxToman),
         discountAmount: String(discountToman),
         totalAmount: String(totalToman),
         customerPhone: user.phone ?? null,
@@ -376,7 +392,7 @@ export async function placeOrder(
 
     // 11. Insert order items (generic option snapshot frozen at purchase time).
     await tx.insert(orderItems).values(
-      pricedRows.map((row) => ({
+      pricedRows.map((row, i) => ({
         orderId,
         variantId: row.variantId,
         titleFa: row.titleFa,
@@ -386,6 +402,8 @@ export async function placeOrder(
         quantity: row.quantity,
         unitPrice: String(row.unitPrice),
         totalPrice: String(row.lineTotal),
+        taxAmount: String(lineTaxes[i]?.taxAmount ?? 0),
+        taxRatePercent: String(lineTaxes[i]?.taxRatePercent ?? 0),
         fulfillmentType: row.fulfillmentType,
         metadata: row.metadata,
       })),
@@ -400,7 +418,7 @@ export async function placeOrder(
         status: "UNPAID",
         provider: paymentMethod,
         amount: String(totalToman),
-        currency: "IRR",
+        currency: "IRT",
       })
       .returning();
 
@@ -475,6 +493,7 @@ export async function placeOrder(
     orderNumber: orderNumber!,
     subtotalAmount: resolvedSubtotal,
     discountAmount: resolvedDiscount,
+    taxAmount: resolvedTax,
     totalAmount: resolvedTotal,
     couponCode: appliedCoupon,
     payment: {

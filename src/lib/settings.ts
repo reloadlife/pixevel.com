@@ -160,6 +160,13 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
     default: "https://pixevel.com",
   },
   {
+    key: "TAX_VAT_PERCENT",
+    label: "مالیات بر ارزش افزوده (٪)",
+    group: "general",
+    default: "0",
+    hint: "نرخ مالیات بر ارزش افزوده هنگام تسویه. ۰ یعنی غیرفعال. نرخ رایج ایران حدود ۱۰ است.",
+  },
+  {
     key: "OTP_DEBUG_LOG",
     label: "ثبت کد OTP در لاگ (فقط تست)",
     group: "general",

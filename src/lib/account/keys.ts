@@ -117,6 +117,7 @@ export async function getKeysVault(userId: string): Promise<KeysVault> {
       if (!digitalVariantIds.has(unit.variantId)) {
         continue;
       }
+      if (unit.code == null) continue;
       const existing = keysByVariant.get(unit.variantId) ?? [];
       existing.push({ id: unit.id, code: unit.code, soldAt: unit.soldAt });
       keysByVariant.set(unit.variantId, existing);

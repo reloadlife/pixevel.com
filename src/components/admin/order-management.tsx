@@ -66,7 +66,7 @@ type PageMeta = {
 
 type InventoryUnit = {
   id: string;
-  code: string;
+  code: string | null;
   status: string;
   variantId: string;
   soldAt: Date | string | null;

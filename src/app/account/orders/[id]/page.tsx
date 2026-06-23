@@ -142,6 +142,7 @@ export default async function OrderDetailPage({ params }: PageProps) {
   // Build variantId → codes[] map for digital delivery
   const codesByVariant = new Map<string, string[]>();
   for (const unit of order.inventoryUnits) {
+    if (!unit.code) continue;
     const existing = codesByVariant.get(unit.variantId) ?? [];
     existing.push(unit.code);
     codesByVariant.set(unit.variantId, existing);

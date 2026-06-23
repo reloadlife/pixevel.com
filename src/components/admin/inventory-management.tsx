@@ -19,8 +19,8 @@ import { toFaNumber } from "@/lib/format";
 
 type InventoryUnit = {
   id: string;
-  code: string;
-  maskedCode: string;
+  code: string | null;
+  maskedCode: string | null;
   status: string;
   reservedAt: string | null;
   soldAt: string | null;

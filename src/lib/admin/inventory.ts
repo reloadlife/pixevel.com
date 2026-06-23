@@ -137,7 +137,8 @@ export async function listInventoryUnits(filters: InventoryListFilters) {
         id: row.id,
         code: row.code,
         // For secrets this is the masked form; for serials it is the serial as-is.
-        maskedCode: isSecret ? maskCode(row.code) : row.code,
+        // Physical units may carry no code at all (nullable) — pass null through.
+        maskedCode: row.code == null ? null : isSecret ? maskCode(row.code) : row.code,
         isSecret,
         fulfillmentType: row.fulfillmentType,
         status: row.status,

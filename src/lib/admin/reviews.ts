@@ -1,7 +1,7 @@
-import { and, count, desc, eq, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, inArray, type SQL } from "drizzle-orm";
 
 import type { ReviewStatus } from "@/db/schema";
-import { productReviews, products } from "@/db/schema";
+import { orderItems, orders, productReviews, products, productVariants } from "@/db/schema";
 import { getDb } from "@/lib/db";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -65,6 +65,8 @@ export async function listReviews(params: ListReviewsParams = {}) {
       titleFa: productReviews.titleFa,
       bodyFa: productReviews.bodyFa,
       status: productReviews.status,
+      isVerifiedPurchase: productReviews.isVerifiedPurchase,
+      helpfulCount: productReviews.helpfulCount,
       createdAt: productReviews.createdAt,
       updatedAt: productReviews.updatedAt,
     })
@@ -144,4 +146,77 @@ export async function deleteReview(id: string) {
     .returning({ id: productReviews.id });
 
   return deleted.length > 0;
+}
+
+// ─── Backfill ─────────────────────────────────────────────────────────────────
+
+/**
+ * Backfill `isVerifiedPurchase` for existing reviews.
+ *
+ * A review is considered a verified purchase when the review's author (userId)
+ * has at least one PAID order that contains an item whose variant belongs to
+ * the same product as the review.
+ *
+ * Safe to call multiple times — it only sets rows to `true`, never clears them.
+ * Does NOT run automatically on import; call explicitly from an admin action
+ * or a one-off migration script.
+ *
+ * @returns Number of reviews updated from false → true.
+ */
+export async function recomputeVerifiedPurchase(): Promise<number> {
+  const db = getDb();
+
+  // Fetch all reviews that are not yet marked as verified and have a userId.
+  const unverified = await db
+    .select({
+      id: productReviews.id,
+      userId: productReviews.userId,
+      productId: productReviews.productId,
+    })
+    .from(productReviews)
+    .where(and(eq(productReviews.isVerifiedPurchase, false)));
+
+  if (unverified.length === 0) return 0;
+
+  // For each unverified review, check whether the user has a paid order
+  // containing a variant that belongs to the review's product.
+  //
+  // We do this in one batched query: join orders → orderItems → productVariants
+  // and filter by the (userId, productId) pairs we care about.
+  const userIds = [...new Set(unverified.map((r) => r.userId).filter(Boolean))] as string[];
+  const productIds = [...new Set(unverified.map((r) => r.productId))];
+
+  if (userIds.length === 0) return 0;
+
+  const paidPairs = await db
+    .selectDistinct({
+      userId: orders.userId,
+      productId: productVariants.productId,
+    })
+    .from(orders)
+    .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
+    .innerJoin(productVariants, eq(productVariants.id, orderItems.variantId))
+    .where(
+      and(
+        eq(orders.paymentStatus, "PAID"),
+        inArray(orders.userId, userIds),
+        inArray(productVariants.productId, productIds),
+      ),
+    );
+
+  // Build a Set of "userId:productId" strings for O(1) lookup.
+  const paidSet = new Set(paidPairs.map((p) => `${p.userId}:${p.productId}`));
+
+  const toVerify = unverified
+    .filter((r) => r.userId && paidSet.has(`${r.userId}:${r.productId}`))
+    .map((r) => r.id);
+
+  if (toVerify.length === 0) return 0;
+
+  await db
+    .update(productReviews)
+    .set({ isVerifiedPurchase: true, updatedAt: new Date() })
+    .where(inArray(productReviews.id, toVerify));
+
+  return toVerify.length;
 }

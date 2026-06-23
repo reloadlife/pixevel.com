@@ -1,8 +1,9 @@
 "use client";
 
-import { Loader2, Star, Trash2 } from "lucide-react";
+import { Loader2, Star, ThumbsUp, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { AdminPage, StatusChip, useConfirm } from "@/components/admin/kit";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { ReviewStatus } from "@/db/schema";
 import type { AdminListResponse } from "@/lib/admin/list-response";
@@ -204,10 +205,23 @@ export function ReviewManagement({ initialData }: { initialData: ReviewListData 
                         <div className="flex flex-wrap items-center gap-2">
                           <Stars rating={review.rating} />
                           <StatusChip kind="review" value={review.status} />
+                          {review.isVerifiedPurchase ? (
+                            <Badge variant="secondary" className="gap-1 text-xs">
+                              خرید تأییدشده
+                            </Badge>
+                          ) : null}
                         </div>
                         <div className="text-sm font-bold">{review.productTitleFa}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {review.author} • {formatDate(review.createdAt)}
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {review.author} • {formatDate(review.createdAt)}
+                          </span>
+                          {review.helpfulCount > 0 ? (
+                            <span className="flex items-center gap-1">
+                              <ThumbsUp className="size-3" />
+                              {toFaNumber(review.helpfulCount)}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                     </div>

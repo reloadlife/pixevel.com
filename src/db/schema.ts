@@ -289,6 +289,15 @@ export const blogStatus = pgEnum("blog_status", ["DRAFT", "PUBLISHED", "ARCHIVED
 /** Currency a product's prices are authored in; IRT = Toman (no conversion). */
 export const baseCurrency = pgEnum("base_currency", ["IRT", "USD", "EUR"]);
 
+/**
+ * Settlement currency for money-moving tables (cart, order, payment, wallet,
+ * gift card, subscription). All real charges settle in IRT (Toman); USD/EUR
+ * exist only for parity with product authoring. Replaces the old free-text
+ * `currency` columns that defaulted to "IRR" (Rial) — a 10× unit mismatch.
+ */
+export const currencyCode = pgEnum("currency_code", ["IRT", "USD", "EUR"]);
+export type CurrencyCode = (typeof currencyCode.enumValues)[number];
+
 export const categories = pgTable(
   "Category",
   {
@@ -356,6 +365,13 @@ export const products = pgTable(
     noindex: boolean("noindex").default(false).notNull(),
     /** Currency the variant price amounts are authored in (IRT = no conversion). */
     baseCurrency: baseCurrency("baseCurrency").default("IRT").notNull(),
+    /** Exclude this product from VAT (e.g. zero-rated goods). */
+    taxExempt: boolean("taxExempt").default(false).notNull(),
+    /** Physical attributes for shipping calculation (null for non-physical). */
+    weightGram: integer("weightGram"),
+    lengthMm: integer("lengthMm"),
+    widthMm: integer("widthMm"),
+    heightMm: integer("heightMm"),
     createdAt,
     updatedAt,
   },
@@ -403,6 +419,10 @@ export const productVariants = pgTable(
     registeredPriceAmount: numeric("registeredPriceAmount", price),
     premiumPriceAmount: numeric("premiumPriceAmount", price),
     compareAtAmount: numeric("compareAtAmount", price),
+    /** Scheduled sale price; when within [saleStartsAt, saleEndsAt] it overrides publicPriceAmount. */
+    salePriceAmount: numeric("salePriceAmount", price),
+    saleStartsAt: timestamp("saleStartsAt", { mode: "date" }),
+    saleEndsAt: timestamp("saleEndsAt", { mode: "date" }),
     isDefault: boolean("isDefault").default(false).notNull(),
     /** World-specific data: domain { domainName, tld, years }, server { planCode, cpu, ram, diskGb, periodMonths }. */
     metadata: jsonb("metadata"),
@@ -492,7 +512,12 @@ export const inventoryUnits = pgTable(
     variantId: uuid("variantId")
       .notNull()
       .references(() => productVariants.id, { onDelete: "cascade" }),
-    code: text("code").notNull().unique(),
+    /**
+     * The redeemable secret for digital units (CD key, license, gift-card code).
+     * Null for physical units, which have no intrinsic code. Uniqueness is scoped
+     * per variant (multiple null codes allowed) rather than global.
+     */
+    code: text("code"),
     status: inventoryStatus("status").default("AVAILABLE").notNull(),
     reservedAt: timestamp("reservedAt", { mode: "date" }),
     soldAt: timestamp("soldAt", { mode: "date" }),
@@ -505,6 +530,7 @@ export const inventoryUnits = pgTable(
     index("InventoryUnit_variantId_status_idx").on(t.variantId, t.status),
     index("InventoryUnit_userId_idx").on(t.userId),
     index("InventoryUnit_orderId_idx").on(t.orderId),
+    uniqueIndex("InventoryUnit_variantId_code_uq").on(t.variantId, t.code),
   ],
 );
 
@@ -624,7 +650,7 @@ export const carts = pgTable(
     userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
     anonymousId: text("anonymousId"),
     status: cartStatus("status").default("ACTIVE").notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     subtotalAmount: numeric("subtotalAmount", price).default("0").notNull(),
     createdAt,
     updatedAt,
@@ -665,9 +691,10 @@ export const orders = pgTable(
     userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
     status: orderStatus("status").default("PENDING").notNull(),
     paymentStatus: paymentStatus("paymentStatus").default("UNPAID").notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     subtotalAmount: numeric("subtotalAmount", price).notNull(),
     shippingAmount: numeric("shippingAmount", price).default("0").notNull(),
+    taxAmount: numeric("taxAmount", price).default("0").notNull(),
     discountAmount: numeric("discountAmount", price).default("0").notNull(),
     totalAmount: numeric("totalAmount", price).notNull(),
     customerName: text("customerName"),
@@ -676,7 +703,13 @@ export const orders = pgTable(
     recipientEmail: text("recipientEmail"),
     recipientPhone: text("recipientPhone"),
     giftMessage: text("giftMessage"),
+    /** Frozen coupon code snapshot; couponId links the actual coupon for reporting/limits. */
     couponCode: text("couponCode"),
+    couponId: uuid("couponId").references((): AnyPgColumn => coupons.id, { onDelete: "set null" }),
+    /** Chosen shipping method (snapshot of cost lives in shippingAmount). */
+    shippingMethodId: uuid("shippingMethodId").references((): AnyPgColumn => shippingMethods.id, {
+      onDelete: "set null",
+    }),
     addressLine: text("addressLine"),
     city: text("city"),
     province: text("province"),
@@ -688,6 +721,8 @@ export const orders = pgTable(
     index("Order_userId_idx").on(t.userId),
     index("Order_status_idx").on(t.status),
     index("Order_createdAt_idx").on(t.createdAt),
+    index("Order_couponId_idx").on(t.couponId),
+    index("Order_shippingMethodId_idx").on(t.shippingMethodId),
   ],
 );
 
@@ -711,6 +746,9 @@ export const orderItems = pgTable(
     quantity: integer("quantity").notNull(),
     unitPrice: numeric("unitPrice", price).notNull(),
     totalPrice: numeric("totalPrice", price).notNull(),
+    /** VAT charged on this line, and the rate (%) applied at purchase time. */
+    taxAmount: numeric("taxAmount", price).default("0").notNull(),
+    taxRatePercent: numeric("taxRatePercent", { precision: 5, scale: 2 }).default("0").notNull(),
     fulfillmentType: fulfillmentType("fulfillmentType").default("DIGITAL").notNull(),
     /** Set when this line started/renewed a subscription. */
     subscriptionId: uuid("subscriptionId").references((): AnyPgColumn => subscriptions.id, {
@@ -737,7 +775,7 @@ export const payments = pgTable(
     reference: text("reference"),
     receiptUrl: text("receiptUrl"),
     amount: numeric("amount", price).notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     paidAt: timestamp("paidAt", { mode: "date" }),
     createdAt,
     updatedAt,
@@ -799,7 +837,7 @@ export const subscriptions = pgTable(
     /** Completed billing cycles (for termCount enforcement). */
     cyclesBilled: integer("cyclesBilled").default(1).notNull(),
     priceAmount: numeric("priceAmount", price).notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     paymentMethod: text("paymentMethod"),
     createdFromOrderId: uuid("createdFromOrderId").references(() => orders.id, {
       onDelete: "set null",
@@ -825,7 +863,7 @@ export const subscriptionInvoices = pgTable(
     periodStart: timestamp("periodStart", { mode: "date" }).notNull(),
     periodEnd: timestamp("periodEnd", { mode: "date" }).notNull(),
     amount: numeric("amount", price).notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     status: subscriptionInvoiceStatus("status").default("PENDING").notNull(),
     dueAt: timestamp("dueAt", { mode: "date" }).notNull(),
     paidAt: timestamp("paidAt", { mode: "date" }),
@@ -858,6 +896,9 @@ export const productReviews = pgTable(
     titleFa: text("titleFa"),
     bodyFa: text("bodyFa").notNull(),
     status: reviewStatus("status").default("APPROVED").notNull(),
+    /** True when the author has a paid order containing this product. */
+    isVerifiedPurchase: boolean("isVerifiedPurchase").default(false).notNull(),
+    helpfulCount: integer("helpfulCount").default(0).notNull(),
     createdAt,
     updatedAt,
   },
@@ -880,6 +921,21 @@ export const coupons = pgTable(
     maxDiscountAmount: numeric("maxDiscountAmount", price),
     usageLimit: integer("usageLimit"),
     usedCount: integer("usedCount").default(0).notNull(),
+    /** Max redemptions per user (null = unlimited). Enforced via CouponRedemption. */
+    perUserLimit: integer("perUserLimit"),
+    /** Cannot be combined with any other coupon on the same order. */
+    individualUse: boolean("individualUse").default(false).notNull(),
+    /** Skip line items that are currently on sale (salePriceAmount active). */
+    excludeSaleItems: boolean("excludeSaleItems").default(false).notNull(),
+    /** Grants free shipping when applied. */
+    freeShipping: boolean("freeShipping").default(false).notNull(),
+    /** Restrict redemption to these customer emails (null/empty = anyone). */
+    emailRestrictions: jsonb("emailRestrictions").$type<string[]>(),
+    /** Scope: product/category include & exclude lists (uuid[]). Empty = no constraint. */
+    includeProductIds: jsonb("includeProductIds").$type<string[]>(),
+    excludeProductIds: jsonb("excludeProductIds").$type<string[]>(),
+    includeCategoryIds: jsonb("includeCategoryIds").$type<string[]>(),
+    excludeCategoryIds: jsonb("excludeCategoryIds").$type<string[]>(),
     startsAt: timestamp("startsAt", { mode: "date" }),
     expiresAt: timestamp("expiresAt", { mode: "date" }),
     createdAt,
@@ -1034,7 +1090,7 @@ export const wallets = pgTable(
       .unique()
       .references(() => users.id, { onDelete: "cascade" }),
     balanceAmount: numeric("balanceAmount", price).default("0").notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     createdAt,
     updatedAt,
   },
@@ -1048,7 +1104,7 @@ export const giftCards = pgTable(
     code: text("code").notNull().unique(),
     initialAmount: numeric("initialAmount", price).notNull(),
     balanceAmount: numeric("balanceAmount", price).notNull(),
-    currency: text("currency").default("IRR").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
     status: giftCardStatus("status").default("ACTIVE").notNull(),
     issuedToUserId: uuid("issuedToUserId").references(() => users.id, { onDelete: "set null" }),
     redeemedByUserId: uuid("redeemedByUserId").references(() => users.id, { onDelete: "set null" }),
@@ -1502,6 +1558,15 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   items: many(orderItems),
   payments: many(payments),
   inventoryUnits: many(inventoryUnits),
+  coupon: one(coupons, { fields: [orders.couponId], references: [coupons.id] }),
+  shippingMethod: one(shippingMethods, {
+    fields: [orders.shippingMethodId],
+    references: [shippingMethods.id],
+  }),
+  shipments: many(shipments),
+  refunds: many(refunds),
+  events: many(orderEvents),
+  couponRedemptions: many(couponRedemptions),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
@@ -1812,3 +1877,257 @@ export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type Subscription = typeof subscriptions.$inferSelect;
 export type SubscriptionInvoice = typeof subscriptionInvoices.$inferSelect;
+
+// --- Shipping, refunds, coupons, order audit, product relations ------------
+
+export const shippingMethodKind = pgEnum("shipping_method_kind", ["FLAT", "FREE"]);
+export const shipmentStatus = pgEnum("shipment_status", [
+  "PENDING",
+  "SHIPPED",
+  "IN_TRANSIT",
+  "DELIVERED",
+  "RETURNED",
+  "CANCELLED",
+]);
+export const refundStatus = pgEnum("refund_status", [
+  "PENDING",
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+  "REJECTED",
+]);
+export const orderEventType = pgEnum("order_event_type", [
+  "STATUS_CHANGE",
+  "PAYMENT",
+  "SHIPMENT",
+  "REFUND",
+  "NOTE",
+  "SYSTEM",
+]);
+export const productRelationKind = pgEnum("product_relation_kind", [
+  "UPSELL",
+  "CROSS_SELL",
+  "RELATED",
+]);
+
+/** A purchasable shipping option. FREE ignores flatAmount; FLAT charges it (optionally free over a threshold). */
+export const shippingMethods = pgTable(
+  "ShippingMethod",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull().unique(),
+    titleFa: text("titleFa").notNull(),
+    kind: shippingMethodKind("kind").default("FLAT").notNull(),
+    flatAmount: numeric("flatAmount", price).default("0").notNull(),
+    /** When set, order subtotals at/above this amount ship free. */
+    freeThresholdAmount: numeric("freeThresholdAmount", price),
+    /** Delivery estimate window in days (display only). */
+    minDays: integer("minDays"),
+    maxDays: integer("maxDays"),
+    currency: currencyCode("currency").default("IRT").notNull(),
+    isActive: boolean("isActive").default(true).notNull(),
+    sortOrder: integer("sortOrder").default(0).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("ShippingMethod_isActive_sortOrder_idx").on(t.isActive, t.sortOrder)],
+);
+
+/** A physical dispatch against an order, carrying carrier + tracking state. */
+export const shipments = pgTable(
+  "Shipment",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("orderId")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    methodId: uuid("methodId").references(() => shippingMethods.id, { onDelete: "set null" }),
+    status: shipmentStatus("status").default("PENDING").notNull(),
+    carrier: text("carrier"),
+    trackingNumber: text("trackingNumber"),
+    trackingUrl: text("trackingUrl"),
+    costAmount: numeric("costAmount", price).default("0").notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
+    shippedAt: timestamp("shippedAt", { mode: "date" }),
+    deliveredAt: timestamp("deliveredAt", { mode: "date" }),
+    noteFa: text("noteFa"),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("Shipment_orderId_idx").on(t.orderId),
+    index("Shipment_status_idx").on(t.status),
+    index("Shipment_trackingNumber_idx").on(t.trackingNumber),
+  ],
+);
+
+/** A full or partial refund against an order. Line breakdown lives in RefundItem. */
+export const refunds = pgTable(
+  "Refund",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("orderId")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    paymentId: uuid("paymentId").references(() => payments.id, { onDelete: "set null" }),
+    status: refundStatus("status").default("PENDING").notNull(),
+    amount: numeric("amount", price).notNull(),
+    currency: currencyCode("currency").default("IRT").notNull(),
+    reason: text("reason"),
+    /** Gateway refund reference / receipt. */
+    gatewayRef: text("gatewayRef"),
+    createdByUserId: uuid("createdByUserId").references(() => users.id, { onDelete: "set null" }),
+    processedAt: timestamp("processedAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("Refund_orderId_idx").on(t.orderId), index("Refund_status_idx").on(t.status)],
+);
+
+/** Per-line breakdown of a refund; `restock` returns the unit(s) to inventory. */
+export const refundItems = pgTable(
+  "RefundItem",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    refundId: uuid("refundId")
+      .notNull()
+      .references(() => refunds.id, { onDelete: "cascade" }),
+    orderItemId: uuid("orderItemId").references(() => orderItems.id, { onDelete: "set null" }),
+    quantity: integer("quantity").default(1).notNull(),
+    amount: numeric("amount", price).notNull(),
+    restock: boolean("restock").default(false).notNull(),
+  },
+  (t) => [index("RefundItem_refundId_idx").on(t.refundId)],
+);
+
+/** One coupon use, linking coupon ↔ user ↔ order. Enforces perUserLimit and powers usage reporting. */
+export const couponRedemptions = pgTable(
+  "CouponRedemption",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    couponId: uuid("couponId")
+      .notNull()
+      .references(() => coupons.id, { onDelete: "cascade" }),
+    userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
+    orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    amount: numeric("amount", price).default("0").notNull(),
+    createdAt,
+  },
+  (t) => [
+    index("CouponRedemption_couponId_userId_idx").on(t.couponId, t.userId),
+    index("CouponRedemption_orderId_idx").on(t.orderId),
+  ],
+);
+
+/** Append-only order audit trail: status changes, payments, shipments, refunds, operator notes. */
+export const orderEvents = pgTable(
+  "OrderEvent",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("orderId")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    type: orderEventType("type").notNull(),
+    fromStatus: text("fromStatus"),
+    toStatus: text("toStatus"),
+    noteFa: text("noteFa"),
+    /** When true, the note is shown to the customer (vs internal-only). */
+    isCustomerVisible: boolean("isCustomerVisible").default(false).notNull(),
+    authorUserId: uuid("authorUserId").references(() => users.id, { onDelete: "set null" }),
+    metadata: jsonb("metadata"),
+    createdAt,
+  },
+  (t) => [index("OrderEvent_orderId_createdAt_idx").on(t.orderId, t.createdAt)],
+);
+
+/** Directional upsell / cross-sell / related links between products. */
+export const productRelations = pgTable(
+  "ProductRelation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("productId")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    relatedProductId: uuid("relatedProductId")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    kind: productRelationKind("kind").default("RELATED").notNull(),
+    position: integer("position").default(0).notNull(),
+    createdAt,
+  },
+  (t) => [
+    uniqueIndex("ProductRelation_productId_relatedProductId_kind_uq").on(
+      t.productId,
+      t.relatedProductId,
+      t.kind,
+    ),
+    index("ProductRelation_productId_kind_idx").on(t.productId, t.kind),
+  ],
+);
+
+export const shippingMethodsRelations = relations(shippingMethods, ({ many }) => ({
+  shipments: many(shipments),
+  orders: many(orders),
+}));
+
+export const shipmentsRelations = relations(shipments, ({ one }) => ({
+  order: one(orders, { fields: [shipments.orderId], references: [orders.id] }),
+  method: one(shippingMethods, {
+    fields: [shipments.methodId],
+    references: [shippingMethods.id],
+  }),
+}));
+
+export const refundsRelations = relations(refunds, ({ one, many }) => ({
+  order: one(orders, { fields: [refunds.orderId], references: [orders.id] }),
+  payment: one(payments, { fields: [refunds.paymentId], references: [payments.id] }),
+  createdBy: one(users, { fields: [refunds.createdByUserId], references: [users.id] }),
+  items: many(refundItems),
+}));
+
+export const refundItemsRelations = relations(refundItems, ({ one }) => ({
+  refund: one(refunds, { fields: [refundItems.refundId], references: [refunds.id] }),
+  orderItem: one(orderItems, { fields: [refundItems.orderItemId], references: [orderItems.id] }),
+}));
+
+export const couponsRelations = relations(coupons, ({ many }) => ({
+  redemptions: many(couponRedemptions),
+  orders: many(orders),
+}));
+
+export const couponRedemptionsRelations = relations(couponRedemptions, ({ one }) => ({
+  coupon: one(coupons, { fields: [couponRedemptions.couponId], references: [coupons.id] }),
+  user: one(users, { fields: [couponRedemptions.userId], references: [users.id] }),
+  order: one(orders, { fields: [couponRedemptions.orderId], references: [orders.id] }),
+}));
+
+export const orderEventsRelations = relations(orderEvents, ({ one }) => ({
+  order: one(orders, { fields: [orderEvents.orderId], references: [orders.id] }),
+  author: one(users, { fields: [orderEvents.authorUserId], references: [users.id] }),
+}));
+
+export const productRelationsRelations = relations(productRelations, ({ one }) => ({
+  product: one(products, {
+    fields: [productRelations.productId],
+    references: [products.id],
+    relationName: "ProductRelationSource",
+  }),
+  relatedProduct: one(products, {
+    fields: [productRelations.relatedProductId],
+    references: [products.id],
+    relationName: "ProductRelationTarget",
+  }),
+}));
+
+export type ShippingMethodKind = (typeof shippingMethodKind.enumValues)[number];
+export type ShipmentStatus = (typeof shipmentStatus.enumValues)[number];
+export type RefundStatus = (typeof refundStatus.enumValues)[number];
+export type OrderEventType = (typeof orderEventType.enumValues)[number];
+export type ProductRelationKind = (typeof productRelationKind.enumValues)[number];
+export type ShippingMethod = typeof shippingMethods.$inferSelect;
+export type Shipment = typeof shipments.$inferSelect;
+export type Refund = typeof refunds.$inferSelect;
+export type RefundItem = typeof refundItems.$inferSelect;
+export type CouponRedemption = typeof couponRedemptions.$inferSelect;
+export type OrderEvent = typeof orderEvents.$inferSelect;
+export type ProductRelation = typeof productRelations.$inferSelect;

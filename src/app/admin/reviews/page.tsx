@@ -5,7 +5,9 @@ import { listReviews } from "@/lib/admin/reviews";
 export default async function AdminReviewsPage() {
   await requireAdmin("/admin/reviews");
 
-  const initialData = await listReviews();
+  // Default tab is PENDING — fetch the same filter so the client's initialData
+  // matches the initial query key (no wrong-data flash on mount).
+  const initialData = await listReviews({ status: "PENDING" });
 
   return <ReviewManagement initialData={initialData} />;
 }

@@ -82,10 +82,12 @@ export function ReviewManagement({ initialData }: { initialData: ReviewListData 
 
   const statusFilter = tab === "ALL" ? undefined : tab;
 
+  // initialData was server-fetched for the PENDING tab; only seed it for that
+  // query key so other tabs don't render PENDING rows before their own fetch.
   const result = useAdminList<AdminReviewRow>(
     "reviews",
     { status: statusFilter },
-    { initialData: normalizedInitial, rowsKey: "reviews" },
+    { initialData: tab === "PENDING" ? normalizedInitial : undefined, rowsKey: "reviews" },
   );
 
   // Pull reviews + counts back out of the normalized shape.

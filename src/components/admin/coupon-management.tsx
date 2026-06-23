@@ -293,10 +293,12 @@ function CouponSheet({
 function CouponRowMenu({
   coupon,
   onEdit,
+  onToggleActive,
   onDelete,
 }: {
   coupon: AdminCouponOption;
   onEdit: (coupon: AdminCouponOption) => void;
+  onToggleActive: (coupon: AdminCouponOption) => void;
   onDelete: (coupon: AdminCouponOption) => void;
 }) {
   return (
@@ -309,6 +311,9 @@ function CouponRowMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" dir="rtl">
         <DropdownMenuItem onClick={() => onEdit(coupon)}>ویرایش</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onToggleActive(coupon)}>
+          {coupon.isActive ? "غیرفعال‌سازی" : "فعال‌سازی"}
+        </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => onDelete(coupon)}
           className="text-destructive focus:text-destructive"
@@ -349,6 +354,18 @@ export function CouponManagement({
     invalidate: ["coupons"],
     successMessage: "کد تخفیف حذف شد.",
   });
+
+  const toggleActiveMutation = useAdminMutation<{ id: string; isActive: boolean }>({
+    url: (vars) => `/api/admin/coupons/${vars.id}`,
+    method: "PATCH",
+    body: (vars) => ({ isActive: vars.isActive }),
+    invalidate: ["coupons"],
+    successMessage: "وضعیت کد تخفیف به‌روزرسانی شد.",
+  });
+
+  function handleToggleActive(coupon: AdminCouponOption) {
+    toggleActiveMutation.mutate({ id: coupon.id, isActive: !coupon.isActive });
+  }
 
   function openCreate() {
     setEditCoupon(undefined);
@@ -462,10 +479,13 @@ export function CouponManagement({
         data={rows}
         loading={result.isLoading}
         empty="هنوز کد تخفیفی ثبت نشده است."
-        pagination={result.data?.pagination}
-        onPageChange={() => {}}
         rowActions={(coupon) => (
-          <CouponRowMenu coupon={coupon} onEdit={openEdit} onDelete={handleDelete} />
+          <CouponRowMenu
+            coupon={coupon}
+            onEdit={openEdit}
+            onToggleActive={handleToggleActive}
+            onDelete={handleDelete}
+          />
         )}
       />
 

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   const body = await readJson<Parameters<typeof createAdminProduct>[0]>(request);
 
-  if (!body || !body.titleFa || !body.publicPriceAmount) {
+  if (!body?.titleFa || !body.publicPriceAmount) {
     return apiError("INVALID_PRODUCT", "اطلاعات محصول کامل نیست.");
   }
 

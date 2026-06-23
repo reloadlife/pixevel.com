@@ -179,6 +179,9 @@ export type VariantOverrideInput = {
   registeredPriceAmount?: string | null;
   premiumPriceAmount?: string | null;
   compareAtAmount?: string | null;
+  salePriceAmount?: string | null;
+  saleStartsAt?: string | null;
+  saleEndsAt?: string | null;
   stockCodes?: string[];
   stockToAdd?: number;
 };
@@ -241,6 +244,13 @@ type ProductCreateInput = {
   variantOverridesByKey?: Record<string, VariantOverrideInput>;
   /** Recurring plan applied to every variant when isSubscription is true. */
   subscriptionPlan?: SubscriptionPlanInput;
+  /** Physical shipping attributes (null for non-physical products). */
+  weightGram?: number | null;
+  lengthMm?: number | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  /** Exclude this product from VAT. */
+  taxExempt?: boolean;
 };
 
 type ProductImageInput = {
@@ -264,6 +274,9 @@ type ProductVariantUpdateInput = {
   registeredPriceAmount?: string | null;
   premiumPriceAmount?: string | null;
   compareAtAmount?: string | null;
+  salePriceAmount?: string | null;
+  saleStartsAt?: string | null;
+  saleEndsAt?: string | null;
   isDefault?: boolean;
   stockToAdd?: number;
   stockCodes?: string[];
@@ -306,6 +319,13 @@ type ProductUpdateInput = {
   stockPerVariant?: number;
   /** Recurring plan applied to every variant when isSubscription is true (reconcile path). */
   subscriptionPlan?: SubscriptionPlanInput | null;
+  /** Physical shipping attributes (null clears the value). */
+  weightGram?: number | null;
+  lengthMm?: number | null;
+  widthMm?: number | null;
+  heightMm?: number | null;
+  /** Exclude this product from VAT. */
+  taxExempt?: boolean;
 };
 
 const PRODUCT_STATUSES = new Set(["DRAFT", "ACTIVE", "DISABLED", "ARCHIVED"]);
@@ -551,6 +571,11 @@ export async function createAdminProduct(input: ProductCreateInput) {
         isSubscription,
         categoryId: category?.id ?? null,
         primaryImageUrl: primaryImage?.url.trim() || null,
+        taxExempt: Boolean(input.taxExempt),
+        weightGram: input.weightGram ?? null,
+        lengthMm: input.lengthMm ?? null,
+        widthMm: input.widthMm ?? null,
+        heightMm: input.heightMm ?? null,
       })
       .returning();
 
@@ -637,6 +662,9 @@ export async function createAdminProduct(input: ProductCreateInput) {
             override?.registeredPriceAmount ?? input.registeredPriceAmount ?? null,
           premiumPriceAmount: override?.premiumPriceAmount ?? input.premiumPriceAmount ?? null,
           compareAtAmount: override?.compareAtAmount ?? input.compareAtAmount ?? null,
+          salePriceAmount: override?.salePriceAmount ?? null,
+          saleStartsAt: override?.saleStartsAt ? new Date(override.saleStartsAt) : null,
+          saleEndsAt: override?.saleEndsAt ? new Date(override.saleEndsAt) : null,
           isDefault: isFirstVariant,
         })
         .returning();
@@ -929,6 +957,15 @@ async function reconcileProductVariants(
           ...(override?.compareAtAmount !== undefined
             ? { compareAtAmount: override.compareAtAmount }
             : {}),
+          ...(override?.salePriceAmount !== undefined
+            ? { salePriceAmount: override.salePriceAmount || null }
+            : {}),
+          ...(override?.saleStartsAt !== undefined
+            ? { saleStartsAt: override.saleStartsAt ? new Date(override.saleStartsAt) : null }
+            : {}),
+          ...(override?.saleEndsAt !== undefined
+            ? { saleEndsAt: override.saleEndsAt ? new Date(override.saleEndsAt) : null }
+            : {}),
           ...(override?.isDefault !== undefined ? { isDefault: override.isDefault } : {}),
         })
         .where(eq(productVariants.id, existing.id));
@@ -956,6 +993,9 @@ async function reconcileProductVariants(
             override?.registeredPriceAmount ?? priceFor("registeredPriceAmount"),
           premiumPriceAmount: override?.premiumPriceAmount ?? priceFor("premiumPriceAmount"),
           compareAtAmount: override?.compareAtAmount ?? priceFor("compareAtAmount"),
+          salePriceAmount: override?.salePriceAmount ?? null,
+          saleStartsAt: override?.saleStartsAt ? new Date(override.saleStartsAt) : null,
+          saleEndsAt: override?.saleEndsAt ? new Date(override.saleEndsAt) : null,
           isDefault: wantsDefault,
         })
         .returning();
@@ -1102,6 +1142,11 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
               null,
           }
         : {}),
+      ...(input.taxExempt !== undefined ? { taxExempt: Boolean(input.taxExempt) } : {}),
+      ...(input.weightGram !== undefined ? { weightGram: input.weightGram ?? null } : {}),
+      ...(input.lengthMm !== undefined ? { lengthMm: input.lengthMm ?? null } : {}),
+      ...(input.widthMm !== undefined ? { widthMm: input.widthMm ?? null } : {}),
+      ...(input.heightMm !== undefined ? { heightMm: input.heightMm ?? null } : {}),
     };
 
     if (Object.keys(productData).length > 0) {
@@ -1182,6 +1227,19 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
               : {}),
             ...(variantPatch.compareAtAmount !== undefined
               ? { compareAtAmount: cleanOptionalPrice(variantPatch.compareAtAmount) }
+              : {}),
+            ...(variantPatch.salePriceAmount !== undefined
+              ? { salePriceAmount: cleanOptionalPrice(variantPatch.salePriceAmount) }
+              : {}),
+            ...(variantPatch.saleStartsAt !== undefined
+              ? {
+                  saleStartsAt: variantPatch.saleStartsAt
+                    ? new Date(variantPatch.saleStartsAt)
+                    : null,
+                }
+              : {}),
+            ...(variantPatch.saleEndsAt !== undefined
+              ? { saleEndsAt: variantPatch.saleEndsAt ? new Date(variantPatch.saleEndsAt) : null }
               : {}),
             ...(defaultVariantId ? { isDefault: variantPatch.id === defaultVariantId } : {}),
           })
@@ -1307,6 +1365,11 @@ export function toAdminProductRow(product: AdminProductRecord) {
     fulfillmentType: product.fulfillmentType,
     inventoryPolicy: product.inventoryPolicy,
     isSubscription: product.isSubscription,
+    taxExempt: product.taxExempt,
+    weightGram: product.weightGram ?? null,
+    lengthMm: product.lengthMm ?? null,
+    widthMm: product.widthMm ?? null,
+    heightMm: product.heightMm ?? null,
     categoryId: product.categoryId ?? "",
     tagIds: product.tags.map((item) => item.tagId),
     tags: product.tags.map((item) => ({
@@ -1367,6 +1430,9 @@ export function toAdminProductRow(product: AdminProductRecord) {
       registeredPriceAmount: valueFromDecimal(variant.registeredPriceAmount),
       premiumPriceAmount: valueFromDecimal(variant.premiumPriceAmount),
       compareAtAmount: valueFromDecimal(variant.compareAtAmount),
+      salePriceAmount: valueFromDecimal(variant.salePriceAmount),
+      saleStartsAt: variant.saleStartsAt ? variant.saleStartsAt.toISOString().slice(0, 10) : "",
+      saleEndsAt: variant.saleEndsAt ? variant.saleEndsAt.toISOString().slice(0, 10) : "",
       isDefault: variant.isDefault,
       subscriptionPlan: variant.subscriptionPlan
         ? {

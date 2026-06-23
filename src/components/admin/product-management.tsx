@@ -23,7 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
-
+import { DateField, MoneyField, NumberField, SwitchRow } from "@/components/admin/kit/form-fields";
 import { Button } from "@/components/ui/button";
 import { formatToman } from "@/lib/format";
 import { optionsKeyFromPairs, optionValueKey } from "@/lib/variant-options";
@@ -112,9 +112,25 @@ type ProductVariantRow = {
   registeredPriceAmount: string;
   premiumPriceAmount: string;
   compareAtAmount: string;
+  salePriceAmount: string;
+  saleStartsAt: string;
+  saleEndsAt: string;
   isDefault: boolean;
   subscriptionPlan: SubscriptionPlanShape | null;
   inventoryUnits: Array<{ id: string; status: string }>;
+};
+
+type ProductRelationEntry = {
+  id: string;
+  kind: string;
+  position: number;
+  relatedProduct: {
+    id: string;
+    slug: string;
+    titleFa: string;
+    status: string;
+    imageUrl: string | null;
+  };
 };
 
 type ProductRow = {
@@ -134,6 +150,11 @@ type ProductRow = {
   fulfillmentType: string;
   inventoryPolicy: string;
   isSubscription: boolean;
+  taxExempt: boolean;
+  weightGram: number | null;
+  lengthMm: number | null;
+  widthMm: number | null;
+  heightMm: number | null;
   categoryId: string;
   tagIds: string[];
   tags: TagOption[];
@@ -204,6 +225,9 @@ type VariantOverrideState = {
   registeredPriceAmount: string;
   premiumPriceAmount: string;
   compareAtAmount: string;
+  salePriceAmount: string;
+  saleStartsAt: string;
+  saleEndsAt: string;
   stockToAdd: string;
   stockCodes: string;
 };
@@ -353,6 +377,9 @@ function emptyOverride(): VariantOverrideState {
     registeredPriceAmount: "",
     premiumPriceAmount: "",
     compareAtAmount: "",
+    salePriceAmount: "",
+    saleStartsAt: "",
+    saleEndsAt: "",
     stockToAdd: "",
     stockCodes: "",
   };
@@ -386,6 +413,11 @@ function editFormFromProduct(product: ProductRow | null) {
     ogImageUrl: product?.ogImageUrl ?? "",
     noindex: product?.noindex ?? false,
     baseCurrency: product?.baseCurrency ?? "IRT",
+    taxExempt: product?.taxExempt ?? false,
+    weightGram: product?.weightGram != null ? String(product.weightGram) : "",
+    lengthMm: product?.lengthMm != null ? String(product.lengthMm) : "",
+    widthMm: product?.widthMm != null ? String(product.widthMm) : "",
+    heightMm: product?.heightMm != null ? String(product.heightMm) : "",
   };
 }
 
@@ -457,6 +489,9 @@ function overridesFromProduct(product: ProductRow | null): Record<string, Varian
       registeredPriceAmount: variant.registeredPriceAmount,
       premiumPriceAmount: variant.premiumPriceAmount,
       compareAtAmount: variant.compareAtAmount,
+      salePriceAmount: variant.salePriceAmount ?? "",
+      saleStartsAt: variant.saleStartsAt ?? "",
+      saleEndsAt: variant.saleEndsAt ?? "",
       stockToAdd: "",
       stockCodes: "",
     };
@@ -593,6 +628,17 @@ export function ProductManagement({
   const [editSubscriptionPlan, setEditSubscriptionPlan] = useState<SubscriptionPlanState>(
     subscriptionStateFromPlan(initialEditingProduct?.variants[0]?.subscriptionPlan ?? null),
   );
+
+  // Relations state: keyed by kind, value is the current set of related product entries.
+  const [editRelations, setEditRelations] = useState<ProductRelationEntry[]>([]);
+  const [relationsLoaded, setRelationsLoaded] = useState(false);
+  const [relationsSaving, setRelationsSaving] = useState<string>("");
+  // Product picker for relations: search query + results.
+  const [relationPickerQuery, setRelationPickerQuery] = useState("");
+  const [relationPickerResults, setRelationPickerResults] = useState<
+    Array<{ id: string; titleFa: string; slug: string; status: string }>
+  >([]);
+  const [relationPickerKind, setRelationPickerKind] = useState<string>("RELATED");
 
   const editingProduct = products.find((product) => product.id === editingProductId) ?? null;
   const showCreate = mode === "create";
@@ -1165,6 +1211,10 @@ export function ProductManagement({
     setEditSubscriptionPlan(
       subscriptionStateFromPlan(product.variants[0]?.subscriptionPlan ?? null),
     );
+    setEditRelations([]);
+    setRelationsLoaded(false);
+    setRelationPickerQuery("");
+    setRelationPickerResults([]);
 
     requestAnimationFrame(() => {
       document.getElementById("product-edit-panel")?.scrollIntoView({
@@ -1203,6 +1253,9 @@ export function ProductManagement({
       entry.registeredPriceAmount = override.registeredPriceAmount || null;
       entry.premiumPriceAmount = override.premiumPriceAmount || null;
       entry.compareAtAmount = override.compareAtAmount || null;
+      entry.salePriceAmount = override.salePriceAmount || null;
+      entry.saleStartsAt = override.saleStartsAt || null;
+      entry.saleEndsAt = override.saleEndsAt || null;
       if (tracked && codes.length > 0) entry.stockCodes = codes;
       if (tracked && override.stockToAdd) {
         entry.stockToAdd = Number(normalizePriceValue(override.stockToAdd) || 0);
@@ -1268,6 +1321,12 @@ export function ProductManagement({
         stockPerVariant: Number(normalizePriceValue(form.stockPerVariant) || 0),
         // Subscription plan is product-level in the UI; applied to every variant.
         subscriptionPlan: editForm.isSubscription ? planPayload : null,
+        // Physical attributes
+        taxExempt: editForm.taxExempt,
+        weightGram: editForm.weightGram ? Number(editForm.weightGram) || null : null,
+        lengthMm: editForm.lengthMm ? Number(editForm.lengthMm) || null : null,
+        widthMm: editForm.widthMm ? Number(editForm.widthMm) || null : null,
+        heightMm: editForm.heightMm ? Number(editForm.heightMm) || null : null,
       }),
     });
     const result = await response.json();
@@ -1415,6 +1474,205 @@ export function ProductManagement({
     if (editingProductId === product.id) {
       startEditingProduct(updatedProduct);
     }
+  }
+
+  // ── Relations helpers ────────────────────────────────────────────────────────
+
+  async function loadRelations(productId: string) {
+    const response = await fetch(`/api/admin/products/${productId}/relations`);
+    const result = await response.json();
+    if (result.ok) {
+      setEditRelations(result.data.relations as ProductRelationEntry[]);
+      setRelationsLoaded(true);
+    }
+  }
+
+  async function saveRelationsForKind(kind: string) {
+    if (!editingProductId) return;
+    setRelationsSaving(kind);
+    const relatedIds = editRelations
+      .filter((r) => r.kind === kind)
+      .sort((a, b) => a.position - b.position)
+      .map((r) => r.relatedProduct.id);
+    try {
+      const response = await fetch(`/api/admin/products/${editingProductId}/relations`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, relatedIds }),
+      });
+      const result = await response.json();
+      if (!result.ok) {
+        alert(result.error?.message ?? "روابط ذخیره نشد.");
+        return;
+      }
+      setEditRelations(result.data.relations as ProductRelationEntry[]);
+    } finally {
+      setRelationsSaving("");
+    }
+  }
+
+  function addRelationEntry(
+    kind: string,
+    product: { id: string; titleFa: string; slug: string; status: string },
+  ) {
+    setEditRelations((current) => {
+      if (current.some((r) => r.relatedProduct.id === product.id && r.kind === kind)) {
+        return current;
+      }
+      const position = current.filter((r) => r.kind === kind).length;
+      return [
+        ...current,
+        {
+          id: `new-${Date.now()}`,
+          kind,
+          position,
+          relatedProduct: {
+            id: product.id,
+            slug: product.slug,
+            titleFa: product.titleFa,
+            status: product.status,
+            imageUrl: null,
+          },
+        },
+      ];
+    });
+    setRelationPickerQuery("");
+    setRelationPickerResults([]);
+  }
+
+  function removeRelationEntry(kind: string, relatedProductId: string) {
+    setEditRelations((current) =>
+      current
+        .filter((r) => !(r.kind === kind && r.relatedProduct.id === relatedProductId))
+        .map((r, i) => (r.kind === kind ? { ...r, position: i } : r)),
+    );
+  }
+
+  async function searchRelationProducts(query: string) {
+    setRelationPickerQuery(query);
+    if (!query.trim()) {
+      setRelationPickerResults([]);
+      return;
+    }
+    // Search from local products list first (already loaded).
+    const q = query.trim().toLowerCase();
+    const results = products
+      .filter(
+        (p) =>
+          p.id !== editingProductId &&
+          (p.titleFa.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q)),
+      )
+      .slice(0, 8)
+      .map((p) => ({ id: p.id, titleFa: p.titleFa, slug: p.slug, status: p.status }));
+    setRelationPickerResults(results);
+  }
+
+  function renderRelationsPanel() {
+    const kinds = [
+      { value: "RELATED", label: "مرتبط" },
+      { value: "UPSELL", label: "آپ‌سل (گران‌تر)" },
+      { value: "CROSS_SELL", label: "کراس‌سل (مکمل)" },
+    ];
+
+    return (
+      <div className="lg:col-span-2">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black">محصولات مرتبط</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              روابط محصول را تنظیم و هر بخش را جداگانه ذخیره کنید.
+            </p>
+          </div>
+          {!relationsLoaded ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => loadRelations(editingProductId)}
+            >
+              بارگذاری روابط
+            </Button>
+          ) : null}
+        </div>
+
+        {relationsLoaded ? (
+          <div className="grid gap-4">
+            {kinds.map((kind) => {
+              const kindEntries = editRelations.filter((r) => r.kind === kind.value);
+              return (
+                <div key={kind.value} className="border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-sm font-black">{kind.label}</span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={relationsSaving === kind.value}
+                      onClick={() => saveRelationsForKind(kind.value)}
+                    >
+                      {relationsSaving === kind.value ? "ذخیره..." : "ذخیره"}
+                    </Button>
+                  </div>
+                  <div className="mb-2 grid gap-1">
+                    {kindEntries.length === 0 ? (
+                      <p className="text-xs text-zinc-400">هنوز محصولی اضافه نشده.</p>
+                    ) : (
+                      kindEntries.map((entry) => (
+                        <div
+                          key={entry.relatedProduct.id}
+                          className="flex items-center justify-between gap-2 border border-zinc-200 bg-white px-2 py-1.5"
+                        >
+                          <span className="text-sm font-bold">{entry.relatedProduct.titleFa}</span>
+                          <button
+                            type="button"
+                            className="text-xs text-zinc-400 hover:text-destructive"
+                            onClick={() => removeRelationEntry(kind.value, entry.relatedProduct.id)}
+                            aria-label="حذف"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  {/* Product picker for this kind */}
+                  <div className="relative">
+                    <input
+                      value={relationPickerKind === kind.value ? relationPickerQuery : ""}
+                      onChange={(e) => {
+                        setRelationPickerKind(kind.value);
+                        searchRelationProducts(e.target.value);
+                      }}
+                      onFocus={() => setRelationPickerKind(kind.value)}
+                      placeholder="جستجوی محصول برای افزودن..."
+                      className="h-8 w-full min-w-0 border border-zinc-300 bg-white px-2 text-sm outline-none focus:border-zinc-950"
+                      dir="rtl"
+                    />
+                    {relationPickerKind === kind.value && relationPickerResults.length > 0 ? (
+                      <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-auto border border-zinc-200 bg-white shadow-xl">
+                        {relationPickerResults.map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => addRelationEntry(kind.value, p)}
+                            className="flex w-full items-center justify-between px-3 py-2 text-right text-sm hover:bg-zinc-50"
+                          >
+                            <span className="font-bold">{p.titleFa}</span>
+                            <span className="text-xs text-zinc-400" dir="ltr">
+                              {p.slug}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   // Shared generic option builder — add/remove options + values. Used by both
@@ -1653,6 +1911,30 @@ export function ProductManagement({
                     onChange={(value) =>
                       updateOverride(variant.optionsKey, { compareAtAmount: value })
                     }
+                  />
+                  <MoneyField
+                    id={`sale-price-${variant.optionsKey || "default"}`}
+                    label="قیمت حراج (اختیاری)"
+                    value={override.salePriceAmount}
+                    currency={currency as "IRT" | "USD" | "EUR"}
+                    rateToman={rateToman}
+                    onChange={(value) =>
+                      updateOverride(variant.optionsKey, { salePriceAmount: value })
+                    }
+                  />
+                  <DateField
+                    id={`sale-starts-${variant.optionsKey || "default"}`}
+                    label="شروع حراج"
+                    value={override.saleStartsAt}
+                    onChange={(value) =>
+                      updateOverride(variant.optionsKey, { saleStartsAt: value })
+                    }
+                  />
+                  <DateField
+                    id={`sale-ends-${variant.optionsKey || "default"}`}
+                    label="پایان حراج"
+                    value={override.saleEndsAt}
+                    onChange={(value) => updateOverride(variant.optionsKey, { saleEndsAt: value })}
                   />
                   {tracked ? (
                     <Input
@@ -2028,6 +2310,56 @@ export function ProductManagement({
               </div>
             ) : null}
 
+            {/* Physical attributes + tax */}
+            <div className="lg:col-span-2">
+              <fieldset className="border border-border bg-muted/30 p-4">
+                <legend className="px-2 text-sm font-black">ابعاد فیزیکی و مالیات</legend>
+                <div className="mt-2 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                  <NumberField
+                    id="edit-weight-gram"
+                    label="وزن (گرم)"
+                    value={editForm.weightGram}
+                    onChange={(value) => setEditForm((c) => ({ ...c, weightGram: value }))}
+                    placeholder="مثلاً ۵۰۰"
+                    min={0}
+                  />
+                  <NumberField
+                    id="edit-length-mm"
+                    label="طول (میلی‌متر)"
+                    value={editForm.lengthMm}
+                    onChange={(value) => setEditForm((c) => ({ ...c, lengthMm: value }))}
+                    placeholder="مثلاً ۳۰۰"
+                    min={0}
+                  />
+                  <NumberField
+                    id="edit-width-mm"
+                    label="عرض (میلی‌متر)"
+                    value={editForm.widthMm}
+                    onChange={(value) => setEditForm((c) => ({ ...c, widthMm: value }))}
+                    placeholder="مثلاً ۲۰۰"
+                    min={0}
+                  />
+                  <NumberField
+                    id="edit-height-mm"
+                    label="ارتفاع (میلی‌متر)"
+                    value={editForm.heightMm}
+                    onChange={(value) => setEditForm((c) => ({ ...c, heightMm: value }))}
+                    placeholder="مثلاً ۱۰۰"
+                    min={0}
+                  />
+                  <div className="md:col-span-2 lg:col-span-4">
+                    <SwitchRow
+                      id="edit-tax-exempt"
+                      label="معاف از مالیات"
+                      checked={editForm.taxExempt}
+                      onChange={(checked) => setEditForm((c) => ({ ...c, taxExempt: checked }))}
+                      hint="این محصول از محاسبه مالیات بر ارزش افزوده (VAT) مستثنی است."
+                    />
+                  </div>
+                </div>
+              </fieldset>
+            </div>
+
             {/* SEO overrides — optional; fall back to title/summary/image when empty. */}
             <div className="lg:col-span-2">
               <fieldset className="border border-border bg-muted/30 p-4">
@@ -2110,6 +2442,8 @@ export function ProductManagement({
               editForm.baseCurrency,
               { showDefault: true },
             )}
+
+            {renderRelationsPanel()}
           </div>
 
           <Button

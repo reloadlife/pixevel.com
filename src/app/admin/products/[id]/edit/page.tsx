@@ -10,6 +10,7 @@ import {
 } from "@/lib/admin/taxonomy";
 import { listAdminWatermarkImages, toAdminWatermarkImageRow } from "@/lib/admin/watermark-images";
 import { getCurrentUser } from "@/lib/auth";
+import { getRatesForAdmin } from "@/lib/pricing/exchange";
 
 export default async function EditAdminProductPage({
   params,
@@ -27,16 +28,20 @@ export default async function EditAdminProductPage({
   }
 
   const { id } = await params;
-  const [product, categories, tags, watermarkImages] = await Promise.all([
+  const [product, categories, tags, watermarkImages, rates] = await Promise.all([
     getAdminProduct(id),
     listAdminCategories(),
     listAdminTags(),
     listAdminWatermarkImages(),
+    getRatesForAdmin(),
   ]);
 
   if (!product) {
     notFound();
   }
+
+  const usdRate = rates.find((rate) => rate.currency === "USD")?.rateToman;
+  const eurRate = rates.find((rate) => rate.currency === "EUR")?.rateToman;
 
   return (
     <ProductManagement
@@ -46,6 +51,8 @@ export default async function EditAdminProductPage({
       initialWatermarkImages={watermarkImages.map(toAdminWatermarkImageRow)}
       mode="edit"
       initialEditingProductId={product.id}
+      usdRate={usdRate}
+      eurRate={eurRate}
     />
   );
 }

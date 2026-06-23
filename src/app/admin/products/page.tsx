@@ -9,6 +9,7 @@ import {
   toAdminTagOption,
 } from "@/lib/admin/taxonomy";
 import { getCurrentUser } from "@/lib/auth";
+import { getRatesForAdmin } from "@/lib/pricing/exchange";
 
 export default async function AdminProductsPage() {
   const user = await getCurrentUser();
@@ -21,11 +22,15 @@ export default async function AdminProductsPage() {
     redirect("/admin");
   }
 
-  const [products, categories, tags] = await Promise.all([
+  const [products, categories, tags, rates] = await Promise.all([
     listAdminProducts(),
     listAdminCategories(),
     listAdminTags(),
+    getRatesForAdmin(),
   ]);
+
+  const usdRate = rates.find((rate) => rate.currency === "USD")?.rateToman;
+  const eurRate = rates.find((rate) => rate.currency === "EUR")?.rateToman;
 
   return (
     <ProductManagement
@@ -33,6 +38,8 @@ export default async function AdminProductsPage() {
       initialCategories={categories.map(toAdminCategoryOption)}
       initialTags={tags.map(toAdminTagOption)}
       mode="list"
+      usdRate={usdRate}
+      eurRate={eurRate}
     />
   );
 }

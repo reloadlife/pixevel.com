@@ -25,6 +25,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { formatToman } from "@/lib/format";
 import { optionsKeyFromPairs, optionValueKey } from "@/lib/variant-options";
 
 type CategoryOption = {
@@ -499,6 +500,8 @@ export function ProductManagement({
   initialWatermarkImages = [],
   mode = "list",
   initialEditingProductId,
+  usdRate,
+  eurRate,
 }: {
   initialProducts: ProductRow[];
   initialCategories: CategoryOption[];
@@ -506,11 +509,18 @@ export function ProductManagement({
   initialWatermarkImages?: WatermarkImageOption[];
   mode?: ProductManagementMode;
   initialEditingProductId?: string;
+  // Live FX rates (Toman per unit) so the editor can preview the Toman value of
+  // USD/EUR-authored prices. Fall back to module defaults if unset upstream.
+  usdRate?: number;
+  eurRate?: number;
 }) {
   const initialEditingProduct =
     mode === "edit"
       ? (initialProducts.find((product) => product.id === initialEditingProductId) ?? null)
       : null;
+  // Toman value of one unit of the given base currency (undefined for IRT / unknown).
+  const rateForCurrency = (baseCurrency: string): number | undefined =>
+    baseCurrency === "USD" ? usdRate : baseCurrency === "EUR" ? eurRate : undefined;
   const [products, setProducts] = useState(initialProducts);
   const [categories] = useState(initialCategories);
   const [tags, setTags] = useState(initialTags);
@@ -1562,10 +1572,13 @@ export function ProductManagement({
   function renderVariantMatrix(
     inventoryPolicy: string,
     fulfillmentType: string,
+    baseCurrency: string,
     options?: { showDefault?: boolean },
   ) {
     const tracked = inventoryPolicy === "TRACKED";
     const showDefault = options?.showDefault ?? false;
+    const currency = (baseCurrency as "IRT" | "USD" | "EUR") ?? "IRT";
+    const rateToman = rateForCurrency(baseCurrency);
     // Persisted variants keyed by optionsKey for current-stock display in edit.
     const persistedByKey = new Map(editVariants.map((variant) => [variant.optionsKey, variant]));
 
@@ -1608,6 +1621,8 @@ export function ProductManagement({
                   <PriceInput
                     label="قیمت عمومی"
                     value={override.publicPriceAmount}
+                    currency={currency}
+                    rateToman={rateToman}
                     onChange={(value) =>
                       updateOverride(variant.optionsKey, { publicPriceAmount: value })
                     }
@@ -1615,6 +1630,8 @@ export function ProductManagement({
                   <PriceInput
                     label="قیمت کاربران (اختیاری)"
                     value={override.registeredPriceAmount}
+                    currency={currency}
+                    rateToman={rateToman}
                     onChange={(value) =>
                       updateOverride(variant.optionsKey, { registeredPriceAmount: value })
                     }
@@ -1622,8 +1639,19 @@ export function ProductManagement({
                   <PriceInput
                     label="قیمت پریمیوم (اختیاری)"
                     value={override.premiumPriceAmount}
+                    currency={currency}
+                    rateToman={rateToman}
                     onChange={(value) =>
                       updateOverride(variant.optionsKey, { premiumPriceAmount: value })
+                    }
+                  />
+                  <PriceInput
+                    label="قیمت قبل (اختیاری)"
+                    value={override.compareAtAmount}
+                    currency={currency}
+                    rateToman={rateToman}
+                    onChange={(value) =>
+                      updateOverride(variant.optionsKey, { compareAtAmount: value })
                     }
                   />
                   {tracked ? (
@@ -1704,11 +1732,17 @@ export function ProductManagement({
               options={INVENTORY_POLICY_OPTIONS}
               onChange={(value) => setField("inventoryPolicy", value)}
             />
-            <CurrencySelect
-              label="ارز قیمت‌گذاری"
-              value={form.baseCurrency}
-              onChange={(value) => setField("baseCurrency", value)}
-            />
+            <div className="block min-w-0">
+              <CurrencySelect
+                label="ارز قیمت‌گذاری"
+                value={form.baseCurrency}
+                onChange={(value) => setField("baseCurrency", value)}
+              />
+              <CurrencyHint
+                baseCurrency={form.baseCurrency}
+                rateToman={rateForCurrency(form.baseCurrency)}
+              />
+            </div>
             <label className="flex items-end gap-2 pb-3 text-sm font-bold">
               <input
                 type="checkbox"
@@ -1732,21 +1766,29 @@ export function ProductManagement({
             <PriceInput
               label="قیمت عمومی"
               value={form.publicPriceAmount}
+              currency={form.baseCurrency as "IRT" | "USD" | "EUR"}
+              rateToman={rateForCurrency(form.baseCurrency)}
               onChange={(value) => setField("publicPriceAmount", value)}
             />
             <PriceInput
               label="قیمت کاربران"
               value={form.registeredPriceAmount}
+              currency={form.baseCurrency as "IRT" | "USD" | "EUR"}
+              rateToman={rateForCurrency(form.baseCurrency)}
               onChange={(value) => setField("registeredPriceAmount", value)}
             />
             <PriceInput
               label="قیمت پریمیوم"
               value={form.premiumPriceAmount}
+              currency={form.baseCurrency as "IRT" | "USD" | "EUR"}
+              rateToman={rateForCurrency(form.baseCurrency)}
               onChange={(value) => setField("premiumPriceAmount", value)}
             />
             <PriceInput
               label="قیمت قبل"
               value={form.compareAtAmount}
+              currency={form.baseCurrency as "IRT" | "USD" | "EUR"}
+              rateToman={rateForCurrency(form.baseCurrency)}
               onChange={(value) => setField("compareAtAmount", value)}
             />
             {form.inventoryPolicy === "TRACKED" ? (
@@ -1824,7 +1866,7 @@ export function ProductManagement({
 
             {renderOptionBuilder()}
 
-            {renderVariantMatrix(form.inventoryPolicy, form.fulfillmentType)}
+            {renderVariantMatrix(form.inventoryPolicy, form.fulfillmentType, form.baseCurrency)}
 
             <ImageRowsEditor
               title="تصاویر محصول"
@@ -1923,11 +1965,17 @@ export function ProductManagement({
               options={INVENTORY_POLICY_OPTIONS}
               onChange={(value) => setEditField("inventoryPolicy", value)}
             />
-            <CurrencySelect
-              label="ارز قیمت‌گذاری"
-              value={editForm.baseCurrency}
-              onChange={(value) => setEditField("baseCurrency", value)}
-            />
+            <div className="block min-w-0">
+              <CurrencySelect
+                label="ارز قیمت‌گذاری"
+                value={editForm.baseCurrency}
+                onChange={(value) => setEditField("baseCurrency", value)}
+              />
+              <CurrencyHint
+                baseCurrency={editForm.baseCurrency}
+                rateToman={rateForCurrency(editForm.baseCurrency)}
+              />
+            </div>
             <label className="flex items-end gap-2 pb-3 text-sm font-bold">
               <input
                 type="checkbox"
@@ -2056,9 +2104,12 @@ export function ProductManagement({
 
             {renderOptionBuilder()}
 
-            {renderVariantMatrix(editForm.inventoryPolicy, editForm.fulfillmentType, {
-              showDefault: true,
-            })}
+            {renderVariantMatrix(
+              editForm.inventoryPolicy,
+              editForm.fulfillmentType,
+              editForm.baseCurrency,
+              { showDefault: true },
+            )}
           </div>
 
           <Button
@@ -2891,6 +2942,23 @@ function CurrencySelect({
   );
 }
 
+// Muted note under the currency selector: clarifies that USD/EUR prices are
+// converted to Toman at the live rate before being shown to customers.
+function CurrencyHint({ baseCurrency, rateToman }: { baseCurrency: string; rateToman?: number }) {
+  if (baseCurrency !== "USD" && baseCurrency !== "EUR") {
+    return null;
+  }
+
+  const currencyLabel = baseCurrency === "USD" ? "دلار" : "یورو";
+  const rateNote = rateToman ? ` (هر واحد ≈ ${formatToman(rateToman)})` : "";
+
+  return (
+    <p className="mt-2 text-xs font-bold text-zinc-500">
+      {`قیمت‌ها به ${currencyLabel} وارد می‌شوند و با نرخ روز${rateNote} به تومان تبدیل و به مشتری نمایش داده می‌شوند.`}
+    </p>
+  );
+}
+
 function SimpleSelect({
   label,
   value,
@@ -2990,21 +3058,35 @@ function Input({
   );
 }
 
+const CURRENCY_ADORNMENT: Record<"IRT" | "USD" | "EUR", string> = {
+  IRT: "تومان",
+  USD: "$",
+  EUR: "€",
+};
+
 function PriceInput({
   label,
   value,
   onChange,
+  currency = "IRT",
+  rateToman,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  currency?: "IRT" | "USD" | "EUR";
+  // Toman value of one unit of `currency`. Irrelevant for IRT.
+  rateToman?: number;
 }) {
+  const numericValue = Number(normalizePriceValue(value));
+  const showConversion = currency !== "IRT" && rateToman && numericValue > 0;
+
   return (
     <label className="block min-w-0">
       <span className="mb-2 block text-sm font-bold">{label}</span>
       <div className="flex h-11 items-center border border-zinc-300 bg-white focus-within:border-zinc-950">
         <span className="grid h-full place-items-center border-l border-zinc-200 px-3 text-xs font-black text-zinc-500">
-          تومان
+          {CURRENCY_ADORNMENT[currency]}
         </span>
         <input
           value={formatPriceValue(value)}
@@ -3016,6 +3098,11 @@ function PriceInput({
           dir="ltr"
         />
       </div>
+      {showConversion ? (
+        <span className="mt-1 block text-xs font-bold text-zinc-500" dir="rtl">
+          ≈ {formatToman(numericValue * rateToman)}
+        </span>
+      ) : null}
     </label>
   );
 }

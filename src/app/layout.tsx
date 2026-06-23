@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Vazirmatn } from "next/font/google";
 import { Toaster } from "sonner";
 
+import { RouteTracker } from "@/components/analytics/route-tracker";
 import { AppShell } from "@/components/shell/app-shell";
 import { CartProvider } from "@/components/shop/cart-provider";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -117,6 +118,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <CartProvider>
+            <RouteTracker />
             <AppShell user={user} categories={categories}>
               {children}
             </AppShell>

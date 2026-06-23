@@ -3,7 +3,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { TrackView } from "@/components/analytics/track-view";
 import { getPublishedPostBySlug } from "@/lib/blog";
 import { resolveMetadata } from "@/lib/seo/resolve";
 
@@ -90,7 +89,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-10 text-foreground sm:px-6" dir="rtl">
-      <TrackView type="PAGE_VIEW" path={`/blog/${post.slug}`} />
+      {/* PAGE_VIEW is fired globally by <RouteTracker/> — no per-page beacon here. */}
       {/* biome-ignore lint/security/noDangerouslySetInnerHtml: blog body is admin-authored, trusted content */}
       <script
         type="application/ld+json"

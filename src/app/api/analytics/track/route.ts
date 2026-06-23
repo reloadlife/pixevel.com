@@ -1,6 +1,7 @@
 import type { AnalyticsEventType } from "@/db/schema";
 import { analyticsEventType } from "@/db/schema";
-import { getOrSetAnonId, recordEvent } from "@/lib/analytics/track";
+import { parseUtm } from "@/lib/analytics/acquisition";
+import { getOrSetAnonId, getOrSetSessionId, recordEvent } from "@/lib/analytics/track";
 import { readJson } from "@/lib/api";
 import { getCurrentUser } from "@/lib/auth";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
@@ -25,6 +26,8 @@ type TrackBody = {
   query?: string;
   resultCount?: number;
   path?: string;
+  /** Full landing URL (with query) — parsed for UTM on a session's first event. */
+  landingUrl?: string;
   metadata?: Record<string, unknown>;
 };
 
@@ -49,23 +52,36 @@ export async function POST(request: Request) {
 
     const referrer = request.headers.get("referer");
 
-    const [user, anonId] = await Promise.all([
+    const [user, anonId, session] = await Promise.all([
       getCurrentUser().catch(() => null),
       getOrSetAnonId().catch(() => null),
+      getOrSetSessionId().catch(() => null),
     ]);
 
     // Bound every stored field so a crafted payload can't bloat a row.
-    const metadata =
+    let metadata =
       body.metadata &&
       typeof body.metadata === "object" &&
       JSON.stringify(body.metadata).length <= 4096
         ? body.metadata
         : null;
 
+    // Acquisition: only the session's first (landing) event carries referrer +
+    // UTM. The client sends the landing URL it arrived on as `landingUrl`; we
+    // parse UTM defensively and attach it under metadata.utm. Later events in
+    // the same session skip this so a source is recorded exactly once.
+    if (session?.isNew) {
+      const utm = parseUtm(typeof body.landingUrl === "string" ? body.landingUrl : null);
+      if (utm) {
+        metadata = { ...(metadata ?? {}), utm };
+      }
+    }
+
     await recordEvent({
       type: body.type as AnalyticsEventType,
       userId: user?.id ?? null,
       anonId,
+      sessionId: session?.sessionId ?? null,
       productId: typeof body.productId === "string" ? body.productId.slice(0, 64) : null,
       categoryId: typeof body.categoryId === "string" ? body.categoryId.slice(0, 64) : null,
       query: typeof body.query === "string" ? body.query.slice(0, 256) : null,

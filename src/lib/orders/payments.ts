@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { orderItems, orders, payments, products, productVariants } from "@/db/schema";
+import { getOrSetSessionId, recordEvent } from "@/lib/analytics/track";
 import { notify } from "@/lib/comms/dispatch";
 import { sendEmailLogged } from "@/lib/comms/send";
 import { getDb } from "@/lib/db";
@@ -142,6 +143,40 @@ export async function confirmPayment(orderId: string, opts: ConfirmOptions = {})
     await applyRenewalPayment(orderId).catch((err: unknown) => {
       console.error("[payments] subscription renewal error:", err);
     });
+
+    // Analytics: PURCHASE — the funnel's final step. Only on the FIRST real
+    // confirm (`confirmed`), so a duplicate gateway callback never double-counts.
+    // Fire-and-forget; recordEvent swallows errors so analytics can't fail the
+    // payment outcome. sessionId is read best-effort (often absent on a gateway
+    // redirect), with userId + order id/amount in metadata.
+    void recordPurchaseEvent(orderId);
+  }
+}
+
+/**
+ * Records the funnel-completing PURCHASE event for a freshly confirmed order.
+ * Best-effort and isolated: any failure is swallowed so it cannot affect the
+ * already-committed payment. Loads userId + amount from the order so the event
+ * is self-describing for the funnel and search→conversion reports.
+ */
+async function recordPurchaseEvent(orderId: string): Promise<void> {
+  try {
+    const db = getDb();
+    const order = await db.query.orders.findFirst({
+      where: (o, { eq: eqOp }) => eqOp(o.id, orderId),
+      columns: { userId: true, totalAmount: true },
+    });
+
+    const session = await getOrSetSessionId().catch(() => null);
+
+    await recordEvent({
+      type: "PURCHASE",
+      userId: order?.userId ?? null,
+      sessionId: session?.sessionId ?? null,
+      metadata: { orderId, amount: Number(order?.totalAmount ?? 0) },
+    });
+  } catch {
+    // Analytics must never break the payment flow.
   }
 }
 

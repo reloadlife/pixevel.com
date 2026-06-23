@@ -19,6 +19,7 @@ import { type ChangeEvent, type ComponentType, type FormEvent, useRef, useState 
 import { toast } from "sonner";
 import type { CartView } from "@/lib/cart";
 import { formatToman, toFaNumber } from "@/lib/format";
+import { computeOrderTaxes } from "@/lib/orders/tax-math";
 import {
   PAYMENT_METHOD_GROUPS,
   PAYMENT_METHODS,
@@ -206,6 +207,7 @@ function OrderSummary({
   cart,
   subtotal,
   discount,
+  tax,
   total,
   couponInput,
   setCouponInput,
@@ -217,6 +219,7 @@ function OrderSummary({
   cart: CartView;
   subtotal: number;
   discount: number;
+  tax: number;
   total: number;
   couponInput: string;
   setCouponInput: (value: string) => void;
@@ -323,6 +326,12 @@ function OrderSummary({
             <span dir="ltr">−{formatToman(discount)}</span>
           </div>
         ) : null}
+        {tax > 0 ? (
+          <div className="flex items-center justify-between text-muted-foreground">
+            <span>مالیات بر ارزش افزوده</span>
+            <span>{formatToman(tax)}</span>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between border-t border-border pt-3 text-lg font-black">
           <span>جمع کل</span>
           <span className="text-primary">{formatToman(total)}</span>
@@ -395,6 +404,7 @@ export function CheckoutClient({
   defaultShipping,
   defaultEmail = "",
   enabledMethods,
+  vatRatePercent = 0,
 }: {
   cart: CartView;
   hasPhysical: boolean;
@@ -402,6 +412,7 @@ export function CheckoutClient({
   defaultShipping?: ShippingFields;
   defaultEmail?: string;
   enabledMethods: PaymentMethod[];
+  vatRatePercent?: number;
 }) {
   const router = useRouter();
 
@@ -435,7 +446,13 @@ export function CheckoutClient({
   // Live totals — server stays authoritative; this is a convenience preview.
   const subtotal = cart.subtotal;
   const discount = appliedCoupon?.discountAmount ?? 0;
-  const total = Math.max(0, subtotal - discount);
+  // Re-compute VAT with the current discount applied (mirrors placeOrder exactly).
+  const { totalTax: tax } = computeOrderTaxes(
+    cart.items.map((item) => ({ lineTotal: item.lineTotal, taxExempt: item.taxExempt })),
+    vatRatePercent,
+    discount,
+  );
+  const total = Math.max(0, subtotal - discount + tax);
 
   function updateShipping(field: keyof ShippingFields, value: string) {
     setShipping((prev) => ({ ...prev, [field]: value }));
@@ -567,6 +584,7 @@ export function CheckoutClient({
       cart={cart}
       subtotal={subtotal}
       discount={discount}
+      tax={tax}
       total={total}
       couponInput={couponInput}
       setCouponInput={setCouponInput}

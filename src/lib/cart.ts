@@ -4,6 +4,8 @@ import { cartItems, carts, inventoryUnits } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { getDb } from "@/lib/db";
+import { getVatRatePercent } from "@/lib/orders/tax";
+import { computeOrderTaxes } from "@/lib/orders/tax-math";
 import { loadExchangeRates } from "@/lib/pricing/exchange";
 
 export const CART_COOKIE = "pixevel_cart";
@@ -25,6 +27,8 @@ export type CartLine = {
   availableStock: number;
   lineTotal: number;
   fulfillmentType: FulfillmentType;
+  /** When true the line carries no VAT (zero-rated product). */
+  taxExempt: boolean;
 };
 
 /**
@@ -45,9 +49,20 @@ export type CartView = {
   items: CartLine[];
   itemCount: number;
   subtotal: number;
+  /** No-coupon VAT amount in Toman (recomputed client-side on coupon change). */
+  taxAmount: number;
+  /** VAT rate percent used to compute taxAmount (0 = VAT disabled). */
+  vatRatePercent: number;
 };
 
-const EMPTY_CART: CartView = { id: null, items: [], itemCount: 0, subtotal: 0 };
+const EMPTY_CART: CartView = {
+  id: null,
+  items: [],
+  itemCount: 0,
+  subtotal: 0,
+  taxAmount: 0,
+  vatRatePercent: 0,
+};
 
 async function availableStock(variantId: string) {
   return getDb().$count(
@@ -138,6 +153,7 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
               status: true,
               fulfillmentType: true,
               inventoryPolicy: true,
+              taxExempt: true,
             },
           },
         },
@@ -174,13 +190,22 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
       availableStock: stock,
       lineTotal: unitPrice * row.quantity,
       fulfillmentType: row.variant.product.fulfillmentType,
+      taxExempt: row.variant.product.taxExempt ?? false,
     });
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
-  return { id: cart.id, items, itemCount, subtotal };
+  // Compute no-coupon VAT so the client can show it and recompute on coupon change.
+  const vatRatePercent = await getVatRatePercent();
+  const { totalTax: taxAmount } = computeOrderTaxes(
+    items.map((item) => ({ lineTotal: item.lineTotal, taxExempt: item.taxExempt })),
+    vatRatePercent,
+    0,
+  );
+
+  return { id: cart.id, items, itemCount, subtotal, taxAmount, vatRatePercent };
 }
 
 export class CartError extends Error {
@@ -308,6 +333,10 @@ export async function removeItem(identity: CartIdentity, variantId: string): Pro
  * On login, fold an anonymous cart into the user's cart. If the user has no
  * active cart, the anonymous cart is simply re-owned; otherwise its lines are
  * merged (summed, clamped to stock) and the anonymous cart is dropped.
+ *
+ * Each item is re-priced at the authenticated user's tier so prices reflect
+ * the user's entitlement (registered/premium), not the public/anonymous tier
+ * that was snapshotted when the anonymous user added the item.
  */
 export async function mergeAnonymousCart(userId: string, anonymousId: string) {
   const db = getDb();
@@ -321,26 +350,72 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
     return;
   }
 
+  // Load the user so we can determine their pricing tier.
+  const userRow = await db.query.users.findFirst({
+    where: (u, { eq }) => eq(u.id, userId),
+    columns: { isPremium: true },
+  });
+  const tier = getUserTier(userRow ?? null);
+
   const userCart = await db.query.carts.findFirst({
     where: (cart, { and, eq }) => and(eq(cart.userId, userId), eq(cart.status, "ACTIVE")),
   });
 
   if (!userCart) {
+    // No existing user cart — re-own the anonymous cart, then re-price every
+    // line at the authenticated tier.
     await db.update(carts).set({ userId, anonymousId: null }).where(eq(carts.id, anonCart.id));
+
+    // Re-price each item for the newly authenticated tier.
+    await loadExchangeRates();
+    const variantIds = anonCart.items.map((i) => i.variantId);
+    const variants = variantIds.length
+      ? await db.query.productVariants.findMany({
+          where: (v, { inArray: inArr }) => inArr(v.id, variantIds),
+          with: { product: { columns: { baseCurrency: true } } },
+        })
+      : [];
+    const variantMap = new Map(variants.map((v) => [v.id, v]));
+
+    for (const item of anonCart.items) {
+      const variant = variantMap.get(item.variantId);
+      if (!variant) continue;
+      const unitPrice = variantPrice(variant, tier, variant.product.baseCurrency);
+      await db
+        .update(cartItems)
+        .set({ unitPrice: String(unitPrice) })
+        .where(eq(cartItems.id, item.id));
+    }
     return;
   }
 
+  // User already has an active cart — merge lines into it, re-pricing each
+  // at the authenticated tier and using batched stock counts.
+  const variantIds = anonCart.items.map((i) => i.variantId);
+  const stockMap = await availableStockByVariants(variantIds);
+
+  // Load all variants in one query.
+  await loadExchangeRates();
+  const variants = variantIds.length
+    ? await db.query.productVariants.findMany({
+        where: (v, { inArray: inArr }) => inArr(v.id, variantIds),
+        with: { product: { columns: { baseCurrency: true, inventoryPolicy: true } } },
+      })
+    : [];
+  const variantMap = new Map(variants.map((v) => [v.id, v]));
+
   for (const item of anonCart.items) {
-    const variant = await db.query.productVariants.findFirst({
-      where: (row, { eq }) => eq(row.id, item.variantId),
-      with: { product: { columns: { inventoryPolicy: true } } },
-    });
+    const variant = variantMap.get(item.variantId);
     const policy = variant?.product.inventoryPolicy ?? "TRACKED";
-    const stock = effectiveStock(await availableStock(item.variantId), policy);
+    const stock = effectiveStock(stockMap.get(item.variantId) ?? 0, policy);
 
     if (stock < 1) {
       continue;
     }
+
+    const unitPrice = variant
+      ? variantPrice(variant, tier, variant.product.baseCurrency)
+      : Number(item.unitPrice);
 
     const existing = await db.query.cartItems.findFirst({
       where: (row, { and, eq }) =>
@@ -355,11 +430,11 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
         cartId: userCart.id,
         variantId: item.variantId,
         quantity: nextQuantity,
-        unitPrice: item.unitPrice,
+        unitPrice: String(unitPrice),
       })
       .onConflictDoUpdate({
         target: [cartItems.cartId, cartItems.variantId],
-        set: { quantity: nextQuantity },
+        set: { quantity: nextQuantity, unitPrice: String(unitPrice) },
       });
   }
 

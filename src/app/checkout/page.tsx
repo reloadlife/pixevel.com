@@ -79,6 +79,7 @@ export default async function CheckoutPage() {
           defaultShipping={defaultShipping}
           defaultEmail={profile?.email ?? ""}
           enabledMethods={enabledMethods}
+          vatRatePercent={cart.vatRatePercent}
         />
       </div>
     </main>

@@ -17,7 +17,14 @@ type CartState = {
   removeItem: (variantId: string) => Promise<void>;
 };
 
-const EMPTY_CART: CartView = { id: null, items: [], itemCount: 0, subtotal: 0 };
+const EMPTY_CART: CartView = {
+  id: null,
+  items: [],
+  itemCount: 0,
+  subtotal: 0,
+  taxAmount: 0,
+  vatRatePercent: 0,
+};
 
 const CartContext = createContext<CartState>({
   cart: EMPTY_CART,

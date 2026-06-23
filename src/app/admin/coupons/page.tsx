@@ -1,21 +1,18 @@
-import { redirect } from "next/navigation";
-
 import { CouponManagement } from "@/components/admin/coupon-management";
-import { listCoupons, toAdminCouponOption } from "@/lib/admin/coupons";
-import { getCurrentUser } from "@/lib/auth";
+import { type AdminCouponOption, listCoupons, toAdminCouponOption } from "@/lib/admin/coupons";
+import { requireAdmin } from "@/lib/admin/guard";
+import type { AdminListResponse } from "@/lib/admin/list-response";
 
 export default async function AdminCouponsPage() {
-  const user = await getCurrentUser();
-
-  if (!user) {
-    redirect("/login?redirect=/admin/coupons");
-  }
-
-  if (user.role !== "ADMIN") {
-    redirect("/admin");
-  }
+  await requireAdmin("/admin/coupons");
 
   const couponList = await listCoupons();
+  const rows = couponList.map(toAdminCouponOption);
 
-  return <CouponManagement initialCoupons={couponList.map(toAdminCouponOption)} />;
+  const initialData: AdminListResponse<AdminCouponOption> = {
+    rows,
+    pagination: { page: 1, pageSize: rows.length || 20, total: rows.length, totalPages: 1 },
+  };
+
+  return <CouponManagement initialData={initialData} />;
 }

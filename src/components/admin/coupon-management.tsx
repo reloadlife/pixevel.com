@@ -1,33 +1,39 @@
 "use client";
 
-import { Loader2, Pencil, Plus, Power, Save, Trash2, X } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
-
-import { Badge } from "@/components/ui/badge";
+import {
+  AdminPage,
+  type ColumnDef,
+  DataTable,
+  DateField,
+  MoneyField,
+  NumberField,
+  SelectField,
+  SheetForm,
+  SwitchRow,
+  TextField,
+  useAdminForm,
+  useConfirm,
+} from "@/components/admin/kit";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import type { AdminCouponOption } from "@/lib/admin/coupons";
+import type { AdminListResponse } from "@/lib/admin/list-response";
+import { useAdminList } from "@/lib/admin/use-admin-list";
+import { useAdminMutation } from "@/lib/admin/use-admin-mutation";
 import { formatToman, toFaNumber } from "@/lib/format";
-import { cn } from "@/lib/utils";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type CouponKind = "PERCENT" | "FIXED";
 
-type Coupon = {
-  id: string;
-  code: string;
-  kind: CouponKind;
-  value: string;
-  isActive: boolean;
-  minSubtotalAmount: string | null;
-  maxDiscountAmount: string | null;
-  usageLimit: number | null;
-  usedCount: number;
-  startsAt: string | null;
-  expiresAt: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-};
-
-type CouponForm = {
+type CouponFormValues = {
   code: string;
   kind: CouponKind;
   value: string;
@@ -39,7 +45,67 @@ type CouponForm = {
   isActive: boolean;
 };
 
-const EMPTY_FORM: CouponForm = {
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const FA_DATE = new Intl.DateTimeFormat("fa-IR", {
+  dateStyle: "short",
+});
+
+function formatDate(iso: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : FA_DATE.format(date);
+}
+
+/** ISO timestamp → "YYYY-MM-DD" for a date input. */
+function toDateInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** "YYYY-MM-DD" → ISO string or null when empty. */
+function fromDateInput(value: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function formatValue(coupon: AdminCouponOption): string {
+  if (coupon.kind === "PERCENT") {
+    return `${toFaNumber(coupon.value)}٪`;
+  }
+  return formatToman(coupon.value);
+}
+
+function couponStatusLabel(coupon: AdminCouponOption): string {
+  if (!coupon.isActive) return "غیرفعال";
+  const now = Date.now();
+  if (coupon.expiresAt && new Date(coupon.expiresAt).getTime() <= now) return "منقضی";
+  if (coupon.startsAt && new Date(coupon.startsAt).getTime() > now) return "زمان‌بندی‌شده";
+  if (coupon.usageLimit != null && coupon.usedCount >= coupon.usageLimit) return "تمام‌شده";
+  return "فعال";
+}
+
+function defaultsFromCoupon(coupon: AdminCouponOption): CouponFormValues {
+  return {
+    code: coupon.code,
+    kind: coupon.kind as CouponKind,
+    value: coupon.value,
+    minSubtotalAmount: coupon.minSubtotalAmount ?? "",
+    maxDiscountAmount: coupon.maxDiscountAmount ?? "",
+    usageLimit: coupon.usageLimit != null ? String(coupon.usageLimit) : "",
+    startsAt: toDateInput(coupon.startsAt),
+    expiresAt: toDateInput(coupon.expiresAt),
+    isActive: coupon.isActive,
+  };
+}
+
+const EMPTY_FORM: CouponFormValues = {
   code: "",
   kind: "PERCENT",
   value: "",
@@ -51,505 +117,361 @@ const EMPTY_FORM: CouponForm = {
   isActive: true,
 };
 
-/** ISO timestamp → value for a `datetime-local` input (local time, no seconds). */
-function toLocalInput(iso: string | null): string {
-  if (!iso) {
-    return "";
-  }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
-}
+// ─── Mutation body transform ───────────────────────────────────────────────────
 
-/** `datetime-local` value → ISO string (or null when empty). */
-function fromLocalInput(value: string): string | null {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function formFromCoupon(coupon: Coupon): CouponForm {
+function toPayload(v: CouponFormValues) {
   return {
-    code: coupon.code,
-    kind: coupon.kind,
-    value: coupon.value,
-    minSubtotalAmount: coupon.minSubtotalAmount ?? "",
-    maxDiscountAmount: coupon.maxDiscountAmount ?? "",
-    usageLimit: coupon.usageLimit != null ? String(coupon.usageLimit) : "",
-    startsAt: toLocalInput(coupon.startsAt),
-    expiresAt: toLocalInput(coupon.expiresAt),
-    isActive: coupon.isActive,
+    code: v.code,
+    kind: v.kind,
+    value: v.value,
+    minSubtotalAmount: v.minSubtotalAmount.trim() || null,
+    maxDiscountAmount: v.maxDiscountAmount.trim() || null,
+    usageLimit: v.usageLimit.trim() || null,
+    startsAt: fromDateInput(v.startsAt),
+    expiresAt: fromDateInput(v.expiresAt),
+    isActive: v.isActive,
   };
 }
 
-function formToPayload(form: CouponForm) {
-  return {
-    code: form.code,
-    kind: form.kind,
-    value: form.value,
-    minSubtotalAmount: form.minSubtotalAmount.trim() || null,
-    maxDiscountAmount: form.maxDiscountAmount.trim() || null,
-    usageLimit: form.usageLimit.trim() || null,
-    startsAt: fromLocalInput(form.startsAt),
-    expiresAt: fromLocalInput(form.expiresAt),
-    isActive: form.isActive,
-  };
-}
+// ─── CouponSheet ──────────────────────────────────────────────────────────────
 
-const FA_DATE = new Intl.DateTimeFormat("fa-IR", {
-  dateStyle: "short",
-  timeStyle: "short",
-});
+function CouponSheet({
+  open,
+  onOpenChange,
+  coupon,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  coupon?: AdminCouponOption;
+}) {
+  const mutation = useAdminMutation<CouponFormValues>({
+    url: () => (coupon ? `/api/admin/coupons/${coupon.id}` : "/api/admin/coupons"),
+    method: coupon ? "PATCH" : "POST",
+    body: toPayload,
+    invalidate: ["coupons"],
+    successMessage: coupon ? "کد تخفیف به‌روزرسانی شد." : "کد تخفیف ساخته شد.",
+  });
 
-function formatDate(iso: string | null): string {
-  if (!iso) {
-    return "—";
-  }
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? "—" : FA_DATE.format(date);
-}
-
-type CouponStatus = { label: string; variant: "default" | "secondary" | "destructive" | "outline" };
-
-function couponStatus(coupon: Coupon): CouponStatus {
-  if (!coupon.isActive) {
-    return { label: "غیرفعال", variant: "outline" };
-  }
-  const now = Date.now();
-  if (coupon.expiresAt && new Date(coupon.expiresAt).getTime() <= now) {
-    return { label: "منقضی", variant: "destructive" };
-  }
-  if (coupon.startsAt && new Date(coupon.startsAt).getTime() > now) {
-    return { label: "زمان‌بندی‌شده", variant: "secondary" };
-  }
-  if (coupon.usageLimit != null && coupon.usedCount >= coupon.usageLimit) {
-    return { label: "تمام‌شده", variant: "destructive" };
-  }
-  return { label: "فعال", variant: "default" };
-}
-
-function formatValue(coupon: Coupon): string {
-  if (coupon.kind === "PERCENT") {
-    return `${toFaNumber(coupon.value)}٪`;
-  }
-  return formatToman(coupon.value);
-}
-
-export function CouponManagement({ initialCoupons }: { initialCoupons: Coupon[] }) {
-  const [coupons, setCoupons] = useState(initialCoupons);
-  const [createForm, setCreateForm] = useState<CouponForm>(EMPTY_FORM);
-  const [creating, setCreating] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<CouponForm>(EMPTY_FORM);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  async function refresh() {
-    const response = await fetch("/api/admin/coupons");
-    const result = await response.json();
-    if (result.ok) {
-      setCoupons(result.data.coupons);
-    }
-  }
-
-  async function createCoupon() {
-    if (!createForm.code.trim()) {
-      toast.error("کد تخفیف الزامی است.");
-      return;
-    }
-    setCreating(true);
-    const response = await fetch("/api/admin/coupons", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formToPayload(createForm)),
-    });
-    const result = await response.json();
-    setCreating(false);
-
-    if (!result.ok) {
-      toast.error(result.error?.message ?? "کد تخفیف ذخیره نشد.");
-      return;
-    }
-
-    toast.success("کد تخفیف ساخته شد.");
-    setCreateForm(EMPTY_FORM);
-    await refresh();
-  }
-
-  async function saveEdit(id: string) {
-    setBusyId(id);
-    const response = await fetch(`/api/admin/coupons/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(formToPayload(editForm)),
-    });
-    const result = await response.json();
-    setBusyId(null);
-
-    if (!result.ok) {
-      toast.error(result.error?.message ?? "کد تخفیف ذخیره نشد.");
-      return;
-    }
-
-    toast.success("کد تخفیف به‌روزرسانی شد.");
-    setEditingId(null);
-    await refresh();
-  }
-
-  async function toggleActive(coupon: Coupon) {
-    setBusyId(coupon.id);
-    const response = await fetch(`/api/admin/coupons/${coupon.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isActive: !coupon.isActive }),
-    });
-    const result = await response.json();
-    setBusyId(null);
-
-    if (!result.ok) {
-      toast.error(result.error?.message ?? "تغییر وضعیت انجام نشد.");
-      return;
-    }
-
-    toast.success(coupon.isActive ? "کد تخفیف غیرفعال شد." : "کد تخفیف فعال شد.");
-    await refresh();
-  }
-
-  async function removeCoupon(coupon: Coupon) {
-    if (!window.confirm(`حذف کد «${coupon.code}»؟ این عمل قابل بازگشت نیست.`)) {
-      return;
-    }
-    setBusyId(coupon.id);
-    const response = await fetch(`/api/admin/coupons/${coupon.id}`, { method: "DELETE" });
-    const result = await response.json();
-    setBusyId(null);
-
-    if (!result.ok) {
-      toast.error(result.error?.message ?? "کد تخفیف حذف نشد.");
-      return;
-    }
-
-    toast.success("کد تخفیف حذف شد.");
-    if (editingId === coupon.id) {
-      setEditingId(null);
-    }
-    await refresh();
-  }
-
-  function startEdit(coupon: Coupon) {
-    setEditingId(coupon.id);
-    setEditForm(formFromCoupon(coupon));
-  }
+  const form = useAdminForm<CouponFormValues>({
+    defaultValues: coupon ? defaultsFromCoupon(coupon) : EMPTY_FORM,
+    mutation,
+    onSuccess: () => onOpenChange(false),
+  });
 
   return (
-    <div className="grid gap-6" dir="rtl">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black">کدهای تخفیف</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {toFaNumber(coupons.length)} کد ثبت‌شده
-          </p>
-        </div>
-      </div>
+    <SheetForm
+      open={open}
+      onOpenChange={onOpenChange}
+      title={coupon ? "ویرایش کد تخفیف" : "کد تخفیف جدید"}
+      form={form}
+    >
+      <form.Field name="code">
+        {(field) => (
+          <TextField
+            id="code"
+            label="کد تخفیف"
+            value={field.state.value}
+            onChange={(v) => field.handleChange(v.toUpperCase())}
+            placeholder="WELCOME20"
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
 
-      {/* ── Create form ─────────────────────────────────────────── */}
-      <section className="rounded-2xl border border-border bg-card p-4">
-        <h2 className="text-base font-black">کد تخفیف جدید</h2>
-        <CouponFields form={createForm} onChange={setCreateForm} />
-        <Button className="mt-4 font-black" onClick={createCoupon} disabled={creating}>
-          {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          ساخت کد تخفیف
-        </Button>
-      </section>
+      <form.Field name="kind">
+        {(field) => (
+          <SelectField
+            id="kind"
+            label="نوع تخفیف"
+            value={field.state.value}
+            onChange={(v) => field.handleChange(v as CouponKind)}
+            options={[
+              { value: "PERCENT", label: "درصدی" },
+              { value: "FIXED", label: "مبلغ ثابت (تومان)" },
+            ]}
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
 
-      {/* ── Table ───────────────────────────────────────────────── */}
-      <section className="overflow-hidden rounded-2xl border border-border bg-card">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[840px] text-sm">
-            <thead className="bg-muted/50 text-xs text-muted-foreground">
-              <tr className="[&>th]:p-3 [&>th]:text-start [&>th]:font-bold">
-                <th>کد</th>
-                <th>نوع</th>
-                <th>مقدار</th>
-                <th>استفاده</th>
-                <th>بازه اعتبار</th>
-                <th>وضعیت</th>
-                <th className="text-end">عملیات</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {coupons.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
-                    هنوز کد تخفیفی ثبت نشده است.
-                  </td>
-                </tr>
-              ) : (
-                coupons.map((coupon) => {
-                  const status = couponStatus(coupon);
-                  const usageText =
-                    coupon.usageLimit != null
-                      ? `${toFaNumber(coupon.usedCount)} از ${toFaNumber(coupon.usageLimit)} استفاده شده`
-                      : `${toFaNumber(coupon.usedCount)} بار استفاده شده`;
-                  const isBusy = busyId === coupon.id;
+      <form.Field name="value">
+        {(field) => (
+          <NumberField
+            id="value"
+            label="مقدار تخفیف"
+            value={field.state.value}
+            onChange={field.handleChange}
+            placeholder="0"
+            min={0}
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
 
-                  return (
-                    <tr key={coupon.id} className="[&>td]:p-3 [&>td]:align-top">
-                      <td>
-                        <span className="font-mono font-bold" dir="ltr">
-                          {coupon.code}
-                        </span>
-                      </td>
-                      <td className="text-muted-foreground">
-                        {coupon.kind === "PERCENT" ? "درصدی" : "مبلغ ثابت"}
-                      </td>
-                      <td className="font-bold">{formatValue(coupon)}</td>
-                      <td>
-                        <div className="text-xs">{usageText}</div>
-                        {coupon.usageLimit != null && (
-                          <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={cn(
-                                "h-full rounded-full",
-                                coupon.usedCount >= coupon.usageLimit
-                                  ? "bg-destructive"
-                                  : "bg-primary",
-                              )}
-                              style={{
-                                width: `${Math.min(
-                                  100,
-                                  (coupon.usedCount / Math.max(1, coupon.usageLimit)) * 100,
-                                )}%`,
-                              }}
-                            />
-                          </div>
-                        )}
-                      </td>
-                      <td className="text-xs text-muted-foreground">
-                        <div>از: {formatDate(coupon.startsAt)}</div>
-                        <div>تا: {formatDate(coupon.expiresAt)}</div>
-                      </td>
-                      <td>
-                        <Badge variant={status.variant}>{status.label}</Badge>
-                      </td>
-                      <td>
-                        <div className="flex flex-wrap items-center justify-end gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={isBusy}
-                            onClick={() => toggleActive(coupon)}
-                          >
-                            <Power className="size-3.5" />
-                            {coupon.isActive ? "غیرفعال" : "فعال"}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={isBusy}
-                            onClick={() => startEdit(coupon)}
-                          >
-                            <Pencil className="size-3.5" />
-                            ویرایش
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="destructive"
-                            disabled={isBusy}
-                            onClick={() => removeCoupon(coupon)}
-                          >
-                            <Trash2 className="size-3.5" />
-                            حذف
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <form.Field name="minSubtotalAmount">
+        {(field) => (
+          <MoneyField
+            id="minSubtotalAmount"
+            label="حداقل مبلغ سبد (تومان)"
+            value={field.state.value}
+            onChange={field.handleChange}
+            currency="IRT"
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
 
-      {/* ── Edit panel ──────────────────────────────────────────── */}
-      {editingId && (
-        <section className="rounded-2xl border border-primary/40 bg-card p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-black">ویرایش کد تخفیف</h2>
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => setEditingId(null)}
-              aria-label="بستن"
-            >
-              <X className="size-4" />
-            </Button>
-          </div>
-          <CouponFields form={editForm} onChange={setEditForm} />
-          <div className="mt-4 flex gap-2">
-            <Button
-              className="font-black"
-              onClick={() => saveEdit(editingId)}
-              disabled={busyId === editingId}
-            >
-              {busyId === editingId ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <Save className="size-4" />
-              )}
-              ذخیره تغییرات
-            </Button>
-            <Button variant="outline" onClick={() => setEditingId(null)}>
-              انصراف
-            </Button>
-          </div>
-        </section>
-      )}
-    </div>
+      <form.Field name="maxDiscountAmount">
+        {(field) => (
+          <MoneyField
+            id="maxDiscountAmount"
+            label="سقف تخفیف (تومان)"
+            value={field.state.value}
+            onChange={field.handleChange}
+            currency="IRT"
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
+
+      <form.Field name="usageLimit">
+        {(field) => (
+          <NumberField
+            id="usageLimit"
+            label="سقف تعداد استفاده"
+            value={field.state.value}
+            onChange={field.handleChange}
+            placeholder="نامحدود"
+            min={0}
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
+
+      <form.Field name="startsAt">
+        {(field) => (
+          <DateField
+            id="startsAt"
+            label="شروع اعتبار"
+            value={field.state.value}
+            onChange={field.handleChange}
+            hint="اختیاری"
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
+
+      <form.Field name="expiresAt">
+        {(field) => (
+          <DateField
+            id="expiresAt"
+            label="پایان اعتبار"
+            value={field.state.value}
+            onChange={field.handleChange}
+            hint="اختیاری"
+            error={field.state.meta.errors[0] as string | undefined}
+          />
+        )}
+      </form.Field>
+
+      <form.Field name="isActive">
+        {(field) => (
+          <SwitchRow
+            id="isActive"
+            label="فعال باشد"
+            checked={field.state.value}
+            onChange={field.handleChange}
+          />
+        )}
+      </form.Field>
+    </SheetForm>
   );
 }
 
-function CouponFields({
-  form,
-  onChange,
+// ─── Row action menu ───────────────────────────────────────────────────────────
+
+function CouponRowMenu({
+  coupon,
+  onEdit,
+  onDelete,
 }: {
-  form: CouponForm;
-  onChange: (next: CouponForm) => void;
+  coupon: AdminCouponOption;
+  onEdit: (coupon: AdminCouponOption) => void;
+  onDelete: (coupon: AdminCouponOption) => void;
 }) {
-  function set<K extends keyof CouponForm>(key: K, value: CouponForm[K]) {
-    onChange({ ...form, [key]: value });
-  }
-
   return (
-    <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <Field label="کد تخفیف">
-        <input
-          value={form.code}
-          onChange={(event) => set("code", event.target.value.toUpperCase())}
-          placeholder="WELCOME20"
-          dir="ltr"
-          className={fieldClass}
-        />
-      </Field>
-
-      <Field label="نوع تخفیف">
-        <select
-          value={form.kind}
-          onChange={(event) => set("kind", event.target.value as CouponKind)}
-          className={fieldClass}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        aria-label="عملیات"
+        className="inline-flex size-8 items-center justify-center rounded-xl text-foreground/70 transition hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <MoreHorizontal className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" dir="rtl">
+        <DropdownMenuItem onClick={() => onEdit(coupon)}>ویرایش</DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => onDelete(coupon)}
+          className="text-destructive focus:text-destructive"
         >
-          <option value="PERCENT">درصدی</option>
-          <option value="FIXED">مبلغ ثابت (تومان)</option>
-        </select>
-      </Field>
-
-      <Field label={form.kind === "PERCENT" ? "درصد تخفیف" : "مبلغ تخفیف (تومان)"}>
-        <input
-          value={form.value}
-          onChange={(event) => set("value", event.target.value)}
-          inputMode="numeric"
-          dir="ltr"
-          placeholder={form.kind === "PERCENT" ? "20" : "50000"}
-          className={fieldClass}
-        />
-      </Field>
-
-      <Field label="حداقل مبلغ سبد (تومان)" hint="اختیاری">
-        <input
-          value={form.minSubtotalAmount}
-          onChange={(event) => set("minSubtotalAmount", event.target.value)}
-          inputMode="numeric"
-          dir="ltr"
-          placeholder="بدون محدودیت"
-          className={fieldClass}
-        />
-      </Field>
-
-      <Field label="سقف تخفیف (تومان)" hint="برای درصدی">
-        <input
-          value={form.maxDiscountAmount}
-          onChange={(event) => set("maxDiscountAmount", event.target.value)}
-          inputMode="numeric"
-          dir="ltr"
-          placeholder="بدون سقف"
-          className={fieldClass}
-        />
-      </Field>
-
-      <Field label="سقف تعداد استفاده" hint="اختیاری">
-        <input
-          value={form.usageLimit}
-          onChange={(event) => set("usageLimit", event.target.value)}
-          inputMode="numeric"
-          dir="ltr"
-          placeholder="نامحدود"
-          className={fieldClass}
-        />
-      </Field>
-
-      <Field label="شروع اعتبار" hint="اختیاری">
-        <input
-          type="datetime-local"
-          value={form.startsAt}
-          onChange={(event) => set("startsAt", event.target.value)}
-          dir="ltr"
-          className={fieldClass}
-        />
-      </Field>
-
-      <Field label="پایان اعتبار" hint="اختیاری">
-        <input
-          type="datetime-local"
-          value={form.expiresAt}
-          onChange={(event) => set("expiresAt", event.target.value)}
-          dir="ltr"
-          className={fieldClass}
-        />
-      </Field>
-
-      <label className="flex items-center gap-2 self-end pb-2 text-sm font-bold">
-        <input
-          type="checkbox"
-          checked={form.isActive}
-          onChange={(event) => set("isActive", event.target.checked)}
-          className="size-4 accent-primary"
-        />
-        فعال باشد
-      </label>
-    </div>
+          حذف
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
-const fieldClass =
-  "h-10 w-full rounded-2xl border border-border bg-input/50 px-3 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30";
+// ─── CouponManagement ─────────────────────────────────────────────────────────
 
-function Field({
-  label,
-  hint,
-  children,
+export function CouponManagement({
+  initialData,
 }: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
+  initialData: AdminListResponse<AdminCouponOption>;
 }) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editCoupon, setEditCoupon] = useState<AdminCouponOption | undefined>(undefined);
+
+  const { confirm, dialog } = useConfirm();
+
+  const result = useAdminList<AdminCouponOption>(
+    "coupons",
+    {},
+    {
+      initialData,
+      rowsKey: "coupons",
+    },
+  );
+
+  const rows = result.data?.rows ?? [];
+
+  const deleteMutation = useAdminMutation<{ id: string }>({
+    url: (vars) => `/api/admin/coupons/${vars.id}`,
+    method: "DELETE",
+    invalidate: ["coupons"],
+    successMessage: "کد تخفیف حذف شد.",
+  });
+
+  function openCreate() {
+    setEditCoupon(undefined);
+    setSheetOpen(true);
+  }
+
+  function openEdit(coupon: AdminCouponOption) {
+    setEditCoupon(coupon);
+    setSheetOpen(true);
+  }
+
+  async function handleDelete(coupon: AdminCouponOption) {
+    const confirmed = await confirm({
+      title: "حذف کد تخفیف",
+      description: `کد «${coupon.code}» برای همیشه حذف شود؟ این عمل قابل بازگشت نیست.`,
+      confirmLabel: "حذف",
+      cancelLabel: "لغو",
+      destructive: true,
+    });
+    if (confirmed) {
+      await deleteMutation.mutateAsync({ id: coupon.id });
+    }
+  }
+
+  const columns: ColumnDef<AdminCouponOption>[] = [
+    {
+      accessorKey: "code",
+      header: "کد",
+      cell: (info) => (
+        <span className="font-mono font-bold" dir="ltr">
+          {info.getValue<string>()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "kind",
+      header: "نوع",
+      meta: { align: "center" },
+      cell: (info) => (info.getValue<string>() === "PERCENT" ? "درصدی" : "مبلغ ثابت"),
+    },
+    {
+      id: "value",
+      header: "مقدار",
+      cell: (info) => formatValue(info.row.original),
+    },
+    {
+      id: "min_max",
+      header: "حداقل / سقف",
+      cell: (info) => {
+        const { minSubtotalAmount, maxDiscountAmount } = info.row.original;
+        return (
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <div>حداقل: {minSubtotalAmount ? formatToman(minSubtotalAmount) : "—"}</div>
+            <div>سقف: {maxDiscountAmount ? formatToman(maxDiscountAmount) : "—"}</div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "usage",
+      header: "استفاده",
+      meta: { align: "center" },
+      cell: (info) => {
+        const { usedCount, usageLimit } = info.row.original;
+        return (
+          <span className="text-xs">
+            {usageLimit != null
+              ? `${toFaNumber(usedCount)} از ${toFaNumber(usageLimit)}`
+              : `${toFaNumber(usedCount)} بار`}
+          </span>
+        );
+      },
+    },
+    {
+      id: "validity",
+      header: "بازه اعتبار",
+      cell: (info) => {
+        const { startsAt, expiresAt } = info.row.original;
+        return (
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <div>از: {formatDate(startsAt)}</div>
+            <div>تا: {formatDate(expiresAt)}</div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "status",
+      header: "وضعیت",
+      meta: { align: "center" },
+      cell: (info) => {
+        const label = couponStatusLabel(info.row.original);
+        return <span className="text-xs font-medium">{label}</span>;
+      },
+    },
+  ];
+
   return (
-    <div className="block">
-      <span className="mb-1.5 flex items-center gap-1.5 text-sm font-bold">
-        {label}
-        {hint && <span className="text-xs font-normal text-muted-foreground">({hint})</span>}
-      </span>
-      {children}
-    </div>
+    <AdminPage
+      title="کدهای تخفیف"
+      subtitle={`${toFaNumber(rows.length)} کد ثبت‌شده`}
+      actions={
+        <Button type="button" onClick={openCreate}>
+          <Plus className="size-4" />
+          کد تخفیف جدید
+        </Button>
+      }
+    >
+      <DataTable
+        columns={columns}
+        data={rows}
+        loading={result.isLoading}
+        empty="هنوز کد تخفیفی ثبت نشده است."
+        pagination={result.data?.pagination}
+        onPageChange={() => {}}
+        rowActions={(coupon) => (
+          <CouponRowMenu coupon={coupon} onEdit={openEdit} onDelete={handleDelete} />
+        )}
+      />
+
+      <CouponSheet open={sheetOpen} onOpenChange={setSheetOpen} coupon={editCoupon} />
+
+      {dialog}
+    </AdminPage>
   );
 }

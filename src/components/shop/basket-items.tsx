@@ -88,7 +88,7 @@ export function BasketItems({
                   <Link href={`/products/${item.productSlug}`} className="font-black">
                     {item.titleFa}
                   </Link>
-                  <p className="text-xs text-muted-foreground">{item.size}</p>
+                  <p className="text-xs text-muted-foreground">{item.variantTitleFa}</p>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">

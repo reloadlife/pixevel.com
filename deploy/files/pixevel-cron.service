@@ -1,0 +1,15 @@
+[Unit]
+Description=Pixevel subscription-renewal cron (one tick)
+After=network.target pixevel.service
+Wants=pixevel.service
+
+[Service]
+Type=oneshot
+# CRON_SECRET lives in the app's production env file (mode 600).
+EnvironmentFile={{ env_file }}
+# Fail closed: abort if the secret is missing so we never call the endpoint
+# unauthenticated, then drive the renewal engine via the localhost HTTP handler.
+ExecStart=/bin/sh -c 'test -n "$CRON_SECRET" && curl -fsS -X POST -H "x-cron-secret: $CRON_SECRET" http://127.0.0.1:{{ node_port }}/api/cron/subscriptions'
+
+[Install]
+WantedBy=multi-user.target

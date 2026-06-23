@@ -25,6 +25,7 @@ import {
 } from "react";
 
 import { Button } from "@/components/ui/button";
+import { optionsKeyFromPairs, optionValueKey } from "@/lib/variant-options";
 
 type CategoryOption = {
   id: string;
@@ -54,6 +55,7 @@ type ProductImageRecord = {
   showcasePremium: boolean;
   sortOrder: number;
   variantId: string;
+  optionValueId: string;
   watermarkEnabled: boolean;
   watermarkImageId: string;
   watermarkX: number;
@@ -63,21 +65,54 @@ type ProductImageRecord = {
   watermarkAppliedUrl: string;
 };
 
+type OptionValueRow = {
+  id: string;
+  valueFa: string;
+  slug: string;
+  hex: string;
+  swatchImageUrl: string;
+  position: number;
+};
+
+type ProductOptionRow = {
+  id: string;
+  nameFa: string;
+  slug: string;
+  inputKind: OptionInputKind;
+  position: number;
+  values: OptionValueRow[];
+};
+
+type VariantOptionValueLink = {
+  optionId: string;
+  optionSlug: string;
+  optionNameFa: string;
+  optionValueId: string;
+  valueSlug: string;
+  valueFa: string;
+};
+
+type SubscriptionPlanShape = {
+  intervalUnit: string;
+  intervalCount: number;
+  trialDays: number;
+  termCount: number | null;
+  gracePeriodDays: number;
+  autoRenewDefault: boolean;
+};
+
 type ProductVariantRow = {
   id: string;
   sku: string;
   titleFa: string;
-  colorNameFa: string;
-  colorSlug: string;
-  colorHex: string;
-  materialNameFa: string;
-  materialSlug: string;
-  size: string;
+  optionsKey: string;
+  optionValues: VariantOptionValueLink[];
   publicPriceAmount: string;
   registeredPriceAmount: string;
   premiumPriceAmount: string;
   compareAtAmount: string;
   isDefault: boolean;
+  subscriptionPlan: SubscriptionPlanShape | null;
   inventoryUnits: Array<{ id: string; status: string }>;
 };
 
@@ -96,16 +131,42 @@ type ProductRow = {
   baseCurrency: string;
   status: string;
   fulfillmentType: string;
+  inventoryPolicy: string;
+  isSubscription: boolean;
   categoryId: string;
   tagIds: string[];
   tags: TagOption[];
+  options: ProductOptionRow[];
   images: ProductImageRecord[];
   variants: ProductVariantRow[];
 };
 
+type OptionInputKind = "SELECT" | "SWATCH" | "PILL";
+
 const FULFILLMENT_OPTIONS = [
   { value: "DIGITAL", label: "دیجیتال" },
   { value: "PHYSICAL", label: "فیزیکی" },
+  { value: "DOMAIN", label: "دامنه" },
+  { value: "SERVER", label: "سرور" },
+  { value: "SERVICE", label: "خدمات" },
+];
+
+const INVENTORY_POLICY_OPTIONS = [
+  { value: "TRACKED", label: "موجودی دقیق" },
+  { value: "INFINITE", label: "نامحدود" },
+];
+
+const INPUT_KIND_OPTIONS: { value: OptionInputKind; label: string }[] = [
+  { value: "SELECT", label: "انتخابی" },
+  { value: "SWATCH", label: "سواچ" },
+  { value: "PILL", label: "دکمه‌ای" },
+];
+
+const INTERVAL_UNIT_OPTIONS = [
+  { value: "DAY", label: "روز" },
+  { value: "WEEK", label: "هفته" },
+  { value: "MONTH", label: "ماه" },
+  { value: "YEAR", label: "سال" },
 ];
 
 const CURRENCY_OPTIONS = [
@@ -114,26 +175,58 @@ const CURRENCY_OPTIONS = [
   { value: "EUR", label: "یورو (EUR)" },
 ];
 
-type ColorOption = {
-  id: string;
-  label: string;
-  slug: string;
-  hex: string;
-};
-
-type TextOption = {
-  id: string;
-  label: string;
-  slug: string;
-};
-
-type SizeOption = {
-  id: string;
-  value: string;
-};
-
 type SelectedTag = TagOption & {
   isNew?: boolean;
+};
+
+// In-builder option model. `slug` is optional — the server slugifies nameFa/valueFa
+// when omitted, but we mirror the same composition client-side for live keys.
+type BuilderOptionValue = {
+  id: string;
+  valueFa: string;
+  slug: string;
+  hex: string;
+  swatchImageUrl: string;
+};
+
+type BuilderOption = {
+  id: string;
+  nameFa: string;
+  slug: string;
+  inputKind: OptionInputKind;
+  values: BuilderOptionValue[];
+};
+
+// Per-variant override fields keyed by optionsKey, feeding variantOverridesByKey.
+type VariantOverrideState = {
+  publicPriceAmount: string;
+  registeredPriceAmount: string;
+  premiumPriceAmount: string;
+  compareAtAmount: string;
+  stockToAdd: string;
+  stockCodes: string;
+};
+
+type SubscriptionPlanState = {
+  intervalUnit: string;
+  intervalCount: string;
+  trialDays: string;
+  termCount: string;
+  gracePeriodDays: string;
+  autoRenewDefault: boolean;
+};
+
+// Generated variant preview row (cartesian product of option values).
+type PreviewVariant = {
+  optionsKey: string;
+  titleFa: string;
+  pairs: Array<{ optionSlug: string; valueSlug: string }>;
+};
+
+// Edit-mode variant row carries the persisted id plus stock-add inputs.
+type VariantEditRow = ProductVariantRow & {
+  stockToAdd: string;
+  stockCodes: string;
 };
 
 type ImageRow = {
@@ -147,7 +240,11 @@ type ImageRow = {
   showcasePublic: boolean;
   showcasePremium: boolean;
   variantId: string;
+  // Association in create mode: either a generated variant (optionsKey) or a
+  // single option value ("optionSlug:valueSlug"). In edit mode we map to ids.
   variantKey: string;
+  optionValueKey: string;
+  optionValueId: string;
   watermarkEnabled: boolean;
   watermarkImageId: string;
   watermarkX: string;
@@ -157,14 +254,11 @@ type ImageRow = {
   watermarkAppliedUrl: string;
 };
 
-type VariantEditRow = ProductVariantRow & {
-  stockToAdd: string;
-  stockCodes: string;
-};
-
-type VariantOption = {
+// Generic assignment option for the image editor (value carries variantKey or id).
+type AssignmentOption = {
   id: string;
   label: string;
+  group?: string;
 };
 
 type UploadTarget = "create" | "edit";
@@ -229,24 +323,15 @@ function parseSignedIntegerText(value: string) {
   return Number.isSafeInteger(numeric) ? numeric : null;
 }
 
-function slugifyForVariantKey(input: string) {
+// Mirror the server slugify so live optionsKeys match what createAdminProduct stores.
+function slugifyForKey(input: string) {
   return input
     .trim()
     .toLowerCase()
     .replace(/[\s_]+/g, "-")
-    .replace(/[^\u0600-\u06FFa-z0-9-]/g, "")
+    .replace(/[^؀-ۿa-z0-9-]/g, "")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
-}
-
-function variantOptionSlug(slug: string, label: string, index: number) {
-  return slugifyForVariantKey(slug || label) || `option-${index + 1}`;
-}
-
-function variantOptionKey(colorSlug: string, materialSlug: string, size: string) {
-  return [colorSlug, materialSlug, slugifyForVariantKey(size) || size.trim().toLowerCase()]
-    .join("|")
-    .toLowerCase();
 }
 
 function availableStock(variant: ProductVariantRow) {
@@ -261,6 +346,28 @@ function parseCodes(raw: string): string[] {
     .filter(Boolean);
 }
 
+function emptyOverride(): VariantOverrideState {
+  return {
+    publicPriceAmount: "",
+    registeredPriceAmount: "",
+    premiumPriceAmount: "",
+    compareAtAmount: "",
+    stockToAdd: "",
+    stockCodes: "",
+  };
+}
+
+function defaultSubscriptionPlan(): SubscriptionPlanState {
+  return {
+    intervalUnit: "MONTH",
+    intervalCount: "1",
+    trialDays: "0",
+    termCount: "",
+    gracePeriodDays: "3",
+    autoRenewDefault: true,
+  };
+}
+
 function editFormFromProduct(product: ProductRow | null) {
   return {
     titleFa: product?.titleFa ?? "",
@@ -271,6 +378,8 @@ function editFormFromProduct(product: ProductRow | null) {
     careFa: product?.careFa ?? "",
     status: product?.status ?? "ACTIVE",
     fulfillmentType: product?.fulfillmentType ?? "DIGITAL",
+    inventoryPolicy: product?.inventoryPolicy ?? "TRACKED",
+    isSubscription: product?.isSubscription ?? false,
     seoTitle: product?.seoTitle ?? "",
     seoDescription: product?.seoDescription ?? "",
     ogImageUrl: product?.ogImageUrl ?? "",
@@ -292,6 +401,8 @@ function imageRowFromRecord(image: ProductImageRecord) {
     showcasePremium: image.showcasePremium,
     variantId: image.variantId,
     variantKey: "",
+    optionValueKey: "",
+    optionValueId: image.optionValueId,
     watermarkEnabled: image.watermarkEnabled,
     watermarkImageId: image.watermarkImageId,
     watermarkX: String(image.watermarkX),
@@ -308,6 +419,35 @@ function imageRowsFromProduct(product: ProductRow | null) {
 
 function variantRowsFromProduct(product: ProductRow | null) {
   return product?.variants.map((variant) => ({ ...variant, stockToAdd: "", stockCodes: "" })) ?? [];
+}
+
+function subscriptionStateFromPlan(plan: SubscriptionPlanShape | null | undefined) {
+  if (!plan) {
+    return defaultSubscriptionPlan();
+  }
+
+  return {
+    intervalUnit: plan.intervalUnit,
+    intervalCount: String(plan.intervalCount ?? 1),
+    trialDays: String(plan.trialDays ?? 0),
+    termCount: plan.termCount == null ? "" : String(plan.termCount),
+    gracePeriodDays: String(plan.gracePeriodDays ?? 3),
+    autoRenewDefault: plan.autoRenewDefault ?? true,
+  } satisfies SubscriptionPlanState;
+}
+
+// Build the API subscriptionPlan payload from the panel state.
+function subscriptionPlanPayload(state: SubscriptionPlanState) {
+  const termCount = state.termCount.trim() ? Number(normalizePriceValue(state.termCount)) : null;
+
+  return {
+    intervalUnit: state.intervalUnit,
+    intervalCount: Number(normalizePriceValue(state.intervalCount) || 1),
+    trialDays: Number(normalizePriceValue(state.trialDays) || 0),
+    termCount: termCount && termCount > 0 ? termCount : null,
+    gracePeriodDays: Number(normalizePriceValue(state.gracePeriodDays) || 0),
+    autoRenewDefault: state.autoRenewDefault,
+  };
 }
 
 export function ProductManagement({
@@ -359,14 +499,13 @@ export function ProductManagement({
   const [previewImage, setPreviewImage] = useState<ImageRow | null>(null);
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
-  const [colors, setColors] = useState<ColorOption[]>([
-    { id: "color-red", label: "قرمز", slug: "red", hex: "#c0262d" },
-    { id: "color-green", label: "سبز", slug: "green", hex: "#15803d" },
-  ]);
-  const [materials, setMaterials] = useState<TextOption[]>([
-    { id: "material-leather", label: "چرم", slug: "leather" },
-  ]);
-  const [sizes, setSizes] = useState<SizeOption[]>([{ id: "size-m", value: "M" }]);
+
+  // ── Create-mode option builder + product form ────────────────────────────────
+  const [options, setOptions] = useState<BuilderOption[]>([]);
+  const [overrides, setOverrides] = useState<Record<string, VariantOverrideState>>({});
+  const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlanState>(
+    defaultSubscriptionPlan(),
+  );
   const [form, setForm] = useState({
     titleFa: "",
     slug: "",
@@ -381,45 +520,140 @@ export function ProductManagement({
     stockPerVariant: "10",
     status: "ACTIVE",
     fulfillmentType: "DIGITAL",
+    inventoryPolicy: "TRACKED",
+    isSubscription: false,
     baseCurrency: "IRT",
     seoTitle: "",
     seoDescription: "",
     ogImageUrl: "",
     noindex: false,
   });
-  // Real sellable codes (gift-card / CD keys) per variant key, "one code per line".
-  const [stockCodesByVariantKey, setStockCodesByVariantKey] = useState<Record<string, string>>({});
   const [editForm, setEditForm] = useState(editFormFromProduct(initialEditingProduct));
+  // Edit-mode subscription panel applied to every variant on save.
+  const [editSubscriptionPlan, setEditSubscriptionPlan] = useState<SubscriptionPlanState>(
+    subscriptionStateFromPlan(initialEditingProduct?.variants[0]?.subscriptionPlan ?? null),
+  );
 
   const editingProduct = products.find((product) => product.id === editingProductId) ?? null;
   const showCreate = mode === "create";
   const showList = mode === "list";
   const showEdit = mode === "edit";
 
-  const variantPreview = useMemo(() => {
-    const cleanColors = colors
-      .map((color, index) => ({
-        label: color.label.trim(),
-        slug: variantOptionSlug(color.slug.trim(), color.label.trim(), index),
-      }))
-      .filter((color) => color.label);
-    const cleanMaterials = materials
-      .map((material, index) => ({
-        label: material.label.trim(),
-        slug: variantOptionSlug(material.slug.trim(), material.label.trim(), index),
-      }))
-      .filter((material) => material.label);
-    const cleanSizes = sizes.map((size) => size.value.trim()).filter(Boolean);
+  // Normalized, deduped option groups with live slugs (mirrors server normalize).
+  const normalizedOptions = useMemo(() => {
+    const usedOptionSlugs = new Set<string>();
 
-    return cleanColors.flatMap((color) =>
-      cleanMaterials.flatMap((material) =>
-        cleanSizes.map((size) => ({
-          id: variantOptionKey(color.slug, material.slug, size),
-          label: `${color.label} / ${material.label} / ${size}`,
-        })),
-      ),
+    return options
+      .map((option, optionIndex) => {
+        const nameFa = option.nameFa.trim();
+        if (!nameFa) return null;
+
+        let slug = slugifyForKey(option.slug || nameFa) || `option-${optionIndex + 1}`;
+        while (usedOptionSlugs.has(slug)) slug = `${slug}-${optionIndex + 1}`;
+        usedOptionSlugs.add(slug);
+
+        const usedValueSlugs = new Set<string>();
+        const values = option.values
+          .map((value, valueIndex) => {
+            const valueFa = value.valueFa.trim();
+            if (!valueFa) return null;
+            let valueSlug = slugifyForKey(value.slug || valueFa) || `value-${valueIndex + 1}`;
+            while (usedValueSlugs.has(valueSlug)) valueSlug = `${valueSlug}-${valueIndex + 1}`;
+            usedValueSlugs.add(valueSlug);
+            return { valueFa, slug: valueSlug };
+          })
+          .filter((value): value is { valueFa: string; slug: string } => value != null);
+
+        if (values.length === 0) return null;
+
+        return { nameFa, slug, values };
+      })
+      .filter(
+        (
+          option,
+        ): option is {
+          nameFa: string;
+          slug: string;
+          values: { valueFa: string; slug: string }[];
+        } => option != null,
+      );
+  }, [options]);
+
+  // Live cartesian product → one preview variant per combination (key = optionsKey).
+  const variantPreview = useMemo<PreviewVariant[]>(() => {
+    if (normalizedOptions.length === 0) {
+      return [{ optionsKey: "", titleFa: form.titleFa.trim() || "تنوع پیش‌فرض", pairs: [] }];
+    }
+
+    const combos = normalizedOptions.reduce<
+      Array<Array<{ optionSlug: string; valueSlug: string; valueFa: string }>>
+    >(
+      (acc, option) =>
+        acc.flatMap((combo) =>
+          option.values.map((value) => [
+            ...combo,
+            { optionSlug: option.slug, valueSlug: value.slug, valueFa: value.valueFa },
+          ]),
+        ),
+      [[]],
     );
-  }, [colors, materials, sizes]);
+
+    return combos.map((combo) => {
+      const pairs = combo.map((item) => ({
+        optionSlug: item.optionSlug,
+        valueSlug: item.valueSlug,
+      }));
+      const titleFa = combo.map((item) => item.valueFa).join(" / ") || form.titleFa.trim();
+      return { optionsKey: optionsKeyFromPairs(pairs), titleFa, pairs };
+    });
+  }, [normalizedOptions, form.titleFa]);
+
+  // Image-assignment options for create mode: every generated variant + every
+  // single option value (key "optionSlug:valueSlug").
+  const createAssignmentOptions = useMemo<AssignmentOption[]>(() => {
+    const variantOptions = variantPreview
+      .filter((variant) => variant.optionsKey)
+      .map((variant) => ({
+        id: `variant:${variant.optionsKey}`,
+        label: variant.titleFa,
+        group: "تنوع کامل",
+      }));
+
+    const valueOptions = normalizedOptions.flatMap((option) =>
+      option.values.map((value) => ({
+        id: `value:${optionValueKey(option.slug, value.slug)}`,
+        label: `${option.nameFa}: ${value.valueFa}`,
+        group: "مقدار",
+      })),
+    );
+
+    return [...variantOptions, ...valueOptions];
+  }, [variantPreview, normalizedOptions]);
+
+  // Edit-mode image assignment: persisted variant ids + persisted option-value ids.
+  const editAssignmentOptions = useMemo<AssignmentOption[]>(() => {
+    const variantOptions = editVariants.map((variant) => ({
+      id: `variant:${variant.id}`,
+      label: variant.titleFa,
+      group: "تنوع کامل",
+    }));
+
+    const seen = new Set<string>();
+    const valueOptions: AssignmentOption[] = [];
+    for (const variant of editVariants) {
+      for (const link of variant.optionValues) {
+        if (seen.has(link.optionValueId)) continue;
+        seen.add(link.optionValueId);
+        valueOptions.push({
+          id: `value:${link.optionValueId}`,
+          label: `${link.optionNameFa}: ${link.valueFa}`,
+          group: "مقدار",
+        });
+      }
+    }
+
+    return [...variantOptions, ...valueOptions];
+  }, [editVariants]);
 
   const tagSuggestions = getTagSuggestions(tagQuery, selectedTags);
   const editTagSuggestions = getTagSuggestions(editTagQuery, editSelectedTags);
@@ -539,6 +773,8 @@ export function ProductManagement({
         showcasePremium: row?.showcasePremium ?? false,
         variantId: row?.variantId ?? "",
         variantKey: row?.variantKey ?? "",
+        optionValueKey: row?.optionValueKey ?? "",
+        optionValueId: row?.optionValueId ?? "",
         watermarkEnabled: row?.watermarkEnabled ?? false,
         watermarkImageId: row?.watermarkImageId ?? "",
         watermarkX: row?.watermarkX ?? "0",
@@ -602,47 +838,88 @@ export function ProductManagement({
     });
   }
 
-  function addColor() {
-    setColors((current) => [
+  // ── Option builder mutations (create mode) ──────────────────────────────────
+  function addOption() {
+    setOptions((current) => [
       ...current,
-      { id: createId("color"), label: "", slug: "", hex: "#7c3aed" },
+      {
+        id: createId("option"),
+        nameFa: "",
+        slug: "",
+        inputKind: "PILL",
+        values: [
+          { id: createId("value"), valueFa: "", slug: "", hex: "#7c3aed", swatchImageUrl: "" },
+        ],
+      },
     ]);
   }
 
-  function updateColor(id: string, patch: Partial<ColorOption>) {
-    setColors((current) =>
-      current.map((color) => (color.id === id ? { ...color, ...patch } : color)),
+  function updateOption(id: string, patch: Partial<BuilderOption>) {
+    setOptions((current) =>
+      current.map((option) => (option.id === id ? { ...option, ...patch } : option)),
     );
   }
 
-  function removeColor(id: string) {
-    setColors((current) => current.filter((color) => color.id !== id));
+  function removeOption(id: string) {
+    setOptions((current) => current.filter((option) => option.id !== id));
   }
 
-  function addMaterial() {
-    setMaterials((current) => [...current, { id: createId("material"), label: "", slug: "" }]);
-  }
-
-  function updateMaterial(id: string, patch: Partial<TextOption>) {
-    setMaterials((current) =>
-      current.map((material) => (material.id === id ? { ...material, ...patch } : material)),
+  function addOptionValue(optionId: string) {
+    setOptions((current) =>
+      current.map((option) =>
+        option.id === optionId
+          ? {
+              ...option,
+              values: [
+                ...option.values,
+                {
+                  id: createId("value"),
+                  valueFa: "",
+                  slug: "",
+                  hex: "#7c3aed",
+                  swatchImageUrl: "",
+                },
+              ],
+            }
+          : option,
+      ),
     );
   }
 
-  function removeMaterial(id: string) {
-    setMaterials((current) => current.filter((material) => material.id !== id));
+  function updateOptionValue(
+    optionId: string,
+    valueId: string,
+    patch: Partial<BuilderOptionValue>,
+  ) {
+    setOptions((current) =>
+      current.map((option) =>
+        option.id === optionId
+          ? {
+              ...option,
+              values: option.values.map((value) =>
+                value.id === valueId ? { ...value, ...patch } : value,
+              ),
+            }
+          : option,
+      ),
+    );
   }
 
-  function addSize() {
-    setSizes((current) => [...current, { id: createId("size"), value: "" }]);
+  function removeOptionValue(optionId: string, valueId: string) {
+    setOptions((current) =>
+      current.map((option) =>
+        option.id === optionId
+          ? { ...option, values: option.values.filter((value) => value.id !== valueId) }
+          : option,
+      ),
+    );
   }
 
-  function updateSize(id: string, value: string) {
-    setSizes((current) => current.map((size) => (size.id === id ? { ...size, value } : size)));
-  }
-
-  function removeSize(id: string) {
-    setSizes((current) => current.filter((size) => size.id !== id));
+  function updateOverride(optionsKey: string, patch: Partial<VariantOverrideState>) {
+    setOverrides((current) => ({
+      ...current,
+      [optionsKey]: { ...(current[optionsKey] ?? emptyOverride()), ...patch },
+    }));
   }
 
   async function uploadImages(files: FileList | null, target: UploadTarget = "create") {
@@ -685,6 +962,8 @@ export function ProductManagement({
           showcasePremium: false,
           variantId: "",
           variantKey: "",
+          optionValueKey: "",
+          optionValueId: "",
           watermarkEnabled: false,
           watermarkImageId: "",
           watermarkX: "0",
@@ -699,8 +978,47 @@ export function ProductManagement({
     }
   }
 
+  // Translate an image row's assignment selection into the API image shape.
+  function createImagePayload(image: ImageRow, index: number) {
+    return {
+      url: image.url.trim(),
+      altFa: image.altFa.trim(),
+      vipImage: image.vipImage,
+      isPrimary: image.isPrimary,
+      showcasePublic: image.showcasePublic,
+      showcasePremium: image.showcasePremium,
+      sortOrder: index,
+      variantKey: image.variantKey || undefined,
+      optionValueKey: image.optionValueKey || undefined,
+    };
+  }
+
   async function createProduct() {
     setSaving(true);
+
+    const tracked = form.inventoryPolicy === "TRACKED";
+
+    // Only forward overrides with at least one meaningful field set.
+    const variantOverridesByKey: Record<string, Record<string, unknown>> = {};
+    for (const variant of variantPreview) {
+      const override = overrides[variant.optionsKey];
+      if (!override) continue;
+      const codes =
+        tracked && form.fulfillmentType === "DIGITAL" ? parseCodes(override.stockCodes) : [];
+      const entry: Record<string, unknown> = {};
+      if (override.publicPriceAmount) entry.publicPriceAmount = override.publicPriceAmount;
+      if (override.registeredPriceAmount)
+        entry.registeredPriceAmount = override.registeredPriceAmount;
+      if (override.premiumPriceAmount) entry.premiumPriceAmount = override.premiumPriceAmount;
+      if (override.compareAtAmount) entry.compareAtAmount = override.compareAtAmount;
+      if (tracked && codes.length > 0) entry.stockCodes = codes;
+      if (tracked && override.stockToAdd) {
+        entry.stockToAdd = Number(normalizePriceValue(override.stockToAdd) || 0);
+      }
+      if (Object.keys(entry).length > 0) {
+        variantOverridesByKey[variant.optionsKey] = entry;
+      }
+    }
 
     const response = await fetch("/api/admin/products", {
       method: "POST",
@@ -719,44 +1037,30 @@ export function ProductManagement({
         registeredPriceAmount: form.registeredPriceAmount || undefined,
         premiumPriceAmount: form.premiumPriceAmount || undefined,
         compareAtAmount: form.compareAtAmount || undefined,
-        colors: colors
-          .map((color) => ({
-            label: color.label.trim(),
-            slug: color.slug.trim(),
-            hex: color.hex.trim(),
+        options: options
+          .map((option) => ({
+            nameFa: option.nameFa.trim(),
+            slug: option.slug.trim() || undefined,
+            inputKind: option.inputKind,
+            values: option.values
+              .map((value) => ({
+                valueFa: value.valueFa.trim(),
+                slug: value.slug.trim() || undefined,
+                hex: option.inputKind === "SWATCH" ? value.hex.trim() || null : null,
+                swatchImageUrl: value.swatchImageUrl.trim() || null,
+              }))
+              .filter((value) => value.valueFa),
           }))
-          .filter((color) => color.label),
-        materials: materials
-          .map((material) => ({
-            label: material.label.trim(),
-            slug: material.slug.trim(),
-          }))
-          .filter((material) => material.label),
-        sizes: sizes.map((size) => size.value.trim()).filter(Boolean),
+          .filter((option) => option.nameFa && option.values.length > 0),
         stockPerVariant: Number(normalizePriceValue(form.stockPerVariant) || 0),
+        inventoryPolicy: form.inventoryPolicy,
+        isSubscription: form.isSubscription,
+        subscriptionPlan: form.isSubscription
+          ? subscriptionPlanPayload(subscriptionPlan)
+          : undefined,
+        variantOverridesByKey,
         fulfillmentType: form.fulfillmentType,
-        // Real codes only apply to DIGITAL products. PHYSICAL stock is created by
-        // quantity (auto-serialed), so never forward pasted codes for it.
-        stockCodesByVariantKey:
-          form.fulfillmentType === "DIGITAL"
-            ? Object.fromEntries(
-                Object.entries(stockCodesByVariantKey)
-                  .map(([key, raw]) => [key, parseCodes(raw)] as const)
-                  .filter(([, codes]) => codes.length > 0),
-              )
-            : {},
-        images: imageRows
-          .map((image, index) => ({
-            url: image.url.trim(),
-            altFa: image.altFa.trim(),
-            vipImage: image.vipImage,
-            isPrimary: image.isPrimary,
-            showcasePublic: image.showcasePublic,
-            showcasePremium: image.showcasePremium,
-            sortOrder: index,
-            variantKey: image.variantKey || undefined,
-          }))
-          .filter((image) => image.url),
+        images: imageRows.map(createImagePayload).filter((image) => image.url),
         status: form.status,
         seoTitle: form.seoTitle || undefined,
         seoDescription: form.seoDescription || undefined,
@@ -787,27 +1091,16 @@ export function ProductManagement({
 
   function startEditingProduct(product: ProductRow) {
     setEditingProductId(product.id);
-    setEditForm({
-      titleFa: product.titleFa,
-      slug: product.slug,
-      summaryFa: product.summaryFa,
-      descriptionFa: product.descriptionFa,
-      fitFa: product.fitFa,
-      careFa: product.careFa,
-      seoTitle: product.seoTitle,
-      seoDescription: product.seoDescription,
-      ogImageUrl: product.ogImageUrl,
-      noindex: product.noindex,
-      baseCurrency: product.baseCurrency,
-      status: product.status,
-      fulfillmentType: product.fulfillmentType ?? "DIGITAL",
-    });
+    setEditForm(editFormFromProduct(product));
     setEditSelectedCategoryId(product.categoryId);
     setEditSelectedTags(product.tags);
     setEditTagQuery("");
     setEditImageRows(product.images.map(imageRowFromRecord));
     setEditVariants(
       product.variants.map((variant) => ({ ...variant, stockToAdd: "", stockCodes: "" })),
+    );
+    setEditSubscriptionPlan(
+      subscriptionStateFromPlan(product.variants[0]?.subscriptionPlan ?? null),
     );
 
     requestAnimationFrame(() => {
@@ -837,6 +1130,11 @@ export function ProductManagement({
 
     setEditSaving(true);
 
+    const tracked = editForm.inventoryPolicy === "TRACKED";
+    const planPayload = editForm.isSubscription
+      ? subscriptionPlanPayload(editSubscriptionPlan)
+      : null;
+
     const response = await fetch(`/api/admin/products/${editingProductId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -854,6 +1152,8 @@ export function ProductManagement({
         baseCurrency: editForm.baseCurrency,
         status: editForm.status,
         fulfillmentType: editForm.fulfillmentType,
+        inventoryPolicy: editForm.inventoryPolicy,
+        isSubscription: editForm.isSubscription,
         categoryId: editSelectedCategoryId || null,
         tagIds: editSelectedTags.filter((tag) => !tag.isNew).map((tag) => tag.id),
         newTags: editSelectedTags.filter((tag) => tag.isNew).map((tag) => tag.titleFa),
@@ -868,27 +1168,24 @@ export function ProductManagement({
             showcasePremium: image.showcasePremium,
             sortOrder: index,
             variantId: image.variantId || null,
+            optionValueId: image.optionValueId || null,
           }))
           .filter((image) => image.url),
         variants: editVariants.map((variant) => ({
           id: variant.id,
           sku: variant.sku,
           titleFa: variant.titleFa,
-          colorNameFa: variant.colorNameFa,
-          colorSlug: variant.colorSlug,
-          colorHex: variant.colorHex || null,
-          materialNameFa: variant.materialNameFa,
-          materialSlug: variant.materialSlug,
-          size: variant.size,
           publicPriceAmount: variant.publicPriceAmount,
           registeredPriceAmount: variant.registeredPriceAmount || null,
           premiumPriceAmount: variant.premiumPriceAmount || null,
           compareAtAmount: variant.compareAtAmount || null,
           isDefault: variant.isDefault,
-          stockToAdd: Number(normalizePriceValue(variant.stockToAdd) || 0),
-          // Codes only apply to DIGITAL; PHYSICAL stock is quantity-driven and
-          // auto-serialed, so never forward pasted codes for non-digital products.
-          stockCodes: editForm.fulfillmentType === "DIGITAL" ? parseCodes(variant.stockCodes) : [],
+          // Subscription plan is product-level in the UI; apply to every variant.
+          subscriptionPlan: planPayload,
+          stockToAdd: tracked ? Number(normalizePriceValue(variant.stockToAdd) || 0) : 0,
+          // Codes only apply to DIGITAL/TRACKED; non-digital stock is quantity-driven.
+          stockCodes:
+            tracked && editForm.fulfillmentType === "DIGITAL" ? parseCodes(variant.stockCodes) : [],
         })),
       }),
     });
@@ -1072,11 +1369,28 @@ export function ProductManagement({
               value={form.fulfillmentType}
               onChange={(value) => setField("fulfillmentType", value)}
             />
+            <SimpleSelect
+              label="سیاست موجودی"
+              value={form.inventoryPolicy}
+              options={INVENTORY_POLICY_OPTIONS}
+              onChange={(value) => setField("inventoryPolicy", value)}
+            />
             <CurrencySelect
               label="ارز قیمت‌گذاری"
               value={form.baseCurrency}
               onChange={(value) => setField("baseCurrency", value)}
             />
+            <label className="flex items-end gap-2 pb-3 text-sm font-bold">
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={form.isSubscription}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, isSubscription: event.target.checked }))
+                }
+              />
+              محصول اشتراکی (دوره‌ای)
+            </label>
             <TagPicker
               selectedTags={selectedTags}
               tagQuery={tagQuery}
@@ -1106,16 +1420,14 @@ export function ProductManagement({
               value={form.compareAtAmount}
               onChange={(value) => setField("compareAtAmount", value)}
             />
-            <Input
-              label={
-                form.fulfillmentType === "PHYSICAL"
-                  ? "موجودی هر تنوع (تعداد)"
-                  : "موجودی هر تنوع (تعداد، در صورت نبود کد)"
-              }
-              value={form.stockPerVariant}
-              onChange={(value) => setField("stockPerVariant", value)}
-              dir="ltr"
-            />
+            {form.inventoryPolicy === "TRACKED" ? (
+              <Input
+                label="موجودی هر تنوع (تعداد)"
+                value={form.stockPerVariant}
+                onChange={(value) => setField("stockPerVariant", value)}
+                dir="ltr"
+              />
+            ) : null}
             <Textarea
               label="خلاصه"
               value={form.summaryFa}
@@ -1136,6 +1448,12 @@ export function ProductManagement({
               value={form.careFa}
               onChange={(value) => setField("careFa", value)}
             />
+
+            {form.isSubscription ? (
+              <div className="lg:col-span-2">
+                <SubscriptionPanel value={subscriptionPlan} onChange={setSubscriptionPlan} />
+              </div>
+            ) : null}
 
             {/* SEO overrides — optional; fall back to title/summary/image when empty. */}
             <div className="lg:col-span-2">
@@ -1175,147 +1493,249 @@ export function ProductManagement({
               </fieldset>
             </div>
 
+            {/* Generic option builder. */}
             <div className="lg:col-span-2">
               <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">رنگ‌ها</h3>
-                <Button type="button" size="sm" variant="outline" onClick={addColor}>
+                <div>
+                  <h3 className="text-sm font-black">ویژگی‌ها و تنوع‌ها</h3>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    هر ویژگی یک بُعد است (مثلاً منطقه، مدت، رنگ). بدون ویژگی، یک تنوع پیش‌فرض ساخته
+                    می‌شود.
+                  </p>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={addOption}>
                   <Plus className="size-3.5" />
-                  رنگ جدید
+                  ویژگی جدید
                 </Button>
+              </div>
+              <div className="grid gap-4">
+                {options.map((option) => (
+                  <div key={option.id} className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]">
+                      <Input
+                        label="نام ویژگی"
+                        value={option.nameFa}
+                        onChange={(value) => updateOption(option.id, { nameFa: value })}
+                      />
+                      <Input
+                        label="اسلاگ ویژگی"
+                        value={option.slug}
+                        onChange={(value) => updateOption(option.id, { slug: value })}
+                        dir="ltr"
+                      />
+                      <SimpleSelect
+                        label="نوع نمایش"
+                        value={option.inputKind}
+                        options={INPUT_KIND_OPTIONS}
+                        onChange={(value) =>
+                          updateOption(option.id, { inputKind: value as OptionInputKind })
+                        }
+                      />
+                      <div className="flex items-end">
+                        <Button
+                          type="button"
+                          size="icon-lg"
+                          variant="outline"
+                          onClick={() => removeOption(option.id)}
+                          aria-label="حذف ویژگی"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-black text-zinc-500">مقادیر</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => addOptionValue(option.id)}
+                        >
+                          <Plus className="size-3.5" />
+                          مقدار
+                        </Button>
+                      </div>
+                      {option.values.map((value) => (
+                        <div
+                          key={value.id}
+                          className={`grid gap-2 border border-zinc-200 bg-white p-2 ${
+                            option.inputKind === "SWATCH"
+                              ? "md:grid-cols-[1fr_1fr_150px_1fr_auto]"
+                              : "md:grid-cols-[1fr_1fr_1fr_auto]"
+                          }`}
+                        >
+                          <Input
+                            label="مقدار"
+                            value={value.valueFa}
+                            onChange={(next) =>
+                              updateOptionValue(option.id, value.id, { valueFa: next })
+                            }
+                          />
+                          <Input
+                            label="اسلاگ"
+                            value={value.slug}
+                            onChange={(next) =>
+                              updateOptionValue(option.id, value.id, { slug: next })
+                            }
+                            dir="ltr"
+                          />
+                          {option.inputKind === "SWATCH" ? (
+                            <label className="block min-w-0">
+                              <span className="mb-2 block text-sm font-bold">کد رنگ</span>
+                              <div className="flex h-11 min-w-0 items-center gap-2 border border-zinc-300 bg-white px-2">
+                                <input
+                                  type="color"
+                                  value={value.hex || "#000000"}
+                                  onChange={(event) =>
+                                    updateOptionValue(option.id, value.id, {
+                                      hex: event.target.value,
+                                    })
+                                  }
+                                  className="size-8 cursor-pointer border-0 bg-transparent p-0"
+                                  aria-label="انتخاب رنگ"
+                                />
+                                <input
+                                  value={value.hex}
+                                  onChange={(event) =>
+                                    updateOptionValue(option.id, value.id, {
+                                      hex: event.target.value,
+                                    })
+                                  }
+                                  className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
+                                  dir="ltr"
+                                />
+                              </div>
+                            </label>
+                          ) : null}
+                          <Input
+                            label="تصویر سواچ (URL)"
+                            value={value.swatchImageUrl}
+                            onChange={(next) =>
+                              updateOptionValue(option.id, value.id, { swatchImageUrl: next })
+                            }
+                            dir="ltr"
+                          />
+                          <div className="flex items-end">
+                            <Button
+                              type="button"
+                              size="icon-lg"
+                              variant="outline"
+                              onClick={() => removeOptionValue(option.id, value.id)}
+                              disabled={option.values.length === 1}
+                              aria-label="حذف مقدار"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {options.length === 0 ? (
+                  <p className="border border-dashed border-zinc-300 bg-zinc-50 p-3 text-xs text-zinc-500">
+                    هنوز ویژگی‌ای اضافه نشده — محصول با یک تنوع پیش‌فرض ساخته می‌شود.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Live variant matrix preview with per-variant overrides. */}
+            <div className="lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">پیش‌نمایش تنوع‌ها</h3>
+                <span className="text-xs font-bold text-zinc-500">
+                  {variantPreview.length} تنوع
+                </span>
               </div>
               <div className="grid gap-3">
-                {colors.map((color) => (
-                  <div
-                    key={color.id}
-                    className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[1fr_1fr_160px_auto]"
-                  >
-                    <Input
-                      label="نام رنگ"
-                      value={color.label}
-                      onChange={(value) => updateColor(color.id, { label: value })}
-                    />
-                    <Input
-                      label="اسلاگ رنگ"
-                      value={color.slug}
-                      onChange={(value) => updateColor(color.id, { slug: value })}
-                      dir="ltr"
-                    />
-                    <label className="block min-w-0">
-                      <span className="mb-2 block text-sm font-bold">کد رنگ</span>
-                      <div className="flex h-11 min-w-0 items-center gap-2 border border-zinc-300 bg-white px-2">
-                        <input
-                          type="color"
-                          value={color.hex}
-                          onChange={(event) => updateColor(color.id, { hex: event.target.value })}
-                          className="size-8 cursor-pointer border-0 bg-transparent p-0"
-                          aria-label="انتخاب رنگ"
+                {variantPreview.map((variant) => {
+                  const override = overrides[variant.optionsKey] ?? emptyOverride();
+                  const tracked = form.inventoryPolicy === "TRACKED";
+
+                  return (
+                    <div
+                      key={variant.optionsKey || "default"}
+                      className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-black">{variant.titleFa}</span>
+                        <span className="font-mono text-[10px] text-zinc-400" dir="ltr">
+                          {variant.optionsKey || "default"}
+                        </span>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                        <PriceInput
+                          label="قیمت عمومی (اختیاری)"
+                          value={override.publicPriceAmount}
+                          onChange={(value) =>
+                            updateOverride(variant.optionsKey, { publicPriceAmount: value })
+                          }
                         />
-                        <input
-                          value={color.hex}
-                          onChange={(event) => updateColor(color.id, { hex: event.target.value })}
-                          className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
+                        <PriceInput
+                          label="قیمت کاربران (اختیاری)"
+                          value={override.registeredPriceAmount}
+                          onChange={(value) =>
+                            updateOverride(variant.optionsKey, { registeredPriceAmount: value })
+                          }
+                        />
+                        <PriceInput
+                          label="قیمت پریمیوم (اختیاری)"
+                          value={override.premiumPriceAmount}
+                          onChange={(value) =>
+                            updateOverride(variant.optionsKey, { premiumPriceAmount: value })
+                          }
+                        />
+                        {tracked ? (
+                          <Input
+                            label="موجودی این تنوع (اختیاری)"
+                            value={override.stockToAdd}
+                            onChange={(value) =>
+                              updateOverride(variant.optionsKey, { stockToAdd: value })
+                            }
+                            dir="ltr"
+                          />
+                        ) : null}
+                      </div>
+                      {tracked && form.fulfillmentType === "DIGITAL" ? (
+                        <Textarea
+                          label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
+                          value={override.stockCodes}
+                          onChange={(value) =>
+                            updateOverride(variant.optionsKey, { stockCodes: value })
+                          }
                           dir="ltr"
                         />
-                      </div>
-                    </label>
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        size="icon-lg"
-                        variant="outline"
-                        onClick={() => removeColor(color.id)}
-                        disabled={colors.length === 1}
-                        aria-label="حذف رنگ"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
+                      ) : null}
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="lg:col-span-2">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">جنس‌ها</h3>
-                <Button type="button" size="sm" variant="outline" onClick={addMaterial}>
-                  <Plus className="size-3.5" />
-                  جنس جدید
-                </Button>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {materials.map((material) => (
-                  <div
-                    key={material.id}
-                    className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3 md:grid-cols-[1fr_1fr_auto]"
-                  >
-                    <Input
-                      label="نام جنس"
-                      value={material.label}
-                      onChange={(value) => updateMaterial(material.id, { label: value })}
-                    />
-                    <Input
-                      label="اسلاگ جنس"
-                      value={material.slug}
-                      onChange={(value) => updateMaterial(material.id, { slug: value })}
-                      dir="ltr"
-                    />
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        size="icon-lg"
-                        variant="outline"
-                        onClick={() => removeMaterial(material.id)}
-                        disabled={materials.length === 1}
-                        aria-label="حذف جنس"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="lg:col-span-2">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">سایزها</h3>
-                <Button type="button" size="sm" variant="outline" onClick={addSize}>
-                  <Plus className="size-3.5" />
-                  سایز جدید
-                </Button>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {sizes.map((size) => (
-                  <div key={size.id} className="grid grid-cols-[1fr_auto] gap-2">
-                    <Input
-                      label="سایز"
-                      value={size.value}
-                      onChange={(value) => updateSize(size.id, value)}
-                      dir="ltr"
-                    />
-                    <div className="flex items-end">
-                      <Button
-                        type="button"
-                        size="icon-lg"
-                        variant="outline"
-                        onClick={() => removeSize(size.id)}
-                        disabled={sizes.length === 1}
-                        aria-label="حذف سایز"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
             <ImageRowsEditor
               title="تصاویر محصول"
               rows={imageRows}
-              variantOptions={variantPreview}
-              assignmentField="variantKey"
+              assignmentOptions={createAssignmentOptions}
+              assignmentValueOf={(image) =>
+                image.variantKey
+                  ? `variant:${image.variantKey}`
+                  : image.optionValueKey
+                    ? `value:${image.optionValueKey}`
+                    : ""
+              }
+              onAssign={(id, raw) => {
+                const [kind, ref] = raw ? raw.split(/:(.*)/) : ["", ""];
+                updateImageRow(
+                  id,
+                  {
+                    variantKey: kind === "variant" ? ref : "",
+                    optionValueKey: kind === "value" ? ref : "",
+                  },
+                  "create",
+                );
+              }}
               uploading={uploading}
               onUpload={(files) => uploadImages(files, "create")}
               onAdd={() => addImageRow(undefined, "create")}
@@ -1326,43 +1746,14 @@ export function ProductManagement({
             />
           </div>
 
-          {form.fulfillmentType === "DIGITAL" ? (
+          {form.inventoryPolicy === "INFINITE" ? (
             <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
-              <p className="mb-2 font-black">پیش‌نمایش تنوع‌ها و کدها</p>
-              <p className="mb-3 text-xs text-zinc-500">
-                برای هر تنوع می‌توانید کدهای واقعی (کارت هدیه / لایسنس) را وارد کنید؛ هر خط یک کد.
-                اگر کدی وارد نشود، به اندازه «موجودی هر تنوع» کد خودکار ساخته می‌شود.
-              </p>
-              <div className="grid gap-3 md:grid-cols-2">
-                {variantPreview.map((item) => (
-                  <div key={item.id} className="border border-zinc-200 bg-white p-2">
-                    <span className="mb-1 block text-xs font-bold">{item.label}</span>
-                    <textarea
-                      value={stockCodesByVariantKey[item.id] ?? ""}
-                      onChange={(event) =>
-                        setStockCodesByVariantKey((current) => ({
-                          ...current,
-                          [item.id]: event.target.value,
-                        }))
-                      }
-                      rows={3}
-                      dir="ltr"
-                      placeholder={"CODE-AAAA-BBBB\nCODE-CCCC-DDDD"}
-                      className="w-full resize-y border border-zinc-300 bg-white p-2 font-mono text-xs outline-none focus:border-zinc-950"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-4 border border-dashed border-zinc-300 bg-zinc-50 p-3 text-sm">
-              <p className="mb-2 font-black">موجودی فیزیکی</p>
+              <p className="mb-1 font-black">موجودی نامحدود</p>
               <p className="text-xs text-zinc-500">
-                برای محصولات فیزیکی موجودی بر اساس «تعداد» اضافه می‌شود؛ به ازای هر واحد یک ردیف
-                موجودی با سریال داخلی خودکار ساخته می‌شود. نیازی به وارد کردن کد نیست.
+                برای این محصول واحد موجودی ساخته نمی‌شود و همیشه قابل خرید است.
               </p>
             </div>
-          )}
+          ) : null}
 
           <Button className="mt-4 h-11 px-6 font-black" onClick={createProduct} disabled={saving}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
@@ -1414,11 +1805,28 @@ export function ProductManagement({
               value={editForm.fulfillmentType}
               onChange={(value) => setEditField("fulfillmentType", value)}
             />
+            <SimpleSelect
+              label="سیاست موجودی"
+              value={editForm.inventoryPolicy}
+              options={INVENTORY_POLICY_OPTIONS}
+              onChange={(value) => setEditField("inventoryPolicy", value)}
+            />
             <CurrencySelect
               label="ارز قیمت‌گذاری"
               value={editForm.baseCurrency}
               onChange={(value) => setEditField("baseCurrency", value)}
             />
+            <label className="flex items-end gap-2 pb-3 text-sm font-bold">
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={editForm.isSubscription}
+                onChange={(event) =>
+                  setEditForm((current) => ({ ...current, isSubscription: event.target.checked }))
+                }
+              />
+              محصول اشتراکی (دوره‌ای)
+            </label>
             <TagPicker
               selectedTags={editSelectedTags}
               tagQuery={editTagQuery}
@@ -1450,6 +1858,15 @@ export function ProductManagement({
               value={editForm.careFa}
               onChange={(value) => setEditField("careFa", value)}
             />
+
+            {editForm.isSubscription ? (
+              <div className="lg:col-span-2">
+                <SubscriptionPanel
+                  value={editSubscriptionPlan}
+                  onChange={setEditSubscriptionPlan}
+                />
+              </div>
+            ) : null}
 
             {/* SEO overrides — optional; fall back to title/summary/image when empty. */}
             <div className="lg:col-span-2">
@@ -1492,11 +1909,25 @@ export function ProductManagement({
             <ImageRowsEditor
               title="تصاویر محصول"
               rows={editImageRows}
-              variantOptions={editVariants.map((variant) => ({
-                id: variant.id,
-                label: variant.titleFa,
-              }))}
-              assignmentField="variantId"
+              assignmentOptions={editAssignmentOptions}
+              assignmentValueOf={(image) =>
+                image.variantId
+                  ? `variant:${image.variantId}`
+                  : image.optionValueId
+                    ? `value:${image.optionValueId}`
+                    : ""
+              }
+              onAssign={(id, raw) => {
+                const [kind, ref] = raw ? raw.split(/:(.*)/) : ["", ""];
+                updateImageRow(
+                  id,
+                  {
+                    variantId: kind === "variant" ? ref : "",
+                    optionValueId: kind === "value" ? ref : "",
+                  },
+                  "edit",
+                );
+              }}
               uploading={editUploading}
               showWatermarkControls
               watermarkImages={watermarkImages}
@@ -1522,7 +1953,7 @@ export function ProductManagement({
                     key={variant.id}
                     className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3"
                   >
-                    <div className="grid gap-3 lg:grid-cols-[1.2fr_1fr_1fr_120px_auto]">
+                    <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_140px_auto]">
                       <Input
                         label="عنوان تنوع"
                         value={variant.titleFa}
@@ -1534,18 +1965,16 @@ export function ProductManagement({
                         onChange={(value) => updateEditVariant(variant.id, { sku: value })}
                         dir="ltr"
                       />
-                      <Input
-                        label="سایز"
-                        value={variant.size}
-                        onChange={(value) => updateEditVariant(variant.id, { size: value })}
-                        dir="ltr"
-                      />
-                      <Input
-                        label="افزودن موجودی (تعداد)"
-                        value={variant.stockToAdd}
-                        onChange={(value) => updateEditVariant(variant.id, { stockToAdd: value })}
-                        dir="ltr"
-                      />
+                      {editForm.inventoryPolicy === "TRACKED" ? (
+                        <Input
+                          label="افزودن موجودی (تعداد)"
+                          value={variant.stockToAdd}
+                          onChange={(value) => updateEditVariant(variant.id, { stockToAdd: value })}
+                          dir="ltr"
+                        />
+                      ) : (
+                        <div />
+                      )}
                       <label className="flex items-end gap-2 pb-2 text-sm font-bold">
                         <input
                           type="radio"
@@ -1556,54 +1985,18 @@ export function ProductManagement({
                         پیش‌فرض
                       </label>
                     </div>
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                      <Input
-                        label="نام رنگ"
-                        value={variant.colorNameFa}
-                        onChange={(value) => updateEditVariant(variant.id, { colorNameFa: value })}
-                      />
-                      <Input
-                        label="اسلاگ رنگ"
-                        value={variant.colorSlug}
-                        onChange={(value) => updateEditVariant(variant.id, { colorSlug: value })}
-                        dir="ltr"
-                      />
-                      <label className="block min-w-0">
-                        <span className="mb-2 block text-sm font-bold">کد رنگ</span>
-                        <div className="flex h-11 items-center gap-2 border border-zinc-300 bg-white px-2">
-                          <input
-                            type="color"
-                            value={variant.colorHex || "#000000"}
-                            onChange={(event) =>
-                              updateEditVariant(variant.id, { colorHex: event.target.value })
-                            }
-                            className="size-8 cursor-pointer border-0 bg-transparent p-0"
-                            aria-label="انتخاب رنگ"
-                          />
-                          <input
-                            value={variant.colorHex}
-                            onChange={(event) =>
-                              updateEditVariant(variant.id, { colorHex: event.target.value })
-                            }
-                            className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
-                            dir="ltr"
-                          />
-                        </div>
-                      </label>
-                      <Input
-                        label="نام جنس"
-                        value={variant.materialNameFa}
-                        onChange={(value) =>
-                          updateEditVariant(variant.id, { materialNameFa: value })
-                        }
-                      />
-                      <Input
-                        label="اسلاگ جنس"
-                        value={variant.materialSlug}
-                        onChange={(value) => updateEditVariant(variant.id, { materialSlug: value })}
-                        dir="ltr"
-                      />
-                    </div>
+                    {variant.optionValues.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {variant.optionValues.map((link) => (
+                          <span
+                            key={`${variant.id}-${link.optionValueId}`}
+                            className="bg-zinc-100 px-2 py-1 text-[11px] font-black text-zinc-600"
+                          >
+                            {link.optionNameFa}: {link.valueFa}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                       <PriceInput
                         label="قیمت عمومی"
@@ -1634,7 +2027,8 @@ export function ProductManagement({
                         }
                       />
                     </div>
-                    {editForm.fulfillmentType === "DIGITAL" ? (
+                    {editForm.inventoryPolicy === "TRACKED" &&
+                    editForm.fulfillmentType === "DIGITAL" ? (
                       <Textarea
                         label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
                         value={variant.stockCodes}
@@ -1643,7 +2037,9 @@ export function ProductManagement({
                       />
                     ) : null}
                     <p className="text-xs font-bold text-zinc-500">
-                      {availableStock(variant)} واحد موجود از {variant.inventoryUnits.length} واحد
+                      {editForm.inventoryPolicy === "INFINITE"
+                        ? "موجودی نامحدود"
+                        : `${availableStock(variant)} واحد موجود از ${variant.inventoryUnits.length} واحد`}
                     </p>
                   </div>
                 ))}
@@ -1715,14 +2111,21 @@ export function ProductManagement({
                     <span className="bg-zinc-100 px-2 py-1 text-xs font-black">
                       {product.status}
                     </span>
+                    {product.isSubscription ? (
+                      <span className="bg-indigo-100 px-2 py-1 text-xs font-black text-indigo-800">
+                        اشتراکی
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-1 break-all text-xs text-zinc-500" dir="ltr">
                     /products/{product.slug}
                   </p>
                   <p className="mt-2 text-sm text-zinc-600">
                     {product.variants.length} تنوع،{" "}
-                    {product.variants.reduce((sum, variant) => sum + availableStock(variant), 0)}{" "}
-                    واحد موجود، {product.images.length} تصویر
+                    {product.inventoryPolicy === "INFINITE"
+                      ? "موجودی نامحدود"
+                      : `${product.variants.reduce((sum, variant) => sum + availableStock(variant), 0)} واحد موجود`}
+                    ، {product.images.length} تصویر
                   </p>
                   <ProductImageStrip images={product.images} />
                 </div>
@@ -1801,6 +2204,68 @@ export function ProductManagement({
   );
 }
 
+function SubscriptionPanel({
+  value,
+  onChange,
+}: {
+  value: SubscriptionPlanState;
+  onChange: Dispatch<SetStateAction<SubscriptionPlanState>>;
+}) {
+  function set(patch: Partial<SubscriptionPlanState>) {
+    onChange((current) => ({ ...current, ...patch }));
+  }
+
+  return (
+    <fieldset className="border border-indigo-200 bg-indigo-50/40 p-4">
+      <legend className="px-2 text-sm font-black">تنظیمات اشتراک</legend>
+      <p className="mb-3 px-2 text-xs text-zinc-500">
+        این تنظیمات روی همهٔ تنوع‌های محصول اعمال می‌شود.
+      </p>
+      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+        <SimpleSelect
+          label="واحد دوره"
+          value={value.intervalUnit}
+          options={INTERVAL_UNIT_OPTIONS}
+          onChange={(next) => set({ intervalUnit: next })}
+        />
+        <Input
+          label="هر چند واحد"
+          value={value.intervalCount}
+          onChange={(next) => set({ intervalCount: next })}
+          dir="ltr"
+        />
+        <Input
+          label="روزهای آزمایشی"
+          value={value.trialDays}
+          onChange={(next) => set({ trialDays: next })}
+          dir="ltr"
+        />
+        <Input
+          label="تعداد دوره‌ها (خالی=نامحدود)"
+          value={value.termCount}
+          onChange={(next) => set({ termCount: next })}
+          dir="ltr"
+        />
+        <Input
+          label="مهلت پرداخت (روز)"
+          value={value.gracePeriodDays}
+          onChange={(next) => set({ gracePeriodDays: next })}
+          dir="ltr"
+        />
+        <label className="flex items-end gap-2 pb-3 text-sm font-bold">
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={value.autoRenewDefault}
+            onChange={(event) => set({ autoRenewDefault: event.target.checked })}
+          />
+          تمدید خودکار
+        </label>
+      </div>
+    </fieldset>
+  );
+}
+
 function ProductImageStrip({ images }: { images: ProductImageRecord[] }) {
   const sortedImages = [...images].sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -1846,6 +2311,11 @@ function ProductImageStrip({ images }: { images: ProductImageRecord[] }) {
                 {image.variantId ? (
                   <span className="bg-zinc-100 px-1.5 py-0.5 text-[10px] font-black text-zinc-600">
                     تنوع
+                  </span>
+                ) : null}
+                {image.optionValueId ? (
+                  <span className="bg-zinc-100 px-1.5 py-0.5 text-[10px] font-black text-zinc-600">
+                    مقدار
                   </span>
                 ) : null}
                 {image.watermarkEnabled ? (
@@ -1957,8 +2427,9 @@ function TagPicker({
 function ImageRowsEditor({
   title,
   rows,
-  variantOptions,
-  assignmentField,
+  assignmentOptions,
+  assignmentValueOf,
+  onAssign,
   uploading,
   showWatermarkControls = false,
   watermarkImages = [],
@@ -1974,8 +2445,9 @@ function ImageRowsEditor({
 }: {
   title: string;
   rows: ImageRow[];
-  variantOptions: VariantOption[];
-  assignmentField: "variantId" | "variantKey";
+  assignmentOptions: AssignmentOption[];
+  assignmentValueOf: (image: ImageRow) => string;
+  onAssign: (id: string, rawValue: string) => void;
   uploading: boolean;
   showWatermarkControls?: boolean;
   watermarkImages?: WatermarkImageOption[];
@@ -2037,7 +2509,7 @@ function ImageRowsEditor({
           {rows.map((image, index) => (
             <div
               key={image.id}
-              className="grid min-w-0 gap-3 border border-zinc-200 bg-zinc-50 p-3 lg:grid-cols-[92px_minmax(0,1.2fr)_minmax(0,0.9fr)_170px_190px_120px_auto_auto]"
+              className="grid min-w-0 gap-3 border border-zinc-200 bg-zinc-50 p-3 lg:grid-cols-[92px_minmax(0,1.2fr)_minmax(0,0.9fr)_210px_190px_120px_auto_auto]"
             >
               <button
                 type="button"
@@ -2073,11 +2545,11 @@ function ImageRowsEditor({
                 value={image.altFa}
                 onChange={(value) => onUpdate(image.id, { altFa: value })}
               />
-              <VariantAssignmentSelect
-                label="تنوع تصویر"
-                value={image[assignmentField]}
-                options={variantOptions}
-                onChange={(value) => onUpdate(image.id, { [assignmentField]: value })}
+              <ImageAssignmentSelect
+                label="اتصال تصویر"
+                value={assignmentValueOf(image)}
+                options={assignmentOptions}
+                onChange={(value) => onAssign(image.id, value)}
               />
               <div className="grid content-end gap-2 text-sm font-bold">
                 <span className="text-xs font-black text-zinc-500">بلاک خانه</span>
@@ -2119,7 +2591,7 @@ function ImageRowsEditor({
                 <label className="flex items-center gap-2">
                   <input
                     type="radio"
-                    name={`${assignmentField}-primary-product-image`}
+                    name="primary-product-image"
                     checked={image.isPrimary}
                     onChange={() => onUpdate(image.id, { isPrimary: true })}
                   />
@@ -2374,22 +2846,7 @@ function StatusSelect({
   value: string;
   onChange: (value: string) => void;
 }) {
-  return (
-    <label className="block min-w-0">
-      <span className="mb-2 block text-sm font-bold">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
-      >
-        {STATUS_OPTIONS.map((status) => (
-          <option key={status.value} value={status.value}>
-            {status.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
+  return <SimpleSelect label={label} value={value} options={STATUS_OPTIONS} onChange={onChange} />;
 }
 
 function FulfillmentSelect({
@@ -2402,20 +2859,7 @@ function FulfillmentSelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="block min-w-0">
-      <span className="mb-2 block text-sm font-bold">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
-      >
-        {FULFILLMENT_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SimpleSelect label={label} value={value} options={FULFILLMENT_OPTIONS} onChange={onChange} />
   );
 }
 
@@ -2429,24 +2873,11 @@ function CurrencySelect({
   onChange: (value: string) => void;
 }) {
   return (
-    <label className="block min-w-0">
-      <span className="mb-2 block text-sm font-bold">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
-      >
-        {CURRENCY_OPTIONS.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
+    <SimpleSelect label={label} value={value} options={CURRENCY_OPTIONS} onChange={onChange} />
   );
 }
 
-function VariantAssignmentSelect({
+function SimpleSelect({
   label,
   value,
   options,
@@ -2454,7 +2885,7 @@ function VariantAssignmentSelect({
 }: {
   label: string;
   value: string;
-  options: VariantOption[];
+  options: { value: string; label: string }[];
   onChange: (value: string) => void;
 }) {
   return (
@@ -2465,12 +2896,57 @@ function VariantAssignmentSelect({
         onChange={(event) => onChange(event.target.value)}
         className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
       >
-        <option value="">همه تنوع‌ها</option>
         {options.map((option) => (
-          <option key={option.id} value={option.id}>
+          <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
+      </select>
+    </label>
+  );
+}
+
+function ImageAssignmentSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: AssignmentOption[];
+  onChange: (value: string) => void;
+}) {
+  const variantOptions = options.filter((option) => option.group === "تنوع کامل");
+  const valueOptions = options.filter((option) => option.group === "مقدار");
+
+  return (
+    <label className="block min-w-0">
+      <span className="mb-2 block text-sm font-bold">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-full min-w-0 border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-zinc-950"
+      >
+        <option value="">همه تنوع‌ها</option>
+        {variantOptions.length > 0 ? (
+          <optgroup label="تنوع کامل">
+            {variantOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
+        {valueOptions.length > 0 ? (
+          <optgroup label="بر اساس یک مقدار">
+            {valueOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
       </select>
     </label>
   );

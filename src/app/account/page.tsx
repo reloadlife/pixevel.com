@@ -8,6 +8,7 @@ import {
   LifeBuoy,
   type LucideIcon,
   MapPin,
+  Repeat,
   Server,
   Settings,
   ShoppingBag,
@@ -83,6 +84,7 @@ type QuickLink = { href: string; label: string; icon: LucideIcon };
 
 const QUICK_LINKS: QuickLink[] = [
   { href: "/account/orders", label: "سفارش‌ها", icon: ShoppingBag },
+  { href: "/account/subscriptions", label: "اشتراک‌ها", icon: Repeat },
   { href: "/account/keys", label: "کلیدها و کدها", icon: KeyRound },
   { href: "/account/wishlist", label: "علاقه‌مندی‌ها", icon: Heart },
   { href: "/account/wallet", label: "کیف پول", icon: Wallet },
@@ -191,6 +193,12 @@ export default async function AccountPage() {
       value: toFaNumber(stats.activeServices),
       icon: Server,
       href: "/account/servers",
+    },
+    {
+      label: "اشتراک‌ها",
+      value: toFaNumber(stats.activeSubscriptions),
+      icon: Repeat,
+      href: "/account/subscriptions",
     },
     {
       label: "اعلان‌های خوانده‌نشده",

@@ -41,10 +41,6 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
-    if (error instanceof Error && error.message === "INVALID_VARIANTS") {
-      return apiError("INVALID_VARIANTS", "حداقل رنگ، جنس و سایز باید وارد شود.");
-    }
-
     if (error instanceof Error && error.message === "INVALID_SLUG") {
       return apiError("INVALID_SLUG", "اسلاگ محصول معتبر نیست.");
     }
@@ -53,8 +49,16 @@ export async function POST(request: Request) {
       return apiError("INVALID_FULFILLMENT_TYPE", "نوع تحویل محصول معتبر نیست.");
     }
 
+    if (error instanceof Error && error.message === "INVALID_INVENTORY_POLICY") {
+      return apiError("INVALID_INVENTORY_POLICY", "سیاست موجودی محصول معتبر نیست.");
+    }
+
     if (error instanceof Error && error.message === "INVALID_IMAGE_VARIANT") {
       return apiError("INVALID_IMAGE_VARIANT", "تنوع انتخاب‌شده برای تصویر معتبر نیست.");
+    }
+
+    if (error instanceof Error && error.message === "INVALID_IMAGE_OPTION_VALUE") {
+      return apiError("INVALID_IMAGE_OPTION_VALUE", "مقدار انتخاب‌شده برای تصویر معتبر نیست.");
     }
 
     if (error instanceof Error && error.message === "DUPLICATE_SHOWCASE_IMAGE") {

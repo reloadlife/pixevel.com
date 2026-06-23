@@ -48,11 +48,6 @@ async function seedVariant(tx: any, productId: string): Promise<string> {
       productId,
       sku: `sku-${crypto.randomUUID()}`,
       titleFa: "واریانت تست",
-      colorNameFa: "قرمز",
-      colorSlug: "red",
-      materialNameFa: "چرم",
-      materialSlug: "leather",
-      size: "M",
       publicPriceAmount: "100000",
     })
     .returning({ id: productVariants.id });
@@ -91,9 +86,7 @@ async function seedOrderItem(tx: any, orderId: string, variantId: string): Promi
     variantId,
     titleFa: "محصول تست",
     sku: `sku-${crypto.randomUUID()}`,
-    colorNameFa: "قرمز",
-    materialNameFa: "چرم",
-    size: "M",
+    optionsSummaryFa: "رنگ: قرمز · جنس: چرم · سایز: M",
     quantity: 1,
     unitPrice: "100000",
     totalPrice: "100000",

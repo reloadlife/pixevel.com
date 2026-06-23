@@ -10,6 +10,7 @@ import {
   wallets,
 } from "@/db/schema";
 import { getDb } from "@/lib/db";
+import { countActiveSubscriptions } from "@/lib/subscriptions/query";
 
 export type DashboardOrder = {
   id: string;
@@ -37,6 +38,7 @@ export type AccountDashboard = {
     walletBalance: number;
     loyaltyPoints: number;
     activeServices: number;
+    activeSubscriptions: number;
     unreadNotifications: number;
   };
   recentOrders: DashboardOrder[];
@@ -58,6 +60,7 @@ export async function getAccountDashboard(userId: string): Promise<AccountDashbo
     loyaltyRow,
     domainsCountRow,
     serversCountRow,
+    activeSubscriptions,
     unreadRow,
     recentOrders,
   ] = await Promise.all([
@@ -99,6 +102,7 @@ export async function getAccountDashboard(userId: string): Promise<AccountDashbo
       .select({ value: count() })
       .from(serverInstances)
       .where(and(eq(serverInstances.userId, userId), inArray(serverInstances.status, ["ACTIVE"]))),
+    countActiveSubscriptions(userId),
     db
       .select({ value: count() })
       .from(notifications)
@@ -133,6 +137,7 @@ export async function getAccountDashboard(userId: string): Promise<AccountDashbo
       walletBalance: Number(walletRow[0]?.value ?? 0),
       loyaltyPoints: Number(loyaltyRow[0]?.value ?? 0),
       activeServices,
+      activeSubscriptions,
       unreadNotifications: Number(unreadRow[0]?.value ?? 0),
     },
     recentOrders,

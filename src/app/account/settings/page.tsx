@@ -70,6 +70,8 @@ export default async function SettingsPage() {
   const prefs: NotificationPrefs = {
     orderEmail: prefsRow?.orderEmail ?? true,
     orderSms: prefsRow?.orderSms ?? true,
+    subscriptionEmail: prefsRow?.subscriptionEmail ?? true,
+    subscriptionSms: prefsRow?.subscriptionSms ?? true,
     promoEmail: prefsRow?.promoEmail ?? false,
     promoSms: prefsRow?.promoSms ?? false,
     newsletterEmail: prefsRow?.newsletterEmail ?? false,

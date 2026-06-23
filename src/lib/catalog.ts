@@ -1,7 +1,13 @@
 import { and, asc, avg, count, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 
-import type { BaseCurrency, ProductStatus } from "@/db/schema";
+import type {
+  BaseCurrency,
+  BillingInterval,
+  InventoryPolicy,
+  OptionInputKind,
+  ProductStatus,
+} from "@/db/schema";
 import {
   categories,
   productReviews,
@@ -21,6 +27,9 @@ export const PRODUCT_SORT_KEYS: ProductSortKey[] = [
   "price_desc",
   "stock_desc",
 ];
+
+/** Sentinel "stock" for INFINITE-policy products (services / subscriptions): always addable. */
+const UNLIMITED_STOCK = 999_999;
 
 export type ProductListingOptions = {
   q?: string;
@@ -75,24 +84,38 @@ type CatalogImage = {
   showcasePremium: boolean;
   sortOrder: number;
   variantId?: string | null;
+  optionValueId?: string | null;
 };
+
+/** Shape of a variant's option-value rows as returned by the relational query. */
+type CatalogVariantOptionValue = {
+  optionId: string;
+  optionValueId: string;
+  option?: { slug: string; nameFa: string } | null;
+  optionValue?: { slug: string; valueFa: string } | null;
+};
+
+type CatalogVariantSubscriptionPlan = {
+  intervalUnit: BillingInterval;
+  intervalCount: number;
+  trialDays: number;
+  termCount: number | null;
+  gracePeriodDays: number;
+  autoRenewDefault: boolean;
+} | null;
 
 type CatalogVariant = {
   id: string;
   sku: string;
   titleFa: string;
-  colorNameFa: string;
-  colorSlug: string;
-  colorHex: string | null;
-  materialNameFa: string;
-  materialSlug: string;
-  size: string;
   publicPriceAmount: unknown;
   registeredPriceAmount?: unknown;
   premiumPriceAmount?: unknown;
   compareAtAmount?: unknown;
   images: CatalogImage[];
   inventoryUnits: Array<{ id: string }>;
+  optionValues?: CatalogVariantOptionValue[];
+  subscriptionPlan?: CatalogVariantSubscriptionPlan;
 };
 
 export function getUserTier(user: { isPremium: boolean } | null): UserTier {
@@ -143,6 +166,7 @@ function mapImage(image: CatalogImage) {
     showcasePremium: image.showcasePremium,
     sortOrder: image.sortOrder,
     variantId: image.variantId ?? null,
+    optionValueId: image.optionValueId ?? null,
   };
 }
 
@@ -150,24 +174,92 @@ function visibleImages<T extends CatalogImage>(images: T[], tier: UserTier) {
   return images.filter((image) => tier === "PREMIUM" || !image.vipImage).map(mapImage);
 }
 
-function mapVariant(variant: CatalogVariant, tier: UserTier, baseCurrency: BaseCurrency = "IRT") {
+/** Map a variant's option-value rows into `{ optionSlug: valueSlug }` + ordered id list. */
+function variantOptionMaps(variant: CatalogVariant) {
+  const optionValueSlugs: Record<string, string> = {};
+  const optionValueIds: string[] = [];
+
+  for (const link of variant.optionValues ?? []) {
+    optionValueIds.push(link.optionValueId);
+    if (link.option?.slug && link.optionValue?.slug) {
+      optionValueSlugs[link.option.slug] = link.optionValue.slug;
+    }
+  }
+
+  return { optionValueSlugs, optionValueIds };
+}
+
+function mapVariant(
+  variant: CatalogVariant,
+  tier: UserTier,
+  baseCurrency: BaseCurrency = "IRT",
+  unlimited = false,
+) {
   const compareAt = decimalToNumber(variant.compareAtAmount);
+  const { optionValueSlugs, optionValueIds } = variantOptionMaps(variant);
+  const plan = variant.subscriptionPlan ?? null;
+
   return {
     id: variant.id,
     sku: variant.sku,
     titleFa: variant.titleFa,
-    colorNameFa: variant.colorNameFa,
-    colorSlug: variant.colorSlug,
-    colorHex: variant.colorHex,
-    materialNameFa: variant.materialNameFa,
-    materialSlug: variant.materialSlug,
-    size: variant.size,
+    optionValueSlugs,
+    optionValueIds,
     price: variantPrice(variant, tier, baseCurrency),
     compareAtAmount: convertToToman(compareAt, baseCurrency),
-    availableStock: variant.inventoryUnits.length,
+    availableStock: unlimited ? UNLIMITED_STOCK : variant.inventoryUnits.length,
+    isUnlimited: unlimited,
     images: visibleImages(variant.images, tier),
+    subscription: plan
+      ? {
+          intervalUnit: plan.intervalUnit,
+          intervalCount: plan.intervalCount,
+          trialDays: plan.trialDays,
+          termCount: plan.termCount,
+          gracePeriodDays: plan.gracePeriodDays,
+          autoRenewDefault: plan.autoRenewDefault,
+        }
+      : null,
   };
 }
+
+/** Map a product's configured options into the storefront selector shape. */
+type CatalogOptionRow = {
+  id: string;
+  nameFa: string;
+  slug: string;
+  inputKind: OptionInputKind;
+  position: number;
+  values?: Array<{
+    id: string;
+    valueFa: string;
+    slug: string;
+    hex: string | null;
+    swatchImageUrl: string | null;
+    position: number;
+  }>;
+};
+
+function mapOption(option: CatalogOptionRow) {
+  return {
+    id: option.id,
+    nameFa: option.nameFa,
+    slug: option.slug,
+    inputKind: option.inputKind,
+    position: option.position,
+    values: [...(option.values ?? [])]
+      .sort((a, b) => a.position - b.position)
+      .map((value) => ({
+        id: value.id,
+        valueFa: value.valueFa,
+        slug: value.slug,
+        hex: value.hex,
+        swatchImageUrl: value.swatchImageUrl,
+      })),
+  };
+}
+
+export type CatalogProductOption = ReturnType<typeof mapOption>;
 
 export type ListingProduct = {
   id: string;
@@ -176,6 +268,8 @@ export type ListingProduct = {
   summaryFa: string | null;
   createdAt: string;
   status: ProductStatus;
+  inventoryPolicy: InventoryPolicy;
+  isSubscription: boolean;
   category: { id: string } | null;
   tags: Array<{ id: string }>;
   imageUrl?: string | null;
@@ -265,26 +359,25 @@ export async function getProductsForListing(
 
   const tier = getUserTier(user);
 
-  // Price-range / in-stock / price-and-stock sorting all depend on tier-resolved
-  // values that only exist after mapping (per-user pricing, available stock count).
-  // So those are applied in JS below, which means pagination must also happen in JS.
-  // Category / tag / full-text / archived filters stay in SQL.
   const needsPostFilter =
     typeof minPrice === "number" ||
     typeof maxPrice === "number" ||
     inStock === true ||
     (sort != null && sort !== "newest");
 
-  // Build a WHERE expression using table columns directly (for the count query).
+  // Generic listing hides the legacy per-order DOMAIN/SERVER products (minted via
+  // /domains and /servers) but surfaces DOMAIN/SERVER products that are real
+  // catalog subscriptions (isSubscription = true).
   function buildCountWhere() {
-    const archivedFilter = ne(productsTable.status, "ARCHIVED");
-
-    // Domain (per-search minted) and server (sold via /servers) products are not
-    // part of the generic catalog — keep both out of the listing.
     const baseFilters = [
-      archivedFilter,
-      ne(productsTable.fulfillmentType, "DOMAIN"),
-      ne(productsTable.fulfillmentType, "SERVER"),
+      ne(productsTable.status, "ARCHIVED"),
+      or(
+        eq(productsTable.isSubscription, true),
+        and(
+          ne(productsTable.fulfillmentType, "DOMAIN"),
+          ne(productsTable.fulfillmentType, "SERVER"),
+        ),
+      ),
     ];
 
     if (category) {
@@ -331,8 +424,6 @@ export async function getProductsForListing(
     return and(...baseFilters);
   }
 
-  // COUNT query — only meaningful for the SQL-paginated path. When post-filtering
-  // in JS, the real total is computed after filtering below.
   const [countRow] = await db
     .select({ total: count() })
     .from(productsTable)
@@ -342,11 +433,13 @@ export async function getProductsForListing(
   const offset = (page - 1) * pageSize;
 
   const rows = await db.query.products.findMany({
-    where: (product, { ne: neOp }) => {
+    where: (product, { ne: neOp, eq: eqOp, or: orOp, and: andOp }) => {
       const filters = [
         neOp(product.status, "ARCHIVED"),
-        neOp(product.fulfillmentType, "DOMAIN"),
-        neOp(product.fulfillmentType, "SERVER"),
+        orOp(
+          eqOp(product.isSubscription, true),
+          andOp(neOp(product.fulfillmentType, "DOMAIN"), neOp(product.fulfillmentType, "SERVER")),
+        ),
       ];
 
       if (category) {
@@ -375,14 +468,12 @@ export async function getProductsForListing(
         const textMatch = or(
           ilike(product.titleFa, term),
           ilike(product.summaryFa, term),
-          // Match tag name via EXISTS subquery
           sql`EXISTS (
             SELECT 1 FROM ${productTags} pt
             JOIN ${tags} t ON t.id = pt."tagId"
             WHERE pt."productId" = ${product.id}
               AND t."titleFa" ILIKE ${term}
           )`,
-          // Match category name via EXISTS subquery
           sql`EXISTS (
             SELECT 1 FROM ${categories} c
             WHERE c.id = ${product.categoryId}
@@ -415,18 +506,15 @@ export async function getProductsForListing(
               id: true,
             },
           },
+          subscriptionPlan: true,
         },
         orderBy: (variant, { asc }) => [asc(variant.createdAt)],
       },
     },
     orderBy: (product, { desc }) => [desc(product.createdAt)],
-    // When post-filtering/sorting in JS, fetch the whole matching set and
-    // paginate after. Otherwise let SQL paginate (the common, fast path).
     ...(needsPostFilter ? {} : { limit: pageSize, offset }),
   });
 
-  // One aggregate query keyed by productId for the whole page — avoids N+1.
-  // Only APPROVED reviews count toward the public rating.
   const productIds = rows.map((product) => product.id);
   const ratingByProductId = new Map<string, { avg: number | null; count: number }>();
 
@@ -455,8 +543,9 @@ export async function getProductsForListing(
   await loadExchangeRates();
 
   const mapped = rows.map((product) => {
+    const unlimited = product.inventoryPolicy === "INFINITE";
     const variants = product.variants.map((variant) =>
-      mapVariant(variant, tier, product.baseCurrency),
+      mapVariant(variant, tier, product.baseCurrency, unlimited),
     );
     const firstVariant = variants[0];
     const images = visibleImages(product.images, tier);
@@ -481,6 +570,7 @@ export async function getProductsForListing(
               showcasePremium: false,
               sortOrder: -1,
               variantId: null,
+              optionValueId: null,
             },
             ...images,
           ]
@@ -495,6 +585,8 @@ export async function getProductsForListing(
       summaryFa: product.summaryFa,
       createdAt: product.createdAt.toISOString(),
       status: product.status,
+      inventoryPolicy: product.inventoryPolicy,
+      isSubscription: product.isSubscription,
       category: product.category,
       tags: product.tags.map((item) => item.tag),
       imageUrl: defaultImage,
@@ -510,7 +602,6 @@ export async function getProductsForListing(
     };
   });
 
-  // Fast path: SQL already filtered + paginated + ordered by newest.
   if (!needsPostFilter) {
     return {
       items: mapped,
@@ -523,8 +614,6 @@ export async function getProductsForListing(
     };
   }
 
-  // Post-filter path: apply tier-dependent price range + in-stock filters,
-  // then sort, then paginate in JS.
   const filtered = mapped.filter((product) => {
     if (inStock && product.availableStock <= 0) return false;
     if (typeof minPrice === "number" && product.price < minPrice) return false;
@@ -568,13 +657,8 @@ export type SearchSuggestions = {
 
 /**
  * Lightweight autocomplete for the storefront search. Returns a few ACTIVE,
- * non-DOMAIN products and a few visible categories whose Persian title matches
+ * browsable products and a few visible categories whose Persian title matches
  * the query (ILIKE). Only selects the columns the suggestions UI needs.
- *
- * Image/price are resolved at the PUBLIC tier: the primary image is the first
- * non-VIP product image (falling back to the product's `primaryImageUrl`), and
- * the price is the cheapest variant's public price. VIP-only images are never
- * exposed here regardless of who is asking.
  */
 export async function getSearchSuggestions(
   rawQuery: string,
@@ -594,11 +678,13 @@ export async function getSearchSuggestions(
 
   const [productRows, categoryRows] = await Promise.all([
     db.query.products.findMany({
-      where: (product, { and, eq, ne, ilike }) =>
+      where: (product, { and, eq, ne, ilike, or }) =>
         and(
           eq(product.status, "ACTIVE"),
-          ne(product.fulfillmentType, "DOMAIN"),
-          ne(product.fulfillmentType, "SERVER"),
+          or(
+            eq(product.isSubscription, true),
+            and(ne(product.fulfillmentType, "DOMAIN"), ne(product.fulfillmentType, "SERVER")),
+          ),
           ilike(product.titleFa, like),
         ),
       columns: { id: true, slug: true, titleFa: true, primaryImageUrl: true },
@@ -653,6 +739,14 @@ export async function getProductForDetail(slug: string) {
           tag: true,
         },
       },
+      options: {
+        with: {
+          values: {
+            orderBy: (value, { asc }) => [asc(value.position)],
+          },
+        },
+        orderBy: (option, { asc }) => [asc(option.position)],
+      },
       images: {
         orderBy: (image, { asc }) => [asc(image.sortOrder)],
       },
@@ -667,6 +761,13 @@ export async function getProductForDetail(slug: string) {
               id: true,
             },
           },
+          optionValues: {
+            with: {
+              option: { columns: { slug: true, nameFa: true } },
+              optionValue: { columns: { slug: true, valueFa: true } },
+            },
+          },
+          subscriptionPlan: true,
         },
         orderBy: (variant, { asc, desc }) => [desc(variant.isDefault), asc(variant.createdAt)],
       },
@@ -732,19 +833,22 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
 
   const tier = getUserTier(user);
   await loadExchangeRates();
+  const unlimited = product.inventoryPolicy === "INFINITE";
   const variants = product.variants.map((variant) =>
-    mapVariant(variant, tier, product.baseCurrency),
+    mapVariant(variant, tier, product.baseCurrency, unlimited),
   );
+  const options = product.options.map(mapOption);
   const images = visibleImages(product.images, tier);
   const db = getDb();
   const [{ items: allProducts }, [ratingRow]] = await Promise.all([
     getProductsForListing(user),
-    // Aggregate of APPROVED reviews for this single product (for SEO aggregateRating).
     db
       .select({ avg: avg(productReviews.rating), count: count(productReviews.id) })
       .from(productReviews)
       .where(and(eq(productReviews.productId, product.id), eq(productReviews.status, "APPROVED"))),
   ]);
+
+  const defaultVariant = variants.find((variant) => variant.id === product.variants[0]?.id) ?? null;
 
   return {
     id: product.id,
@@ -755,10 +859,15 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
     fitFa: product.fitFa,
     careFa: product.careFa,
     status: product.status,
+    fulfillmentType: product.fulfillmentType,
+    inventoryPolicy: product.inventoryPolicy,
+    isSubscription: product.isSubscription,
     category: product.category,
     tags: product.tags.map((item) => item.tag),
+    options,
     images,
     variants,
+    defaultVariantId: defaultVariant?.id ?? null,
     relatedProducts: relatedProductsForDetail(product, allProducts),
     // SEO overrides — fall back to titleFa/summaryFa/primaryImageUrl when null.
     seoTitle: product.seoTitle,

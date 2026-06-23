@@ -42,11 +42,6 @@ async function seedProduct(
       productId: product.id,
       sku: `sku-${crypto.randomUUID()}`,
       titleFa: "واریانت تست",
-      colorNameFa: "آبی",
-      colorSlug: "blue",
-      materialNameFa: "پارچه",
-      materialSlug: "fabric",
-      size: "M",
       publicPriceAmount: "200000",
     })
     .returning({ id: productVariants.id });
@@ -199,11 +194,6 @@ test("search: matches by category name", async () => {
       productId: product.id,
       sku: `sku-${crypto.randomUUID()}`,
       titleFa: "واریانت",
-      colorNameFa: "سبز",
-      colorSlug: "green",
-      materialNameFa: "پنبه",
-      materialSlug: "cotton",
-      size: "L",
       publicPriceAmount: "150000",
     });
 

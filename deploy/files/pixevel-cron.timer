@@ -1,0 +1,10 @@
+[Unit]
+Description=Pixevel subscription-renewal cron (daily)
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+Unit=pixevel-cron.service
+
+[Install]
+WantedBy=timers.target

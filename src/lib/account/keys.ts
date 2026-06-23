@@ -28,7 +28,7 @@ export type VaultProductGroup = {
   variantId: string;
   /** Product/line title (Persian). */
   titleFa: string;
-  /** Variant descriptor, e.g. "قرمز / چرم / سایز M" (null when not meaningful). */
+  /** Variant descriptor, e.g. "منطقه: گلوبال · مدت: ماهانه" (null when not meaningful). */
   variantFa: string | null;
   /** Delivered codes for this product line within the order. */
   keys: VaultKey[];
@@ -50,20 +50,6 @@ export type KeysVault = {
   /** Total delivered codes across every order. */
   totalKeys: number;
 };
-
-/** Build a human-friendly variant descriptor from an order line. */
-function variantDescriptor(line: {
-  colorNameFa: string | null;
-  materialNameFa: string | null;
-  size: string | null;
-}): string | null {
-  const parts = [
-    line.colorNameFa,
-    line.materialNameFa,
-    line.size ? `سایز ${line.size}` : null,
-  ].filter((part): part is string => Boolean(part));
-  return parts.length > 0 ? parts.join(" / ") : null;
-}
 
 /**
  * Gather the keys vault for a user: every SOLD digital inventory unit across the
@@ -89,9 +75,7 @@ export async function getKeysVault(userId: string): Promise<KeysVault> {
         columns: {
           variantId: true,
           titleFa: true,
-          colorNameFa: true,
-          materialNameFa: true,
-          size: true,
+          optionsSummaryFa: true,
           fulfillmentType: true,
         },
       },
@@ -112,9 +96,7 @@ export async function getKeysVault(userId: string): Promise<KeysVault> {
       string,
       {
         titleFa: string;
-        colorNameFa: string | null;
-        materialNameFa: string | null;
-        size: string | null;
+        optionsSummaryFa: string | null;
       }
     >();
     for (const item of order.items) {
@@ -123,9 +105,7 @@ export async function getKeysVault(userId: string): Promise<KeysVault> {
         if (!lineByVariant.has(item.variantId)) {
           lineByVariant.set(item.variantId, {
             titleFa: item.titleFa,
-            colorNameFa: item.colorNameFa,
-            materialNameFa: item.materialNameFa,
-            size: item.size,
+            optionsSummaryFa: item.optionsSummaryFa,
           });
         }
       }
@@ -149,7 +129,7 @@ export async function getKeysVault(userId: string): Promise<KeysVault> {
       products.push({
         variantId,
         titleFa: line?.titleFa ?? "محصول دیجیتال",
-        variantFa: line ? variantDescriptor(line) : null,
+        variantFa: line?.optionsSummaryFa ?? null,
         keys,
       });
       orderKeyCount += keys.length;

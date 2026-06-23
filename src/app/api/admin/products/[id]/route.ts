@@ -36,6 +36,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       return apiError("INVALID_FULFILLMENT_TYPE", "نوع تحویل محصول معتبر نیست.");
     }
 
+    if (error instanceof Error && error.message === "INVALID_INVENTORY_POLICY") {
+      return apiError("INVALID_INVENTORY_POLICY", "سیاست موجودی محصول معتبر نیست.");
+    }
+
     if (error instanceof Error && error.message === "INVALID_PRICE") {
       return apiError("INVALID_PRICE", "قیمت محصول معتبر نیست.");
     }
@@ -46,6 +50,10 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     if (error instanceof Error && error.message === "INVALID_IMAGE_VARIANT") {
       return apiError("INVALID_IMAGE_VARIANT", "تنوع انتخاب‌شده برای تصویر معتبر نیست.");
+    }
+
+    if (error instanceof Error && error.message === "INVALID_IMAGE_OPTION_VALUE") {
+      return apiError("INVALID_IMAGE_OPTION_VALUE", "مقدار انتخاب‌شده برای تصویر معتبر نیست.");
     }
 
     if (error instanceof Error && error.message === "DUPLICATE_SHOWCASE_IMAGE") {

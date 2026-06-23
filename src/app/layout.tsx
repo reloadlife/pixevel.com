@@ -20,7 +20,9 @@ const vazirmatn = Vazirmatn({
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixevel.com";
 const siteName = "پیسکول";
-const siteDescription = "خرید آنی گیفت کارت اسپاتیفای، اپل، استیم و سرویس‌های دیجیتال از پیسکول.";
+const siteTitle = "پیسکول | فروشگاه آنلاین همه‌چیز";
+const siteDescription =
+  "پیسکول؛ فروشگاه آنلاین برای خرید کالای فیزیکی، محصولات دیجیتال، سرویس‌ها و اشتراک‌ها با تجربه‌ای سریع، امن و مدرن.";
 
 /**
  * Serializes JSON-LD for safe embedding inside a <script> tag. Escapes `<` so a
@@ -61,7 +63,7 @@ const websiteJsonLd = {
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: {
-    default: "پیسکول | گیفت کارت و محصولات دیجیتال",
+    default: siteTitle,
     template: "%s | پیسکول",
   },
   description: siteDescription,
@@ -70,13 +72,13 @@ export const metadata: Metadata = {
     type: "website",
     locale: "fa_IR",
     siteName,
-    title: "پیسکول | گیفت کارت و محصولات دیجیتال",
+    title: siteTitle,
     description: siteDescription,
     url: siteUrl,
   },
   twitter: {
     card: "summary_large_image",
-    title: "پیسکول | گیفت کارت و محصولات دیجیتال",
+    title: siteTitle,
     description: siteDescription,
   },
 };

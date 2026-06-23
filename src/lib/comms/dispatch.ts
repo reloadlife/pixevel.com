@@ -45,16 +45,21 @@ async function getPrefs(userId: string): Promise<PrefRow | null> {
   return row ?? null;
 }
 
-/** Email/SMS honor the order/promo toggles; in-app/push are not gated by those in Phase 1. */
+/** Email/SMS honor the order/subscription/promo toggles; in-app/push are not gated by those in Phase 1. */
 export function channelAllowed(
   channel: CommEventChannel,
-  prefGate: "order" | "promo" | null,
+  prefGate: "order" | "promo" | "subscription" | null,
   prefs: PrefRow | null,
 ): boolean {
   if (!prefGate || !prefs) return true;
   if (prefGate === "order") {
     if (channel === "EMAIL") return prefs.orderEmail;
     if (channel === "SMS") return prefs.orderSms;
+    return true;
+  }
+  if (prefGate === "subscription") {
+    if (channel === "EMAIL") return prefs.subscriptionEmail;
+    if (channel === "SMS") return prefs.subscriptionSms;
     return true;
   }
   if (channel === "EMAIL") return prefs.promoEmail;

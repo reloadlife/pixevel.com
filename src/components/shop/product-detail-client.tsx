@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, ChevronLeft, Share2, ShoppingBag, Star, Zap } from "lucide-react";
+import { Check, ChevronLeft, RefreshCw, Share2, ShoppingBag, Star, Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -10,28 +10,54 @@ import { ProductReviews } from "@/components/shop/product-reviews";
 import { Button } from "@/components/ui/button";
 import { formatToman, toFaNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { billingIntervalLabelFa } from "@/lib/variant-options";
 
 type DetailImage = {
   id: string;
   url: string;
   altFa: string | null;
   variantId: string | null;
+  optionValueId: string | null;
 };
+
+type OptionValue = {
+  id: string;
+  valueFa: string;
+  slug: string;
+  hex: string | null;
+  swatchImageUrl: string | null;
+};
+
+type ProductOption = {
+  id: string;
+  nameFa: string;
+  slug: string;
+  inputKind: "SELECT" | "SWATCH" | "PILL";
+  position: number;
+  values: OptionValue[];
+};
+
+type VariantSubscription = {
+  intervalUnit: "DAY" | "WEEK" | "MONTH" | "YEAR";
+  intervalCount: number;
+  trialDays: number;
+  termCount: number | null;
+  gracePeriodDays: number;
+  autoRenewDefault: boolean;
+} | null;
 
 type DetailVariant = {
   id: string;
   sku: string;
   titleFa: string;
-  colorNameFa: string;
-  colorSlug: string;
-  colorHex: string | null;
-  materialNameFa: string;
-  materialSlug: string;
-  size: string;
+  optionValueSlugs: Record<string, string>;
+  optionValueIds: string[];
   price: number;
   compareAtAmount: number;
   availableStock: number;
+  isUnlimited: boolean;
   images: DetailImage[];
+  subscription: VariantSubscription;
 };
 
 type ProductCategory = {
@@ -48,15 +74,59 @@ type ProductDetail = {
   fitFa: string | null;
   careFa: string | null;
   status: string;
+  isSubscription: boolean;
   category: ProductCategory;
+  options: ProductOption[];
   images: DetailImage[];
   variants: DetailVariant[];
+  defaultVariantId: string | null;
 };
 
 type ReviewAggregate = {
   count: number;
   average: number;
 };
+
+const EMPTY_IMAGE: DetailImage = {
+  id: "empty",
+  url: "",
+  altFa: null,
+  variantId: null,
+  optionValueId: null,
+};
+
+/** Initial per-option selection, seeded from the default variant's value slugs. */
+function initialSelection(product: ProductDetail): Record<string, string> {
+  const defaultVariant =
+    product.variants.find((variant) => variant.id === product.defaultVariantId) ??
+    product.variants[0] ??
+    null;
+
+  return defaultVariant ? { ...defaultVariant.optionValueSlugs } : {};
+}
+
+/** Finds the variant whose option-value slugs exactly match the current selection. */
+function resolveVariant(
+  product: ProductDetail,
+  selection: Record<string, string>,
+): DetailVariant | undefined {
+  // Optionless products carry a single variant — always active.
+  if (product.options.length === 0) {
+    return product.variants[0];
+  }
+
+  // Every option must be chosen before a variant can be resolved.
+  const allChosen = product.options.every((option) => selection[option.slug]);
+  if (!allChosen) {
+    return undefined;
+  }
+
+  return product.variants.find((variant) =>
+    product.options.every(
+      (option) => variant.optionValueSlugs[option.slug] === selection[option.slug],
+    ),
+  );
+}
 
 export function ProductDetailClient({
   product,
@@ -66,47 +136,92 @@ export function ProductDetailClient({
   isAuthenticated: boolean;
 }) {
   const router = useRouter();
-  const [selectedVariantId, setSelectedVariantId] = useState("");
+  const [selection, setSelection] = useState<Record<string, string>>(() =>
+    initialSelection(product),
+  );
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aggregate, setAggregate] = useState<ReviewAggregate>({ count: 0, average: 0 });
   const galleryRef = useRef<HTMLDivElement | null>(null);
-  const selectedVariant = product.variants.find((variant) => variant.id === selectedVariantId);
-  const priceVariant = selectedVariant ?? product.variants[0];
-  const skuToShow = selectedVariant?.sku ?? product.variants[0]?.sku ?? null;
+
+  const activeVariant = useMemo(() => resolveVariant(product, selection), [product, selection]);
+
+  // The first SWATCH option (if any) drives image filtering by option value.
+  const swatchOption = useMemo(
+    () => product.options.find((option) => option.inputKind === "SWATCH") ?? null,
+    [product.options],
+  );
+  const selectedSwatchValue = useMemo(() => {
+    if (!swatchOption) {
+      return null;
+    }
+    const slug = selection[swatchOption.slug];
+    return swatchOption.values.find((value) => value.slug === slug) ?? null;
+  }, [swatchOption, selection]);
+
+  const priceVariant = activeVariant ?? product.variants[0];
+  const subscription =
+    product.isSubscription && activeVariant?.subscription ? activeVariant.subscription : null;
+  const skuToShow = activeVariant?.sku ?? product.variants[0]?.sku ?? null;
   const compareAtAmount = priceVariant?.compareAtAmount ?? 0;
   const currentPrice = priceVariant?.price ?? 0;
   const hasDiscount = compareAtAmount > currentPrice && currentPrice > 0;
   const discountPercent = hasDiscount
     ? Math.round(((compareAtAmount - currentPrice) / compareAtAmount) * 100)
     : 0;
+
+  // Image gallery resolution:
+  //  - if a SWATCH value is selected, prefer images tagged with that option value;
+  //  - plus the active variant's own images;
+  //  - plus product-level images (no variant binding).
+  // Falls back to the full product image set when nothing matches.
   const visibleImages = useMemo(() => {
-    if (!selectedVariant) {
-      return product.images;
+    const seen = new Set<string>();
+    const collected: DetailImage[] = [];
+
+    const push = (image: DetailImage) => {
+      if (!seen.has(image.id)) {
+        seen.add(image.id);
+        collected.push(image);
+      }
+    };
+
+    if (selectedSwatchValue) {
+      for (const image of product.images) {
+        if (image.optionValueId === selectedSwatchValue.id) {
+          push(image);
+        }
+      }
     }
 
-    const hasVariantImages = product.images.some((image) => image.variantId === selectedVariant.id);
-
-    if (!hasVariantImages) {
-      return product.images;
+    if (activeVariant) {
+      for (const image of activeVariant.images) {
+        push(image);
+      }
     }
 
-    const variantImages = product.images.filter(
-      (image) => !image.variantId || image.variantId === selectedVariant.id,
-    );
+    for (const image of product.images) {
+      if (!image.variantId) {
+        push(image);
+      }
+    }
 
-    return variantImages.length > 0 ? variantImages : product.images;
-  }, [product.images, selectedVariant]);
+    return collected.length > 0 ? collected : product.images;
+  }, [product.images, activeVariant, selectedSwatchValue]);
+
   const galleryImages = useMemo(
-    () =>
-      visibleImages.length
-        ? visibleImages
-        : [{ id: "empty", url: "", altFa: null, variantId: null }],
+    () => (visibleImages.length ? visibleImages : [EMPTY_IMAGE]),
     [visibleImages],
   );
-  const canAdd = product.status === "ACTIVE" && Boolean(selectedVariant?.availableStock);
-  const addButtonLabel = canAdd ? "افزودن به سبد" : "قابل افزودن نیست";
+
+  const canAdd =
+    product.status === "ACTIVE" &&
+    Boolean(activeVariant) &&
+    Boolean(activeVariant?.isUnlimited || (activeVariant?.availableStock ?? 0) > 0);
+
+  const ctaIdleLabel = subscription ? "شروع اشتراک" : "افزودن به سبد";
+  const addButtonLabel = canAdd ? ctaIdleLabel : "قابل افزودن نیست";
   const addButtonClassName =
     "h-14 w-full rounded-full bg-foreground px-6 text-base font-black text-background shadow-2xl lg:h-12 lg:rounded-lg lg:bg-primary lg:text-primary-foreground lg:shadow-none";
 
@@ -138,14 +253,14 @@ export function ProductDetailClient({
     setActiveImageIndex(index);
   }
 
-  function selectVariant(variantId: string) {
-    setSelectedVariantId(variantId);
+  function selectValue(slug: string, valueSlug: string) {
+    setSelection((prev) => ({ ...prev, [slug]: valueSlug }));
     setActiveImageIndex(0);
     galleryRef.current?.scrollTo({ left: 0 });
   }
 
   async function handleAddToBasket() {
-    if (!selectedVariant || pending) {
+    if (!activeVariant || pending) {
       return;
     }
 
@@ -156,7 +271,7 @@ export function ProductDetailClient({
       const response = await fetch("/api/cart", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ variantId: selectedVariant.id, quantity: 1 }),
+        body: JSON.stringify({ variantId: activeVariant.id, quantity: 1 }),
       });
       const payload = await response.json();
 
@@ -337,9 +452,24 @@ export function ProductDetailClient({
             <p className="mt-3 leading-8 text-muted-foreground">{product.summaryFa}</p>
           ) : null}
 
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="mt-5 flex flex-wrap items-baseline gap-3">
             <p className="text-2xl font-black">
-              {priceVariant ? formatToman(currentPrice) : "انتخاب تنوع"}
+              {priceVariant ? (
+                <>
+                  {formatToman(currentPrice)}
+                  {subscription ? (
+                    <span className="text-base font-bold text-muted-foreground">
+                      {" / "}
+                      {billingIntervalLabelFa(
+                        subscription.intervalUnit,
+                        subscription.intervalCount,
+                      )}
+                    </span>
+                  ) : null}
+                </>
+              ) : (
+                "انتخاب تنوع"
+              )}
             </p>
             {hasDiscount ? (
               <>
@@ -353,6 +483,18 @@ export function ProductDetailClient({
             ) : null}
           </div>
 
+          {subscription ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-full bg-muted/50 px-3 py-1.5 text-xs font-bold text-muted-foreground">
+              <RefreshCw className="size-3.5 text-primary" aria-hidden="true" />
+              پرداخت دوره‌ای — قابل لغو در هر زمان
+              {subscription.trialDays > 0 ? (
+                <span className="text-foreground">
+                  · {toFaNumber(subscription.trialDays)} روز آزمایشی رایگان
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
           {skuToShow ? (
             <p className="mt-2 text-xs text-muted-foreground">
               کد محصول:{" "}
@@ -363,26 +505,88 @@ export function ProductDetailClient({
           ) : null}
 
           <div className="mt-8 space-y-5">
-            <div>
-              <p className="mb-3 text-sm font-black">تنوع محصول</p>
-              <div className="grid gap-2">
-                {product.variants.map((variant) => (
-                  <button
-                    key={variant.id}
-                    type="button"
-                    onClick={() => selectVariant(variant.id)}
-                    className={`flex items-center justify-between border px-3 py-3 text-sm transition ${
-                      selectedVariantId === variant.id
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border bg-background hover:border-foreground"
-                    }`}
-                  >
-                    <span className="font-bold">{variant.titleFa}</span>
-                    <span className="text-xs">{stockLabel(variant.availableStock)}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            {product.options.map((option) => {
+              const selectedSlug = selection[option.slug];
+
+              return (
+                <div key={option.id}>
+                  <p className="mb-3 text-sm font-black">{option.nameFa}</p>
+                  {option.inputKind === "SWATCH" ? (
+                    <div className="flex flex-wrap gap-2">
+                      {option.values.map((value) => {
+                        const selected = selectedSlug === value.slug;
+                        return (
+                          <button
+                            key={value.id}
+                            type="button"
+                            title={value.valueFa}
+                            aria-label={value.valueFa}
+                            aria-pressed={selected}
+                            onClick={() => selectValue(option.slug, value.slug)}
+                            className={cn(
+                              "relative size-11 overflow-hidden rounded-full border transition",
+                              selected
+                                ? "border-foreground ring-2 ring-foreground ring-offset-2 ring-offset-background"
+                                : "border-border hover:border-foreground",
+                            )}
+                            style={
+                              value.swatchImageUrl
+                                ? undefined
+                                : { backgroundColor: value.hex ?? "var(--muted)" }
+                            }
+                          >
+                            {value.swatchImageUrl ? (
+                              <img
+                                src={value.swatchImageUrl}
+                                alt={value.valueFa}
+                                className="size-full object-cover"
+                              />
+                            ) : null}
+                            {selected ? (
+                              <span className="absolute inset-0 grid place-items-center">
+                                <Check className="size-4 text-background mix-blend-difference" />
+                              </span>
+                            ) : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {option.values.map((value) => {
+                        const selected = selectedSlug === value.slug;
+                        return (
+                          <button
+                            key={value.id}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => selectValue(option.slug, value.slug)}
+                            className={cn(
+                              "rounded-full border px-4 py-2 text-sm font-bold transition",
+                              selected
+                                ? "border-foreground bg-foreground text-background"
+                                : "border-border bg-background hover:border-foreground",
+                            )}
+                          >
+                            {value.valueFa}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {activeVariant ? (
+              <p className="text-xs font-bold text-muted-foreground">
+                {stockLabel(activeVariant.isUnlimited, activeVariant.availableStock)}
+              </p>
+            ) : product.options.length > 0 ? (
+              <p className="text-xs font-bold text-muted-foreground">
+                برای مشاهده موجودی، یک گزینه از هر بخش انتخاب کنید.
+              </p>
+            ) : null}
 
             <div id="basket">
               <Button
@@ -400,21 +604,48 @@ export function ProductDetailClient({
             <div className="flex items-start gap-3 rounded-2xl border border-border bg-muted/30 p-4">
               <Zap className="mt-0.5 size-5 shrink-0 text-amber-500" aria-hidden="true" />
               <div className="text-sm leading-6">
-                <p className="font-black">تحویل آنی کد پس از پرداخت</p>
-                <p className="mt-1 text-muted-foreground">
-                  بلافاصله پس از تأیید پرداخت، کد محصول در حساب کاربری شما و از طریق پیامک در دسترس
-                  قرار می‌گیرد. نیازی به انتظار یا ارسال فیزیکی نیست.
-                </p>
-                <ul className="mt-3 space-y-1.5 text-muted-foreground">
-                  <li className="flex items-center gap-2">
-                    <Check className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
-                    تحویل دیجیتال و فوری
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
-                    کد اورجینال و معتبر
-                  </li>
-                </ul>
+                {subscription ? (
+                  <>
+                    <p className="font-black">اشتراک با تمدید خودکار</p>
+                    <p className="mt-1 text-muted-foreground">
+                      پس از پرداخت، اشتراک شما فعال می‌شود و به‌صورت{" "}
+                      {billingIntervalLabelFa(
+                        subscription.intervalUnit,
+                        subscription.intervalCount,
+                      )}{" "}
+                      تمدید می‌گردد. مدیریت و لغو اشتراک از بخش «اشتراک‌ها» در حساب کاربری امکان‌پذیر
+                      است.
+                    </p>
+                    <ul className="mt-3 space-y-1.5 text-muted-foreground">
+                      <li className="flex items-center gap-2">
+                        <Check className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                        لغو در هر زمان بدون جریمه
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                        کنترل کامل تمدید خودکار
+                      </li>
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-black">تحویل سریع پس از پرداخت</p>
+                    <p className="mt-1 text-muted-foreground">
+                      بلافاصله پس از تأیید پرداخت، سفارش شما پردازش می‌شود و وضعیت آن در حساب کاربری
+                      قابل پیگیری است.
+                    </p>
+                    <ul className="mt-3 space-y-1.5 text-muted-foreground">
+                      <li className="flex items-center gap-2">
+                        <Check className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                        پردازش سریع سفارش
+                      </li>
+                      <li className="flex items-center gap-2">
+                        <Check className="size-4 shrink-0 text-emerald-500" aria-hidden="true" />
+                        محصول اورجینال و معتبر
+                      </li>
+                    </ul>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -423,7 +654,7 @@ export function ProductDetailClient({
             {product.descriptionFa ? <p>{product.descriptionFa}</p> : null}
             {product.fitFa ? (
               <p>
-                <strong className="text-foreground">فیت:</strong> {product.fitFa}
+                <strong className="text-foreground">مشخصات:</strong> {product.fitFa}
               </p>
             ) : null}
             {product.careFa ? (
@@ -444,13 +675,17 @@ export function ProductDetailClient({
   );
 }
 
-function stockLabel(availableStock: number) {
+function stockLabel(isUnlimited: boolean, availableStock: number) {
+  if (isUnlimited) {
+    return "موجود";
+  }
+
   if (availableStock <= 0) {
     return "ناموجود";
   }
 
   if (availableStock < 3) {
-    return `فقط ${toFaNumber(availableStock)} عدد`;
+    return `فقط ${toFaNumber(availableStock)} عدد باقی مانده`;
   }
 
   return "موجود";

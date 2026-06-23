@@ -11,6 +11,7 @@ import {
   orderReceiptEmail,
 } from "@/lib/email/templates";
 import { formatToman } from "@/lib/format";
+import { applyRenewalPayment, createSubscriptionsForOrder } from "@/lib/subscriptions/create";
 import { dispatchFulfillment } from "./fulfillment";
 import { releaseUnits, sellReservedUnits } from "./inventory";
 
@@ -123,6 +124,14 @@ export async function confirmPayment(orderId: string, opts: ConfirmOptions = {})
     await dispatchFulfillment(orderId).catch((err: unknown) => {
       console.error("[payments] fulfillment dispatch error:", err);
     });
+    // Start subscriptions for any paid NEW subscription line — best-effort.
+    await createSubscriptionsForOrder(orderId).catch((err: unknown) => {
+      console.error("[payments] subscription creation error:", err);
+    });
+    // Advance any subscription whose RENEWAL order this payment settles.
+    await applyRenewalPayment(orderId).catch((err: unknown) => {
+      console.error("[payments] subscription renewal error:", err);
+    });
   }
 }
 
@@ -169,9 +178,7 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
   if (order.customerEmail) {
     const items: OrderEmailItem[] = order.items.map((item) => ({
       titleFa: item.titleFa,
-      variantFa: [item.colorNameFa, item.materialNameFa, item.size ? `سایز ${item.size}` : null]
-        .filter(Boolean)
-        .join(" / "),
+      variantFa: item.optionsSummaryFa ?? "",
       quantity: item.quantity,
       totalPrice: item.totalPrice,
     }));

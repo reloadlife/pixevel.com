@@ -195,6 +195,28 @@ systemd.service(
     running=True, enabled=True, restarted=True, daemon_reload=True,
 )
 
+# ─── subscription-renewal cron (oneshot service + daily timer) ───────────────────
+
+files.template(
+    name="cron service unit",
+    src=f"{HERE}/files/pixevel-cron.service",
+    dest="/etc/systemd/system/pixevel-cron.service",
+    mode="644",
+    env_file=ENV_FILE, node_port=NODE_PORT,
+)
+files.put(
+    name="cron timer unit",
+    src=f"{HERE}/files/pixevel-cron.timer",
+    dest="/etc/systemd/system/pixevel-cron.timer",
+    mode="644",
+)
+# Enable + start the timer (it triggers the oneshot service on schedule).
+systemd.service(
+    name="Enable subscription cron timer",
+    service="pixevel-cron.timer",
+    running=True, enabled=True, daemon_reload=True,
+)
+
 # ─── nginx (static caching + conditional HTTPS) ──────────────────────────────────
 
 files.template(

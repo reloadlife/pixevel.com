@@ -7,7 +7,15 @@ import { getDb } from "@/lib/db";
 
 type PrefRow = typeof notificationPreferences.$inferSelect;
 
-const PREF_KEYS = ["orderEmail", "orderSms", "promoEmail", "promoSms", "newsletterEmail"] as const;
+const PREF_KEYS = [
+  "orderEmail",
+  "orderSms",
+  "subscriptionEmail",
+  "subscriptionSms",
+  "promoEmail",
+  "promoSms",
+  "newsletterEmail",
+] as const;
 
 type PrefKey = (typeof PREF_KEYS)[number];
 
@@ -15,6 +23,8 @@ function publicShape(row: PrefRow) {
   return {
     orderEmail: row.orderEmail,
     orderSms: row.orderSms,
+    subscriptionEmail: row.subscriptionEmail,
+    subscriptionSms: row.subscriptionSms,
     promoEmail: row.promoEmail,
     promoSms: row.promoSms,
     newsletterEmail: row.newsletterEmail,

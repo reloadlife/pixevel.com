@@ -66,9 +66,6 @@ export type LowStockVariant = {
   productSlug: string;
   variantTitleFa: string;
   sku: string;
-  colorNameFa: string;
-  materialNameFa: string;
-  size: string;
   availableCount: number;
 };
 
@@ -192,9 +189,6 @@ export async function getLowStockVariants(
       productSlug: products.slug,
       variantTitleFa: productVariants.titleFa,
       sku: productVariants.sku,
-      colorNameFa: productVariants.colorNameFa,
-      materialNameFa: productVariants.materialNameFa,
-      size: productVariants.size,
       availableCount: sql<number>`count(${inventoryUnits.id}) filter (where ${inventoryUnits.status} = 'AVAILABLE')::int`,
     })
     .from(productVariants)
@@ -207,9 +201,6 @@ export async function getLowStockVariants(
       products.slug,
       productVariants.titleFa,
       productVariants.sku,
-      productVariants.colorNameFa,
-      productVariants.materialNameFa,
-      productVariants.size,
     )
     .having(
       sql`count(${inventoryUnits.id}) filter (where ${inventoryUnits.status} = 'AVAILABLE') < ${threshold}`,

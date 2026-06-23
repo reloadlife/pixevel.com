@@ -24,12 +24,7 @@ const variantBase = {
   id: "v1",
   sku: "SKU-001",
   titleFa: "تست",
-  colorNameFa: "قرمز",
-  colorSlug: "red",
-  colorHex: null,
-  materialNameFa: "پارچه",
-  materialSlug: "fabric",
-  size: "M",
+  optionsKey: "color:red|size:m",
   images: [],
   inventoryUnits: [],
 };

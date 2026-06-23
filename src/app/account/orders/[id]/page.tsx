@@ -235,9 +235,9 @@ export default async function OrderDetailPage({ params }: PageProps) {
                 <p className="mt-0.5 text-xs text-muted-foreground" dir="ltr">
                   {item.sku}
                 </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {item.colorNameFa} / {item.materialNameFa} / سایز {item.size}
-                </p>
+                {item.optionsSummaryFa ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{item.optionsSummaryFa}</p>
+                ) : null}
                 <div className="mt-2 flex items-center justify-between">
                   <span className="text-muted-foreground">× {item.quantity}</span>
                   <span className="font-medium">{formatToman(item.totalPrice)}</span>

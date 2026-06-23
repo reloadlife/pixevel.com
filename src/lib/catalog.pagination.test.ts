@@ -22,11 +22,6 @@ async function seedActiveProduct(tx: any, titleFa: string) {
       productId: product.id,
       sku: `sku-${crypto.randomUUID()}`,
       titleFa: "واریانت تست",
-      colorNameFa: "آبی",
-      colorSlug: "blue",
-      materialNameFa: "پارچه",
-      materialSlug: "fabric",
-      size: "M",
       publicPriceAmount: "100000",
     })
     .returning({ id: productVariants.id });

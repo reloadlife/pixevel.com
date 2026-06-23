@@ -116,6 +116,73 @@ export const DEFAULT_TEMPLATES: Record<CommEventKey, Defaults> = {
     },
     INAPP: { subject: "پاسخ کاربر", body: "کاربر به تیکت «{ticket_subject}» پاسخ داد." },
   },
+  SUBSCRIPTION_STARTED: {
+    EMAIL: {
+      subject: "اشتراک {plan_name} فعال شد",
+      body: `${P("سلام {customer_name}،")}${P("اشتراک «{plan_name}» با موفقیت فعال شد. تمدید بعدی در تاریخ {next_billing_date} به مبلغ {amount} خواهد بود.")}`,
+      bodyText: "اشتراک {plan_name} فعال شد. تمدید بعدی: {next_billing_date}.",
+    },
+    INAPP: { subject: "اشتراک فعال شد", body: "اشتراک «{plan_name}» فعال شد." },
+  },
+  SUBSCRIPTION_RENEWAL_REMINDER: {
+    EMAIL: {
+      subject: "یادآوری تمدید اشتراک {plan_name}",
+      body: `${P("سلام {customer_name}،")}${P("اشتراک «{plan_name}» در تاریخ {next_billing_date} تمدید می‌شود. مبلغ قابل پرداخت: {amount}.")}`,
+      bodyText: "اشتراک {plan_name} در {next_billing_date} تمدید می‌شود. مبلغ: {amount}.",
+    },
+    SMS: { body: "پیکسوِل\nاشتراک {plan_name} در {next_billing_date} تمدید می‌شود. مبلغ: {amount}." },
+    INAPP: {
+      subject: "یادآوری تمدید اشتراک",
+      body: "اشتراک «{plan_name}» در {next_billing_date} تمدید می‌شود.",
+    },
+  },
+  SUBSCRIPTION_RENEWED: {
+    SMS: { body: "پیکسوِل\nاشتراک {plan_name} تمدید شد. تمدید بعدی: {next_billing_date}." },
+    INAPP: { subject: "اشتراک تمدید شد", body: "اشتراک «{plan_name}» تمدید شد." },
+  },
+  SUBSCRIPTION_PAYMENT_FAILED: {
+    EMAIL: {
+      subject: "پرداخت تمدید اشتراک {plan_name} ناموفق بود",
+      body: P(
+        "پرداخت تمدید اشتراک «{plan_name}» ناموفق بود. برای جلوگیری از قطع سرویس لطفاً پرداخت را تکمیل کنید.",
+      ),
+      bodyText: "پرداخت تمدید اشتراک {plan_name} ناموفق بود.",
+    },
+    SMS: { body: "پیکسوِل\nپرداخت تمدید اشتراک {plan_name} ناموفق بود. لطفاً پرداخت کنید." },
+    INAPP: {
+      subject: "پرداخت تمدید ناموفق",
+      body: "پرداخت تمدید اشتراک «{plan_name}» ناموفق بود.",
+    },
+  },
+  SUBSCRIPTION_EXPIRING: {
+    EMAIL: {
+      subject: "اشتراک {plan_name} رو به انقضاست",
+      body: P(
+        "اشتراک «{plan_name}» در تاریخ {expires_at} منقضی می‌شود. برای ادامه سرویس آن را تمدید کنید.",
+      ),
+      bodyText: "اشتراک {plan_name} در {expires_at} منقضی می‌شود.",
+    },
+    INAPP: {
+      subject: "اشتراک رو به انقضا",
+      body: "اشتراک «{plan_name}» در {expires_at} منقضی می‌شود.",
+    },
+  },
+  SUBSCRIPTION_EXPIRED: {
+    EMAIL: {
+      subject: "اشتراک {plan_name} منقضی شد",
+      body: P("اشتراک «{plan_name}» منقضی شد. برای فعال‌سازی مجدد می‌توانید دوباره خرید کنید."),
+      bodyText: "اشتراک {plan_name} منقضی شد.",
+    },
+    INAPP: { subject: "اشتراک منقضی شد", body: "اشتراک «{plan_name}» منقضی شد." },
+  },
+  SUBSCRIPTION_CANCELED: {
+    EMAIL: {
+      subject: "اشتراک {plan_name} لغو شد",
+      body: P("اشتراک «{plan_name}» لغو شد. تا پایان دوره فعلی فعال می‌ماند."),
+      bodyText: "اشتراک {plan_name} لغو شد.",
+    },
+    INAPP: { subject: "اشتراک لغو شد", body: "اشتراک «{plan_name}» لغو شد." },
+  },
 };
 
 // ─── Rendering ──────────────────────────────────────────────────────────────

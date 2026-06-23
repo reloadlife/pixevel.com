@@ -159,9 +159,9 @@ export default async function InvoicePage({ params }: PageProps) {
               <tr key={item.id} className="border-b border-border align-top">
                 <td className="py-3 pl-2">
                   <p className="font-medium">{item.titleFa}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {item.colorNameFa} / {item.materialNameFa} / سایز {item.size}
-                  </p>
+                  {item.optionsSummaryFa ? (
+                    <p className="mt-0.5 text-xs text-muted-foreground">{item.optionsSummaryFa}</p>
+                  ) : null}
                   <p className="mt-0.5 font-mono text-[11px] text-muted-foreground" dir="ltr">
                     {item.sku}
                   </p>

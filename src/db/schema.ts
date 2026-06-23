@@ -64,6 +64,37 @@ export const fulfillmentType = pgEnum("fulfillment_type", [
   "PHYSICAL",
   "DOMAIN",
   "SERVER",
+  "SERVICE",
+]);
+
+/**
+ * How stock is tracked for a product. TRACKED keeps the precise one-row-per-unit
+ * inventory model (physical goods, gift-card codes, CD keys). INFINITE means the
+ * product is always purchasable while ACTIVE and reserves no units (services,
+ * subscriptions, made-to-order, domains/servers provisioned on demand).
+ */
+export const inventoryPolicy = pgEnum("inventory_policy", ["TRACKED", "INFINITE"]);
+
+/** How an option renders on the product page. */
+export const optionInputKind = pgEnum("option_input_kind", ["SELECT", "SWATCH", "PILL"]);
+
+/** Recurring billing cadence unit for subscription plans. */
+export const billingInterval = pgEnum("billing_interval", ["DAY", "WEEK", "MONTH", "YEAR"]);
+
+export const subscriptionStatus = pgEnum("subscription_status", [
+  "TRIALING",
+  "ACTIVE",
+  "PAST_DUE",
+  "CANCELED",
+  "EXPIRED",
+  "PAUSED",
+]);
+
+export const subscriptionInvoiceStatus = pgEnum("subscription_invoice_status", [
+  "PENDING",
+  "PAID",
+  "FAILED",
+  "CANCELED",
 ]);
 
 export const domainStatus = pgEnum("domain_status", ["PENDING", "REGISTERED", "FAILED", "EXPIRED"]);
@@ -117,6 +148,7 @@ export const notificationType = pgEnum("notification_type", [
   "PROMO",
   "SYSTEM",
   "SECURITY",
+  "SUBSCRIPTION",
 ]);
 
 export const giftCardStatus = pgEnum("gift_card_status", [
@@ -156,6 +188,11 @@ export type NotificationType = (typeof notificationType.enumValues)[number];
 export type GiftCardStatus = (typeof giftCardStatus.enumValues)[number];
 export type ReferralStatus = (typeof referralStatus.enumValues)[number];
 export type SupportTicketStatus = (typeof supportTicketStatus.enumValues)[number];
+export type InventoryPolicy = (typeof inventoryPolicy.enumValues)[number];
+export type OptionInputKind = (typeof optionInputKind.enumValues)[number];
+export type BillingInterval = (typeof billingInterval.enumValues)[number];
+export type SubscriptionStatus = (typeof subscriptionStatus.enumValues)[number];
+export type SubscriptionInvoiceStatus = (typeof subscriptionInvoiceStatus.enumValues)[number];
 
 // Shared timestamp helpers (Prisma defaults: createdAt = now(), updatedAt = @updatedAt).
 const createdAt = timestamp("createdAt", { mode: "date" }).defaultNow().notNull();
@@ -304,6 +341,10 @@ export const products = pgTable(
     careFa: text("careFa"),
     status: productStatus("status").default("DRAFT").notNull(),
     fulfillmentType: fulfillmentType("fulfillmentType").default("DIGITAL").notNull(),
+    /** TRACKED = one inventory row per unit; INFINITE = always available, no units. */
+    inventoryPolicy: inventoryPolicy("inventoryPolicy").default("TRACKED").notNull(),
+    /** True when this product sells a recurring subscription (variants carry SubscriptionPlan rows). */
+    isSubscription: boolean("isSubscription").default(false).notNull(),
     categoryId: uuid("categoryId").references(() => categories.id, {
       onDelete: "set null",
     }),
@@ -350,13 +391,14 @@ export const productVariants = pgTable(
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
     sku: text("sku").notNull().unique(),
+    /** Composed human label from the selected option values, e.g. "گلوبال / ماهانه". */
     titleFa: text("titleFa").notNull(),
-    colorNameFa: text("colorNameFa").notNull(),
-    colorSlug: text("colorSlug").notNull(),
-    colorHex: text("colorHex"),
-    materialNameFa: text("materialNameFa").notNull(),
-    materialSlug: text("materialSlug").notNull(),
-    size: text("size").notNull(),
+    /**
+     * Deterministic fingerprint of this variant's selected option values (sorted
+     * optionValueId list joined by "|"). Lets the storefront resolve a selection
+     * to a variant in O(1) and dedupes combinations within a product.
+     */
+    optionsKey: text("optionsKey").notNull().default(""),
     publicPriceAmount: numeric("publicPriceAmount", price).notNull(),
     registeredPriceAmount: numeric("registeredPriceAmount", price),
     premiumPriceAmount: numeric("premiumPriceAmount", price),
@@ -369,7 +411,77 @@ export const productVariants = pgTable(
   },
   (t) => [
     index("ProductVariant_productId_idx").on(t.productId),
-    index("ProductVariant_color_material_size_idx").on(t.colorSlug, t.materialSlug, t.size),
+    uniqueIndex("ProductVariant_productId_optionsKey_uq").on(t.productId, t.optionsKey),
+  ],
+);
+
+/**
+ * A configurable option dimension for a product (e.g. "منطقه", "مدت", "ظرفیت").
+ * Arbitrary per product — the platform sells anything, so there is no fixed set
+ * of dimensions. Replaces the old hardcoded color/material/size columns.
+ */
+export const productOptions = pgTable(
+  "ProductOption",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("productId")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    nameFa: text("nameFa").notNull(),
+    slug: text("slug").notNull(),
+    position: integer("position").default(0).notNull(),
+    inputKind: optionInputKind("inputKind").default("PILL").notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("ProductOption_productId_idx").on(t.productId),
+    uniqueIndex("ProductOption_productId_slug_uq").on(t.productId, t.slug),
+  ],
+);
+
+/** One selectable value of a ProductOption (e.g. "گلوبال", "ماهانه", "۲۷ اینچ"). */
+export const productOptionValues = pgTable(
+  "ProductOptionValue",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    optionId: uuid("optionId")
+      .notNull()
+      .references(() => productOptions.id, { onDelete: "cascade" }),
+    valueFa: text("valueFa").notNull(),
+    slug: text("slug").notNull(),
+    /** Swatch colour for SWATCH options (nullable). */
+    hex: text("hex"),
+    /** Swatch thumbnail for image-based options (nullable). */
+    swatchImageUrl: text("swatchImageUrl"),
+    position: integer("position").default(0).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("ProductOptionValue_optionId_idx").on(t.optionId),
+    uniqueIndex("ProductOptionValue_optionId_slug_uq").on(t.optionId, t.slug),
+  ],
+);
+
+/** Junction: which option value a variant carries for each of its options. */
+export const variantOptionValues = pgTable(
+  "VariantOptionValue",
+  {
+    variantId: uuid("variantId")
+      .notNull()
+      .references(() => productVariants.id, { onDelete: "cascade" }),
+    optionId: uuid("optionId")
+      .notNull()
+      .references(() => productOptions.id, { onDelete: "cascade" }),
+    optionValueId: uuid("optionValueId")
+      .notNull()
+      .references(() => productOptionValues.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.variantId, t.optionId] }),
+    index("VariantOptionValue_optionValueId_idx").on(t.optionValueId),
+    index("VariantOptionValue_variantId_idx").on(t.variantId),
   ],
 );
 
@@ -406,6 +518,10 @@ export const productImages = pgTable(
     variantId: uuid("variantId").references(() => productVariants.id, {
       onDelete: "set null",
     }),
+    /** When set, image belongs to an option value (e.g. a colour) and shows for every variant carrying it. */
+    optionValueId: uuid("optionValueId").references(() => productOptionValues.id, {
+      onDelete: "set null",
+    }),
     url: text("url").notNull(),
     originalUrl: text("originalUrl"),
     altFa: text("altFa"),
@@ -429,6 +545,7 @@ export const productImages = pgTable(
   (t) => [
     index("ProductImage_productId_sortOrder_idx").on(t.productId, t.sortOrder),
     index("ProductImage_variantId_idx").on(t.variantId),
+    index("ProductImage_optionValueId_idx").on(t.optionValueId),
     index("ProductImage_watermarkImageId_idx").on(t.watermarkImageId),
     index("ProductImage_vipImage_idx").on(t.vipImage),
     index("ProductImage_isPrimary_idx").on(t.isPrimary),
@@ -586,19 +703,26 @@ export const orderItems = pgTable(
     }),
     titleFa: text("titleFa").notNull(),
     sku: text("sku").notNull(),
-    colorNameFa: text("colorNameFa").notNull(),
-    materialNameFa: text("materialNameFa").notNull(),
-    size: text("size").notNull(),
+    /** Frozen human summary of the selected options, e.g. "منطقه: گلوبال · مدت: ماهانه". */
+    optionsSummaryFa: text("optionsSummaryFa"),
+    /** Frozen structured snapshot of the selected options at purchase time. */
+    optionsSnapshot:
+      jsonb("optionsSnapshot").$type<Array<{ nameFa: string; valueFa: string; slug: string }>>(),
     quantity: integer("quantity").notNull(),
     unitPrice: numeric("unitPrice", price).notNull(),
     totalPrice: numeric("totalPrice", price).notNull(),
     fulfillmentType: fulfillmentType("fulfillmentType").default("DIGITAL").notNull(),
+    /** Set when this line started/renewed a subscription. */
+    subscriptionId: uuid("subscriptionId").references((): AnyPgColumn => subscriptions.id, {
+      onDelete: "set null",
+    }),
     /** World-specific data carried from the variant (domain / server). */
     metadata: jsonb("metadata"),
   },
   (t) => [
     index("OrderItem_orderId_idx").on(t.orderId),
     index("OrderItem_variantId_idx").on(t.variantId),
+    index("OrderItem_subscriptionId_idx").on(t.subscriptionId),
   ],
 );
 
@@ -622,6 +746,102 @@ export const payments = pgTable(
     index("Payment_userId_idx").on(t.userId),
     index("Payment_orderId_idx").on(t.orderId),
     index("Payment_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * Recurring billing config attached to a subscription variant. The price lives on
+ * the variant (publicPriceAmount etc.) and is charged once per interval.
+ */
+export const subscriptionPlans = pgTable(
+  "SubscriptionPlan",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    variantId: uuid("variantId")
+      .notNull()
+      .unique()
+      .references(() => productVariants.id, { onDelete: "cascade" }),
+    intervalUnit: billingInterval("intervalUnit").default("MONTH").notNull(),
+    intervalCount: integer("intervalCount").default(1).notNull(),
+    trialDays: integer("trialDays").default(0).notNull(),
+    /** Fixed number of billing cycles, or null for open-ended. */
+    termCount: integer("termCount"),
+    gracePeriodDays: integer("gracePeriodDays").default(3).notNull(),
+    autoRenewDefault: boolean("autoRenewDefault").default(true).notNull(),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [index("SubscriptionPlan_variantId_idx").on(t.variantId)],
+);
+
+/** A customer's recurring subscription, created when a subscription line is paid. */
+export const subscriptions = pgTable(
+  "Subscription",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    productId: uuid("productId").references(() => products.id, { onDelete: "set null" }),
+    variantId: uuid("variantId").references(() => productVariants.id, { onDelete: "set null" }),
+    titleFa: text("titleFa").notNull(),
+    /** Snapshot of the plan cadence at creation: { intervalUnit, intervalCount, trialDays, termCount, gracePeriodDays }. */
+    planSnapshot: jsonb("planSnapshot"),
+    status: subscriptionStatus("status").default("ACTIVE").notNull(),
+    currentPeriodStart: timestamp("currentPeriodStart", { mode: "date" }).notNull(),
+    currentPeriodEnd: timestamp("currentPeriodEnd", { mode: "date" }).notNull(),
+    /** When the next renewal invoice is due; null once canceled/expired. */
+    nextBillingAt: timestamp("nextBillingAt", { mode: "date" }),
+    trialEndsAt: timestamp("trialEndsAt", { mode: "date" }),
+    canceledAt: timestamp("canceledAt", { mode: "date" }),
+    cancelAtPeriodEnd: boolean("cancelAtPeriodEnd").default(false).notNull(),
+    autoRenew: boolean("autoRenew").default(true).notNull(),
+    /** Completed billing cycles (for termCount enforcement). */
+    cyclesBilled: integer("cyclesBilled").default(1).notNull(),
+    priceAmount: numeric("priceAmount", price).notNull(),
+    currency: text("currency").default("IRR").notNull(),
+    paymentMethod: text("paymentMethod"),
+    createdFromOrderId: uuid("createdFromOrderId").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    index("Subscription_userId_idx").on(t.userId),
+    index("Subscription_status_nextBillingAt_idx").on(t.status, t.nextBillingAt),
+  ],
+);
+
+/** One billing cycle for a subscription. Each renewal flows through a real Order/Payment. */
+export const subscriptionInvoices = pgTable(
+  "SubscriptionInvoice",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subscriptionId: uuid("subscriptionId")
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: "cascade" }),
+    orderId: uuid("orderId").references(() => orders.id, { onDelete: "set null" }),
+    periodStart: timestamp("periodStart", { mode: "date" }).notNull(),
+    periodEnd: timestamp("periodEnd", { mode: "date" }).notNull(),
+    amount: numeric("amount", price).notNull(),
+    currency: text("currency").default("IRR").notNull(),
+    status: subscriptionInvoiceStatus("status").default("PENDING").notNull(),
+    dueAt: timestamp("dueAt", { mode: "date" }).notNull(),
+    paidAt: timestamp("paidAt", { mode: "date" }),
+    attemptCount: integer("attemptCount").default(0).notNull(),
+    lastAttemptAt: timestamp("lastAttemptAt", { mode: "date" }),
+    /** Whether the renewal reminder for this cycle has been dispatched (idempotency). */
+    reminderSentAt: timestamp("reminderSentAt", { mode: "date" }),
+    createdAt,
+    updatedAt,
+  },
+  (t) => [
+    uniqueIndex("SubscriptionInvoice_subscriptionId_periodStart_uq").on(
+      t.subscriptionId,
+      t.periodStart,
+    ),
+    index("SubscriptionInvoice_status_dueAt_idx").on(t.status, t.dueAt),
   ],
 );
 
@@ -686,6 +906,9 @@ export const domainRegistrations = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     orderItemId: uuid("orderItemId").references(() => orderItems.id, { onDelete: "set null" }),
+    subscriptionId: uuid("subscriptionId").references((): AnyPgColumn => subscriptions.id, {
+      onDelete: "set null",
+    }),
     userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
     domainName: text("domainName").notNull(),
     tld: text("tld").notNull(),
@@ -742,6 +965,9 @@ export const serverInstances = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     orderItemId: uuid("orderItemId").references(() => orderItems.id, { onDelete: "set null" }),
+    subscriptionId: uuid("subscriptionId").references((): AnyPgColumn => subscriptions.id, {
+      onDelete: "set null",
+    }),
     userId: uuid("userId").references(() => users.id, { onDelete: "set null" }),
     planCode: text("planCode").notNull(),
     specs: jsonb("specs"),
@@ -934,6 +1160,8 @@ export const notificationPreferences = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     orderEmail: boolean("orderEmail").default(true).notNull(),
     orderSms: boolean("orderSms").default(true).notNull(),
+    subscriptionEmail: boolean("subscriptionEmail").default(true).notNull(),
+    subscriptionSms: boolean("subscriptionSms").default(true).notNull(),
     promoEmail: boolean("promoEmail").default(false).notNull(),
     promoSms: boolean("promoSms").default(false).notNull(),
     newsletterEmail: boolean("newsletterEmail").default(false).notNull(),
@@ -1074,6 +1302,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   notifications: many(notifications),
   referralsMade: many(referrals),
   supportTickets: many(supportTickets),
+  subscriptions: many(subscriptions),
   loyaltyTransactions: many(loyaltyTransactions),
   wallet: one(wallets),
   loyaltyAccount: one(loyaltyAccounts),
@@ -1117,9 +1346,69 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   }),
   tags: many(productTags),
   variants: many(productVariants),
+  options: many(productOptions),
   images: many(productImages),
   homeBlockItems: many(homeBlockItems),
   reviews: many(productReviews),
+}));
+
+export const productOptionsRelations = relations(productOptions, ({ one, many }) => ({
+  product: one(products, { fields: [productOptions.productId], references: [products.id] }),
+  values: many(productOptionValues),
+  variantOptionValues: many(variantOptionValues),
+}));
+
+export const productOptionValuesRelations = relations(productOptionValues, ({ one, many }) => ({
+  option: one(productOptions, {
+    fields: [productOptionValues.optionId],
+    references: [productOptions.id],
+  }),
+  variantOptionValues: many(variantOptionValues),
+  images: many(productImages),
+}));
+
+export const variantOptionValuesRelations = relations(variantOptionValues, ({ one }) => ({
+  variant: one(productVariants, {
+    fields: [variantOptionValues.variantId],
+    references: [productVariants.id],
+  }),
+  option: one(productOptions, {
+    fields: [variantOptionValues.optionId],
+    references: [productOptions.id],
+  }),
+  optionValue: one(productOptionValues, {
+    fields: [variantOptionValues.optionValueId],
+    references: [productOptionValues.id],
+  }),
+}));
+
+export const subscriptionPlansRelations = relations(subscriptionPlans, ({ one }) => ({
+  variant: one(productVariants, {
+    fields: [subscriptionPlans.variantId],
+    references: [productVariants.id],
+  }),
+}));
+
+export const subscriptionsRelations = relations(subscriptions, ({ one, many }) => ({
+  user: one(users, { fields: [subscriptions.userId], references: [users.id] }),
+  product: one(products, { fields: [subscriptions.productId], references: [products.id] }),
+  variant: one(productVariants, {
+    fields: [subscriptions.variantId],
+    references: [productVariants.id],
+  }),
+  createdFromOrder: one(orders, {
+    fields: [subscriptions.createdFromOrderId],
+    references: [orders.id],
+  }),
+  invoices: many(subscriptionInvoices),
+}));
+
+export const subscriptionInvoicesRelations = relations(subscriptionInvoices, ({ one }) => ({
+  subscription: one(subscriptions, {
+    fields: [subscriptionInvoices.subscriptionId],
+    references: [subscriptions.id],
+  }),
+  order: one(orders, { fields: [subscriptionInvoices.orderId], references: [orders.id] }),
 }));
 
 export const productTagsRelations = relations(productTags, ({ one }) => ({
@@ -1139,6 +1428,8 @@ export const productVariantsRelations = relations(productVariants, ({ one, many 
   inventoryUnits: many(inventoryUnits),
   cartItems: many(cartItems),
   orderItems: many(orderItems),
+  optionValues: many(variantOptionValues),
+  subscriptionPlan: one(subscriptionPlans),
 }));
 
 export const inventoryUnitsRelations = relations(inventoryUnits, ({ one }) => ({
@@ -1158,6 +1449,10 @@ export const productImagesRelations = relations(productImages, ({ one }) => ({
   variant: one(productVariants, {
     fields: [productImages.variantId],
     references: [productVariants.id],
+  }),
+  optionValue: one(productOptionValues, {
+    fields: [productImages.optionValueId],
+    references: [productOptionValues.id],
   }),
   watermarkImage: one(watermarkImages, {
     fields: [productImages.watermarkImageId],
@@ -1214,6 +1509,10 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
   variant: one(productVariants, {
     fields: [orderItems.variantId],
     references: [productVariants.id],
+  }),
+  subscription: one(subscriptions, {
+    fields: [orderItems.subscriptionId],
+    references: [subscriptions.id],
   }),
 }));
 
@@ -1505,3 +1804,11 @@ export type CommStatus = (typeof commStatus.enumValues)[number];
 export type CommLog = typeof commLogs.$inferSelect;
 export type CommWebhookEvent = typeof commWebhookEvents.$inferSelect;
 export type CommTemplate = typeof commTemplates.$inferSelect;
+
+// --- Catalog options & subscriptions ---------------------------------------
+export type ProductOption = typeof productOptions.$inferSelect;
+export type ProductOptionValue = typeof productOptionValues.$inferSelect;
+export type VariantOptionValue = typeof variantOptionValues.$inferSelect;
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type Subscription = typeof subscriptions.$inferSelect;
+export type SubscriptionInvoice = typeof subscriptionInvoices.$inferSelect;

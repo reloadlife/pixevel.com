@@ -55,10 +55,12 @@ async function getServerPlans(user: { isPremium: boolean } | null): Promise<Serv
         return {
           variantId: variant.id,
           periodMonths: meta.periodMonths ?? 1,
-          label: variant.size,
+          label: variant.titleFa,
           price: variantPrice(variant, tier),
           compareAtAmount: decimalToNumber(variant.compareAtAmount),
-          available: product.status === "ACTIVE" && variant.inventoryUnits.length > 0,
+          available:
+            product.status === "ACTIVE" &&
+            (product.inventoryPolicy === "INFINITE" || variant.inventoryUnits.length > 0),
         };
       })
       .sort((a, b) => a.periodMonths - b.periodMonths);

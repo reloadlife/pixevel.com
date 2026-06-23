@@ -310,7 +310,7 @@ function LowStockList({ items }: { items: DashboardMetrics["lowStock"] }) {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">{item.productTitleFa}</p>
                   <p className="truncate text-xs text-muted-foreground">
-                    {item.colorNameFa} / {item.materialNameFa} / {item.size}
+                    {item.variantTitleFa}
                     <span className="mx-1">·</span>
                     <span className="font-mono" dir="ltr">
                       {item.sku}

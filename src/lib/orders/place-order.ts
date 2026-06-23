@@ -1,13 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import {
-  cartItems,
-  carts,
-  type FulfillmentType,
-  orderItems,
-  orders,
-  payments,
-  users,
-} from "@/db/schema";
+import { carts, type FulfillmentType, orderItems, orders, payments, users } from "@/db/schema";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { notify } from "@/lib/comms/dispatch";
 import { decrementCouponUsage, incrementCouponUsage, validateCoupon } from "@/lib/coupons";
@@ -17,6 +9,7 @@ import { isPaymentMethod } from "@/lib/payments/methods";
 import { getProvider, type PaymentMethod } from "@/lib/payments/provider";
 import { isValidIranPhone, normalizeIranPhone } from "@/lib/phone";
 import { loadExchangeRates } from "@/lib/pricing/exchange";
+import { composeOptionsSnapshot, composeOptionsSummary } from "@/lib/variant-options";
 // Self-register every payment provider so getProvider() always resolves.
 import "@/lib/payments/register";
 import { OutOfStockError, releaseExpiredReservations, reserveUnits } from "./inventory";
@@ -219,7 +212,14 @@ export async function placeOrder(
                 titleFa: true,
                 status: true,
                 fulfillmentType: true,
+                inventoryPolicy: true,
                 baseCurrency: true,
+              },
+            },
+            optionValues: {
+              with: {
+                option: { columns: { nameFa: true, slug: true } },
+                optionValue: { columns: { valueFa: true, slug: true } },
               },
             },
           },
@@ -242,10 +242,10 @@ export async function placeOrder(
       lineTotal: number;
       titleFa: string;
       sku: string;
-      colorNameFa: string;
-      materialNameFa: string;
-      size: string;
+      optionsSummaryFa: string | null;
+      optionsSnapshot: Array<{ nameFa: string; valueFa: string; slug: string }>;
       fulfillmentType: FulfillmentType;
+      tracked: boolean;
       metadata: unknown;
     };
 
@@ -267,6 +267,14 @@ export async function placeOrder(
       const lineTotal = unitPrice * row.quantity;
       subtotalToman += lineTotal;
 
+      const optionPairs = (variant.optionValues ?? [])
+        .filter((link: any) => link.option && link.optionValue)
+        .map((link: any) => ({
+          nameFa: link.option.nameFa as string,
+          valueFa: link.optionValue.valueFa as string,
+          slug: link.optionValue.slug as string,
+        }));
+
       pricedRows.push({
         variantId: row.variantId,
         quantity: row.quantity,
@@ -274,10 +282,10 @@ export async function placeOrder(
         lineTotal,
         titleFa: product.titleFa,
         sku: variant.sku,
-        colorNameFa: variant.colorNameFa,
-        materialNameFa: variant.materialNameFa,
-        size: variant.size,
+        optionsSummaryFa: composeOptionsSummary(optionPairs),
+        optionsSnapshot: composeOptionsSnapshot(optionPairs),
         fulfillmentType: product.fulfillmentType,
+        tracked: product.inventoryPolicy !== "INFINITE",
         metadata: variant.metadata,
       });
     }
@@ -352,8 +360,10 @@ export async function placeOrder(
       }
     }
 
-    // 10. Reserve inventory units per item.
+    // 10. Reserve inventory units per item. INFINITE-policy products (services /
+    //     subscriptions) hold no units and are skipped — they're always available.
     for (const row of pricedRows) {
+      if (!row.tracked) continue;
       try {
         await reserveUnits(tx, row.variantId, row.quantity, { orderId, userId });
       } catch (err) {
@@ -364,16 +374,15 @@ export async function placeOrder(
       }
     }
 
-    // 11. Insert order items.
+    // 11. Insert order items (generic option snapshot frozen at purchase time).
     await tx.insert(orderItems).values(
       pricedRows.map((row) => ({
         orderId,
         variantId: row.variantId,
         titleFa: row.titleFa,
         sku: row.sku,
-        colorNameFa: row.colorNameFa,
-        materialNameFa: row.materialNameFa,
-        size: row.size,
+        optionsSummaryFa: row.optionsSummaryFa,
+        optionsSnapshot: row.optionsSnapshot,
         quantity: row.quantity,
         unitPrice: String(row.unitPrice),
         totalPrice: String(row.lineTotal),

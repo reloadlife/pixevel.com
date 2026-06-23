@@ -42,11 +42,6 @@ async function seedVariantWithUnits(
       productId: product.id,
       sku: `sku-${crypto.randomUUID()}`,
       titleFa: "واریانت تست",
-      colorNameFa: "قرمز",
-      colorSlug: "red",
-      materialNameFa: "چرم",
-      materialSlug: "leather",
-      size: "M",
       publicPriceAmount: "100000",
     })
     .returning({ id: productVariants.id });

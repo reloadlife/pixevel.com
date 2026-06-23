@@ -4,68 +4,96 @@ import { and, eq, notInArray } from "drizzle-orm";
 
 import {
   type BaseCurrency,
+  type BillingInterval,
   categories,
   type FulfillmentType,
+  type InventoryPolicy,
   inventoryUnits,
+  type OptionInputKind,
   productImages,
+  productOptions,
+  productOptionValues,
   products,
   productTags,
   productVariants,
+  subscriptionPlans,
   tags as tagsTable,
+  variantOptionValues,
 } from "@/db/schema";
 import { getDb } from "@/lib/db";
 import { slugify } from "@/lib/format";
+import {
+  cartesian,
+  composeVariantSku,
+  composeVariantTitle,
+  optionsKeyFromPairs,
+  optionValueKey,
+} from "@/lib/variant-options";
 
-type OptionInput = {
-  label: string;
-  slug?: string;
-  hex?: string;
-};
-
-const FULFILLMENT_TYPES = new Set<FulfillmentType>(["DIGITAL", "PHYSICAL"]);
+const FULFILLMENT_TYPES = new Set<FulfillmentType>([
+  "DIGITAL",
+  "PHYSICAL",
+  "DOMAIN",
+  "SERVER",
+  "SERVICE",
+]);
+const INVENTORY_POLICIES = new Set<InventoryPolicy>(["TRACKED", "INFINITE"]);
+const OPTION_INPUT_KINDS = new Set<OptionInputKind>(["SELECT", "SWATCH", "PILL"]);
+const BILLING_INTERVALS = new Set<BillingInterval>(["DAY", "WEEK", "MONTH", "YEAR"]);
 
 function cleanFulfillmentType(value: unknown): FulfillmentType | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
-
   const normalized = value.trim().toUpperCase();
-
   if (!FULFILLMENT_TYPES.has(normalized as FulfillmentType)) {
     throw new Error("INVALID_FULFILLMENT_TYPE");
   }
-
   return normalized as FulfillmentType;
+}
+
+function cleanInventoryPolicy(value: unknown): InventoryPolicy | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toUpperCase();
+  if (!INVENTORY_POLICIES.has(normalized as InventoryPolicy)) {
+    throw new Error("INVALID_INVENTORY_POLICY");
+  }
+  return normalized as InventoryPolicy;
+}
+
+function cleanInputKind(value: unknown): OptionInputKind {
+  if (typeof value !== "string") return "PILL";
+  const normalized = value.trim().toUpperCase();
+  return OPTION_INPUT_KINDS.has(normalized as OptionInputKind)
+    ? (normalized as OptionInputKind)
+    : "PILL";
+}
+
+function cleanBillingInterval(value: unknown): BillingInterval {
+  if (typeof value !== "string") return "MONTH";
+  const normalized = value.trim().toUpperCase();
+  return BILLING_INTERVALS.has(normalized as BillingInterval)
+    ? (normalized as BillingInterval)
+    : "MONTH";
 }
 
 /**
  * Normalize an operator-supplied list of inventory codes (real gift-card codes /
- * CD keys). Trims, drops blanks, and de-duplicates within the submitted batch
- * (case-sensitive — codes are secrets and casing can be significant).
+ * CD keys). Trims, drops blanks, and de-duplicates within the submitted batch.
  */
 function normalizeCodes(codes: string[] | undefined): string[] {
   if (!codes || codes.length === 0) {
     return [];
   }
-
   const seen = new Set<string>();
   const result: string[] = [];
-
   for (const raw of codes) {
-    if (typeof raw !== "string") {
-      continue;
-    }
-
+    if (typeof raw !== "string") continue;
     const code = raw.trim();
-
-    if (!code || seen.has(code)) {
-      continue;
-    }
-
+    if (!code || seen.has(code)) continue;
     seen.add(code);
     result.push(code);
   }
-
   return result;
 }
 
@@ -78,18 +106,13 @@ export type StockInsertResult = {
 type TxLike = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
 /**
- * Insert inventory units for a single variant.
+ * Insert inventory units for a single variant (TRACKED products only).
  *
  * - When `codes` are provided, one InventoryUnit row is created per real code
- *   (the DIGITAL path — gift-card codes / CD keys). The UNIQUE(code) constraint
- *   is honored gracefully: codes that already exist (in this product or
- *   anywhere) are skipped and reported, not thrown.
+ *   (the DIGITAL path — gift-card codes / CD keys). UNIQUE(code) is honored
+ *   gracefully: pre-existing codes are skipped and reported, not thrown.
  * - Otherwise, creates `quantity` units with auto-generated internal serials
- *   derived from the variant SKU. This is the PHYSICAL path (a "unit" is one
- *   physical item and its `code` is a meaningless serial), and is also the
- *   fallback for any operator who supplies a plain quantity instead of codes.
- *
- * Returns a summary of how many were added vs skipped.
+ *   derived from the variant SKU (the PHYSICAL path / quantity fallback).
  */
 export async function addInventoryUnitsForVariant(
   tx: TxLike,
@@ -112,7 +135,6 @@ export async function addInventoryUnitsForVariant(
   }
 
   const quantity = sanitizeStockToAdd(params.quantity);
-
   if (quantity <= 0) {
     return { added: 0, skipped: 0, requested: 0 };
   }
@@ -135,6 +157,54 @@ export async function addInventoryUnitsForVariant(
   };
 }
 
+// --- Input types -----------------------------------------------------------
+
+export type OptionValueInput = {
+  valueFa: string;
+  slug?: string;
+  hex?: string | null;
+  swatchImageUrl?: string | null;
+};
+
+export type OptionGroupInput = {
+  nameFa: string;
+  slug?: string;
+  inputKind?: OptionInputKind | string;
+  values: OptionValueInput[];
+};
+
+export type VariantOverrideInput = {
+  publicPriceAmount?: string;
+  registeredPriceAmount?: string | null;
+  premiumPriceAmount?: string | null;
+  compareAtAmount?: string | null;
+  stockCodes?: string[];
+  stockToAdd?: number;
+};
+
+export type SubscriptionPlanInput = {
+  intervalUnit: BillingInterval | string;
+  intervalCount?: number;
+  trialDays?: number;
+  termCount?: number | null;
+  gracePeriodDays?: number;
+  autoRenewDefault?: boolean;
+};
+
+type ProductImageCreateInput = {
+  url: string;
+  altFa?: string;
+  vipImage?: boolean;
+  isPrimary?: boolean;
+  showcasePublic?: boolean;
+  showcasePremium?: boolean;
+  sortOrder?: number;
+  /** optionsKey of the variant this image belongs to (variant-specific image). */
+  variantKey?: string | null;
+  /** "optionSlug:valueSlug" — image shows for every variant carrying this value. */
+  optionValueKey?: string | null;
+};
+
 type ProductCreateInput = {
   titleFa: string;
   slug?: string;
@@ -148,7 +218,9 @@ type ProductCreateInput = {
   ogImageUrl?: string | null;
   noindex?: boolean;
   status?: "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
-  fulfillmentType?: FulfillmentType;
+  fulfillmentType?: FulfillmentType | string;
+  inventoryPolicy?: InventoryPolicy | string;
+  isSubscription?: boolean;
   categoryId?: string | null;
   categoryTitleFa?: string;
   categorySlug?: string;
@@ -159,27 +231,15 @@ type ProductCreateInput = {
   registeredPriceAmount?: string;
   premiumPriceAmount?: string;
   compareAtAmount?: string;
-  images?: Array<{
-    url: string;
-    altFa?: string;
-    vipImage?: boolean;
-    isPrimary?: boolean;
-    showcasePublic?: boolean;
-    showcasePremium?: boolean;
-    sortOrder?: number;
-    variantKey?: string | null;
-  }>;
-  colors: OptionInput[];
-  materials: OptionInput[];
-  sizes: string[];
-  /** Auto-generate this many synthetic codes per variant (fallback when no real codes are supplied). */
+  images?: ProductImageCreateInput[];
+  /** Arbitrary option dimensions; empty → a single default variant. */
+  options: OptionGroupInput[];
+  /** Default synthetic stock per variant (TRACKED, fallback when no codes). */
   stockPerVariant: number;
-  /**
-   * Real sellable codes (gift-card codes / CD keys) keyed by variant key
-   * (`colorSlug|materialSlug|size`). When present for a variant, one InventoryUnit
-   * is created per code instead of auto-generating `stockPerVariant` units.
-   */
-  stockCodesByVariantKey?: Record<string, string[]>;
+  /** Per-variant price/stock overrides keyed by optionsKey. */
+  variantOverridesByKey?: Record<string, VariantOverrideInput>;
+  /** Recurring plan applied to every variant when isSubscription is true. */
+  subscriptionPlan?: SubscriptionPlanInput;
 };
 
 type ProductImageInput = {
@@ -192,28 +252,21 @@ type ProductImageInput = {
   showcasePremium?: boolean;
   sortOrder?: number;
   variantId?: string | null;
-  variantKey?: string | null;
+  optionValueId?: string | null;
 };
 
 type ProductVariantUpdateInput = {
   id: string;
   sku?: string;
   titleFa?: string;
-  colorNameFa?: string;
-  colorSlug?: string;
-  colorHex?: string | null;
-  materialNameFa?: string;
-  materialSlug?: string;
-  size?: string;
   publicPriceAmount?: string;
   registeredPriceAmount?: string | null;
   premiumPriceAmount?: string | null;
   compareAtAmount?: string | null;
   isDefault?: boolean;
-  /** Auto-generate this many synthetic codes (fallback when no real codes are supplied). */
   stockToAdd?: number;
-  /** Real sellable codes to add to this variant (one InventoryUnit per code). */
   stockCodes?: string[];
+  subscriptionPlan?: SubscriptionPlanInput | null;
 };
 
 type ProductUpdateInput = {
@@ -229,7 +282,9 @@ type ProductUpdateInput = {
   ogImageUrl?: string | null;
   noindex?: boolean;
   status?: "DRAFT" | "ACTIVE" | "DISABLED" | "ARCHIVED";
-  fulfillmentType?: FulfillmentType;
+  fulfillmentType?: FulfillmentType | string;
+  inventoryPolicy?: InventoryPolicy | string;
+  isSubscription?: boolean;
   categoryId?: string | null;
   categoryTitleFa?: string;
   categorySlug?: string;
@@ -247,51 +302,27 @@ function fetchAdminProductById(id: string) {
     where: (product, { eq }) => eq(product.id, id),
     with: {
       category: true,
-      tags: {
-        with: {
-          tag: true,
-        },
+      tags: { with: { tag: true } },
+      options: {
+        with: { values: { orderBy: (value, { asc }) => [asc(value.position)] } },
+        orderBy: (option, { asc }) => [asc(option.position)],
       },
-      images: {
-        orderBy: (image, { asc }) => [asc(image.sortOrder)],
-      },
+      images: { orderBy: (image, { asc }) => [asc(image.sortOrder)] },
       variants: {
         with: {
-          inventoryUnits: {
-            columns: {
-              id: true,
-              status: true,
+          inventoryUnits: { columns: { id: true, status: true } },
+          optionValues: {
+            with: {
+              option: { columns: { id: true, slug: true, nameFa: true } },
+              optionValue: { columns: { id: true, slug: true, valueFa: true } },
             },
           },
+          subscriptionPlan: true,
         },
         orderBy: (variant, { asc }) => [asc(variant.createdAt)],
       },
     },
   });
-}
-
-function normalizeOption(option: OptionInput, index: number) {
-  const label = option.label.trim();
-  const slug = slugify(option.slug || label) || `option-${index + 1}`;
-
-  return {
-    label,
-    slug,
-    hex: option.hex?.trim() || null,
-  };
-}
-
-function variantSku(productSlug: string, color: string, material: string, size: string) {
-  return [productSlug, color, material, slugify(size) || size.toLowerCase()]
-    .join("-")
-    .replace(/-+/g, "-")
-    .toUpperCase();
-}
-
-function variantKey(colorSlug: string, materialSlug: string, size: string) {
-  return [colorSlug, materialSlug, slugify(size) || size.trim().toLowerCase()]
-    .join("|")
-    .toLowerCase();
 }
 
 function stockCode(sku: string, index: number) {
@@ -304,21 +335,17 @@ function cleanOptionalText(value: string | null | undefined) {
 
 function cleanRequiredText(value: string | undefined, fallback: string) {
   const cleanValue = value === undefined ? fallback.trim() : value.trim();
-
   if (!cleanValue) {
     throw new Error("INVALID_PRODUCT");
   }
-
   return cleanValue;
 }
 
 function cleanRequiredPrice(value: string | undefined, fallback?: unknown) {
   const cleanValue = value === undefined ? valueFromDecimal(fallback) : value.trim();
-
   if (!cleanValue) {
     throw new Error("INVALID_PRICE");
   }
-
   return cleanValue;
 }
 
@@ -326,7 +353,6 @@ function cleanOptionalPrice(value: string | null | undefined) {
   if (value === undefined) {
     return undefined;
   }
-
   return value?.trim() || null;
 }
 
@@ -334,7 +360,6 @@ function valueFromDecimal(value: unknown) {
   if (value == null) {
     return "";
   }
-
   const text = typeof value === "object" && "toString" in value ? value.toString() : String(value);
   return text.replace(/\.00$/, "");
 }
@@ -343,7 +368,6 @@ function sanitizeStockToAdd(value: number | undefined) {
   if (!Number.isFinite(value) || !value || value <= 0) {
     return 0;
   }
-
   return Math.floor(value);
 }
 
@@ -353,35 +377,72 @@ function assertSingleShowcaseImages(
   if (images.filter((image) => image.showcasePublic).length > 1) {
     throw new Error("DUPLICATE_SHOWCASE_IMAGE");
   }
-
   if (images.filter((image) => image.showcasePremium).length > 1) {
     throw new Error("DUPLICATE_SHOWCASE_IMAGE");
   }
 }
 
+/** Normalize option groups into a clean, deduped, slugged structure. */
+type NormalizedOptionValue = {
+  valueFa: string;
+  slug: string;
+  hex: string | null;
+  swatchImageUrl: string | null;
+};
+type NormalizedOption = {
+  nameFa: string;
+  slug: string;
+  inputKind: OptionInputKind;
+  values: NormalizedOptionValue[];
+};
+
+function normalizeOptions(groups: OptionGroupInput[]): NormalizedOption[] {
+  const usedOptionSlugs = new Set<string>();
+
+  return groups
+    .map((group, groupIndex) => {
+      const nameFa = group.nameFa.trim();
+      if (!nameFa) return null;
+
+      let slug = slugify(group.slug || nameFa) || `option-${groupIndex + 1}`;
+      while (usedOptionSlugs.has(slug)) slug = `${slug}-${groupIndex + 1}`;
+      usedOptionSlugs.add(slug);
+
+      const usedValueSlugs = new Set<string>();
+      const values = group.values
+        .map((value, valueIndex) => {
+          const valueFa = value.valueFa.trim();
+          if (!valueFa) return null;
+          let valueSlug = slugify(value.slug || valueFa) || `value-${valueIndex + 1}`;
+          while (usedValueSlugs.has(valueSlug)) valueSlug = `${valueSlug}-${valueIndex + 1}`;
+          usedValueSlugs.add(valueSlug);
+          return {
+            valueFa,
+            slug: valueSlug,
+            hex: value.hex?.trim() || null,
+            swatchImageUrl: value.swatchImageUrl?.trim() || null,
+          };
+        })
+        .filter((v): v is NormalizedOptionValue => v != null);
+
+      if (values.length === 0) return null;
+
+      return { nameFa, slug, inputKind: cleanInputKind(group.inputKind), values };
+    })
+    .filter((option): option is NormalizedOption => option != null);
+}
+
 async function ensureCategory(titleFa?: string, slug?: string) {
   const cleanTitle = titleFa?.trim();
-
   if (!cleanTitle) {
     return null;
   }
-
   const cleanSlug = slugify(slug || cleanTitle);
-
   const [category] = await getDb()
     .insert(categories)
-    .values({
-      slug: cleanSlug,
-      titleFa: cleanTitle,
-    })
-    .onConflictDoUpdate({
-      target: categories.slug,
-      set: {
-        titleFa: cleanTitle,
-      },
-    })
+    .values({ slug: cleanSlug, titleFa: cleanTitle })
+    .onConflictDoUpdate({ target: categories.slug, set: { titleFa: cleanTitle } })
     .returning();
-
   return category;
 }
 
@@ -392,38 +453,24 @@ async function resolveCategory(
     const category = await getDb().query.categories.findFirst({
       where: (item, { eq }) => eq(item.id, input.categoryId as string),
     });
-
     if (!category) {
       throw new Error("INVALID_CATEGORY");
     }
-
     return category;
   }
-
   return ensureCategory(input.categoryTitleFa, input.categorySlug);
 }
 
 async function ensureTags(tags: string[]) {
   const uniqueTags = Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)));
-
   return Promise.all(
     uniqueTags.map(async (tag) => {
       const slug = slugify(tag);
-
       const [row] = await getDb()
         .insert(tagsTable)
-        .values({
-          slug,
-          titleFa: tag,
-        })
-        .onConflictDoUpdate({
-          target: tagsTable.slug,
-          set: {
-            titleFa: tag,
-          },
-        })
+        .values({ slug, titleFa: tag })
+        .onConflictDoUpdate({ target: tagsTable.slug, set: { titleFa: tag } })
         .returning();
-
       return row;
     }),
   );
@@ -433,33 +480,38 @@ async function resolveTags(input: Pick<ProductCreateInput, "tagIds" | "newTags" 
   const tagIds = Array.from(new Set(input.tagIds ?? [])).filter(Boolean);
   const [existingTags, createdTags] = await Promise.all([
     tagIds.length > 0
-      ? getDb().query.tags.findMany({
-          where: (tag, { inArray }) => inArray(tag.id, tagIds),
-        })
+      ? getDb().query.tags.findMany({ where: (tag, { inArray }) => inArray(tag.id, tagIds) })
       : [],
     ensureTags([...(input.newTags ?? []), ...(input.tags ?? [])]),
   ]);
   const tagsById = new Map([...existingTags, ...createdTags].map((tag) => [tag.id, tag]));
-
   return Array.from(tagsById.values());
+}
+
+function buildSubscriptionPlanValues(variantId: string, plan: SubscriptionPlanInput) {
+  return {
+    variantId,
+    intervalUnit: cleanBillingInterval(plan.intervalUnit),
+    intervalCount: Math.max(1, Math.floor(plan.intervalCount ?? 1)),
+    trialDays: Math.max(0, Math.floor(plan.trialDays ?? 0)),
+    termCount: plan.termCount == null ? null : Math.max(1, Math.floor(plan.termCount)),
+    gracePeriodDays: Math.max(0, Math.floor(plan.gracePeriodDays ?? 3)),
+    autoRenewDefault: plan.autoRenewDefault ?? true,
+  };
 }
 
 export async function createAdminProduct(input: ProductCreateInput) {
   const productSlug = slugify(input.slug || input.titleFa);
-
   if (!productSlug) {
     throw new Error("INVALID_SLUG");
   }
 
-  const colors = input.colors.map(normalizeOption).filter((item) => item.label);
-  const materials = input.materials.map(normalizeOption).filter((item) => item.label);
-  const sizes = input.sizes.map((size) => size.trim()).filter(Boolean);
-
-  if (colors.length === 0 || materials.length === 0 || sizes.length === 0) {
-    throw new Error("INVALID_VARIANTS");
-  }
-
+  const options = normalizeOptions(input.options ?? []);
   const fulfillment = cleanFulfillmentType(input.fulfillmentType);
+  const inventoryPolicyValue = cleanInventoryPolicy(input.inventoryPolicy) ?? "TRACKED";
+  const isSubscription = Boolean(input.isSubscription);
+  const tracked = inventoryPolicyValue === "TRACKED";
+
   const [category, tags] = await Promise.all([resolveCategory(input), resolveTags(input)]);
   const images = (input.images ?? []).filter((image) => image.url.trim());
   const primaryImage = images.find((image) => image.isPrimary) ?? images[0];
@@ -482,78 +534,146 @@ export async function createAdminProduct(input: ProductCreateInput) {
         noindex: Boolean(input.noindex),
         status: input.status ?? "DRAFT",
         fulfillmentType: fulfillment ?? "DIGITAL",
+        inventoryPolicy: inventoryPolicyValue,
+        isSubscription,
         categoryId: category?.id ?? null,
         primaryImageUrl: primaryImage?.url.trim() || null,
       })
       .returning();
 
     if (tags.length > 0) {
-      await tx.insert(productTags).values(
-        tags.map((tag) => ({
+      await tx
+        .insert(productTags)
+        .values(tags.map((tag) => ({ productId: product.id, tagId: tag.id })));
+    }
+
+    // Insert options + values, capturing ids by slug for the variant junction.
+    const optionMeta = new Map<
+      string,
+      { id: string; nameFa: string; valuesBySlug: Map<string, { id: string; valueFa: string }> }
+    >();
+
+    for (const [position, option] of options.entries()) {
+      const [optionRow] = await tx
+        .insert(productOptions)
+        .values({
           productId: product.id,
-          tagId: tag.id,
-        })),
-      );
+          nameFa: option.nameFa,
+          slug: option.slug,
+          position,
+          inputKind: option.inputKind,
+        })
+        .returning();
+
+      const valuesBySlug = new Map<string, { id: string; valueFa: string }>();
+      for (const [valuePosition, value] of option.values.entries()) {
+        const [valueRow] = await tx
+          .insert(productOptionValues)
+          .values({
+            optionId: optionRow.id,
+            valueFa: value.valueFa,
+            slug: value.slug,
+            hex: value.hex,
+            swatchImageUrl: value.swatchImageUrl,
+            position: valuePosition,
+          })
+          .returning();
+        valuesBySlug.set(value.slug, { id: valueRow.id, valueFa: value.valueFa });
+      }
+
+      optionMeta.set(option.slug, { id: optionRow.id, nameFa: option.nameFa, valuesBySlug });
+    }
+
+    // Cartesian product over option values → one variant per combination.
+    // No options → a single default variant (combos = [[]]).
+    const combos = cartesian(
+      options.map((option) => option.values.map((v) => ({ option, value: v }))),
+    );
+
+    const variantIdsByKey = new Map<string, string>();
+    const optionValueIdByKey = new Map<string, string>();
+    for (const [slug, meta] of optionMeta) {
+      for (const [valueSlug, value] of meta.valuesBySlug) {
+        optionValueIdByKey.set(optionValueKey(slug, valueSlug), value.id);
+      }
     }
 
     let isFirstVariant = true;
-    const variantIdsByKey = new Map<string, string>();
+    for (const combo of combos) {
+      const pairs = combo.map((item) => ({
+        optionSlug: item.option.slug,
+        valueSlug: item.value.slug,
+      }));
+      const optionsKey = optionsKeyFromPairs(pairs);
+      const valueSlugs = combo.map((item) => item.value.slug);
+      const valueLabels = combo.map((item) => item.value.valueFa);
+      const sku =
+        combo.length === 0 ? productSlug.toUpperCase() : composeVariantSku(productSlug, valueSlugs);
+      const titleFa = composeVariantTitle(valueLabels, input.titleFa.trim());
+      const override = input.variantOverridesByKey?.[optionsKey];
 
-    for (const color of colors) {
-      for (const material of materials) {
-        for (const size of sizes) {
-          const sku = variantSku(productSlug, color.slug, material.slug, size);
-          const titleFa = `${color.label} / ${material.label} / ${size}`;
+      const [variant] = await tx
+        .insert(productVariants)
+        .values({
+          productId: product.id,
+          sku,
+          titleFa,
+          optionsKey,
+          publicPriceAmount: override?.publicPriceAmount || input.publicPriceAmount,
+          registeredPriceAmount:
+            override?.registeredPriceAmount ?? input.registeredPriceAmount ?? null,
+          premiumPriceAmount: override?.premiumPriceAmount ?? input.premiumPriceAmount ?? null,
+          compareAtAmount: override?.compareAtAmount ?? input.compareAtAmount ?? null,
+          isDefault: isFirstVariant,
+        })
+        .returning();
 
-          const [variant] = await tx
-            .insert(productVariants)
-            .values({
-              productId: product.id,
-              sku,
-              titleFa,
-              colorNameFa: color.label,
-              colorSlug: color.slug,
-              colorHex: color.hex,
-              materialNameFa: material.label,
-              materialSlug: material.slug,
-              size,
-              publicPriceAmount: input.publicPriceAmount,
-              registeredPriceAmount: input.registeredPriceAmount || null,
-              premiumPriceAmount: input.premiumPriceAmount || null,
-              compareAtAmount: input.compareAtAmount || null,
-              isDefault: isFirstVariant,
-            })
-            .returning();
+      isFirstVariant = false;
+      variantIdsByKey.set(optionsKey, variant.id);
 
-          isFirstVariant = false;
-          const key = variantKey(color.slug, material.slug, size);
-          variantIdsByKey.set(key, variant.id);
-
-          const variantCodes = input.stockCodesByVariantKey?.[key];
-
-          await addInventoryUnitsForVariant(tx, {
+      // Variant ↔ option-value junction rows.
+      if (combo.length > 0) {
+        await tx.insert(variantOptionValues).values(
+          combo.map((item) => ({
             variantId: variant.id,
-            sku,
-            codes: variantCodes,
-            quantity: input.stockPerVariant,
-          });
-        }
+            optionId: optionMeta.get(item.option.slug)?.id as string,
+            optionValueId: optionMeta.get(item.option.slug)?.valuesBySlug.get(item.value.slug)
+              ?.id as string,
+          })),
+        );
+      }
+
+      if (isSubscription && input.subscriptionPlan) {
+        await tx
+          .insert(subscriptionPlans)
+          .values(buildSubscriptionPlanValues(variant.id, input.subscriptionPlan));
+      }
+
+      if (tracked) {
+        await addInventoryUnitsForVariant(tx, {
+          variantId: variant.id,
+          sku,
+          codes: override?.stockCodes,
+          quantity: override?.stockToAdd ?? input.stockPerVariant,
+        });
       }
     }
 
     if (images.length > 0) {
       await tx.insert(productImages).values(
         images.map((image, index) => {
-          const cleanVariantKey = image.variantKey?.trim();
-          const variantId = cleanVariantKey ? variantIdsByKey.get(cleanVariantKey) : null;
+          const variantKey = image.variantKey?.trim();
+          const optionValueRef = image.optionValueKey?.trim();
+          const variantId = variantKey ? variantIdsByKey.get(variantKey) : null;
+          const optionValueId = optionValueRef ? optionValueIdByKey.get(optionValueRef) : null;
 
-          if (cleanVariantKey && !variantId) {
-            throw new Error("INVALID_IMAGE_VARIANT");
-          }
+          if (variantKey && !variantId) throw new Error("INVALID_IMAGE_VARIANT");
+          if (optionValueRef && !optionValueId) throw new Error("INVALID_IMAGE_OPTION_VALUE");
 
           return {
             productId: product.id,
             variantId: variantId ?? null,
+            optionValueId: optionValueId ?? null,
             url: image.url.trim(),
             altFa: image.altFa?.trim() || input.titleFa.trim(),
             vipImage: Boolean(image.vipImage),
@@ -572,16 +692,15 @@ export async function createAdminProduct(input: ProductCreateInput) {
 
 export async function updateAdminProduct(id: string, input: ProductUpdateInput) {
   const current = await fetchAdminProductById(id);
-
   if (!current) {
     throw new Error("PRODUCT_NOT_FOUND");
   }
-
   if (input.status && !PRODUCT_STATUSES.has(input.status)) {
     throw new Error("INVALID_STATUS");
   }
 
   const fulfillment = cleanFulfillmentType(input.fulfillmentType);
+  const inventoryPolicyValue = cleanInventoryPolicy(input.inventoryPolicy);
 
   const shouldUpdateCategory =
     input.categoryId !== undefined ||
@@ -597,12 +716,14 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
 
   const variantIds = new Set(current.variants.map((variant) => variant.id));
   const imageIds = new Set(current.images.map((image) => image.id));
+  const optionValueIds = new Set(
+    current.options.flatMap((option) => option.values.map((value) => value.id)),
+  );
   const nextTitle =
     input.titleFa !== undefined
       ? cleanRequiredText(input.titleFa, current.titleFa)
       : current.titleFa;
   const nextSlug = input.slug !== undefined ? slugify(input.slug || nextTitle) : current.slug;
-
   if (!nextSlug) {
     throw new Error("INVALID_SLUG");
   }
@@ -614,28 +735,25 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
       altFa: image.altFa?.trim() || nextTitle,
       sortOrder: image.sortOrder ?? index,
       variantId: image.variantId?.trim() || null,
+      optionValueId: image.optionValueId?.trim() || null,
     }))
     .filter((image) => image.url);
 
   if (normalizedImages) {
     assertSingleShowcaseImages(normalizedImages);
-
     for (const image of normalizedImages) {
-      if (image.id && !imageIds.has(image.id)) {
-        throw new Error("INVALID_IMAGE");
-      }
-
-      if (image.variantId && !variantIds.has(image.variantId)) {
+      if (image.id && !imageIds.has(image.id)) throw new Error("INVALID_IMAGE");
+      if (image.variantId && !variantIds.has(image.variantId))
         throw new Error("INVALID_IMAGE_VARIANT");
+      if (image.optionValueId && !optionValueIds.has(image.optionValueId)) {
+        throw new Error("INVALID_IMAGE_OPTION_VALUE");
       }
     }
   }
 
   if (input.variants) {
     for (const variant of input.variants) {
-      if (!variantIds.has(variant.id)) {
-        throw new Error("INVALID_VARIANT");
-      }
+      if (!variantIds.has(variant.id)) throw new Error("INVALID_VARIANT");
     }
   }
 
@@ -660,6 +778,10 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
       ...(input.noindex !== undefined ? { noindex: Boolean(input.noindex) } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(fulfillment ? { fulfillmentType: fulfillment } : {}),
+      ...(inventoryPolicyValue ? { inventoryPolicy: inventoryPolicyValue } : {}),
+      ...(input.isSubscription !== undefined
+        ? { isSubscription: Boolean(input.isSubscription) }
+        : {}),
       ...(shouldUpdateCategory ? { categoryId: category?.id ?? null } : {}),
       ...(normalizedImages
         ? {
@@ -676,16 +798,10 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
 
     if (shouldUpdateTags) {
       await tx.delete(productTags).where(eq(productTags.productId, id));
-
       if (tags.length > 0) {
         await tx
           .insert(productTags)
-          .values(
-            tags.map((tag) => ({
-              productId: id,
-              tagId: tag.id,
-            })),
-          )
+          .values(tags.map((tag) => ({ productId: id, tagId: tag.id })))
           .onConflictDoNothing();
       }
     }
@@ -703,43 +819,16 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
 
       for (const variantPatch of input.variants) {
         const currentVariant = variantsById.get(variantPatch.id);
-
-        if (!currentVariant) {
-          throw new Error("INVALID_VARIANT");
-        }
+        if (!currentVariant) throw new Error("INVALID_VARIANT");
 
         const nextSku = cleanRequiredText(variantPatch.sku, currentVariant.sku);
         const nextTitleFa = cleanRequiredText(variantPatch.titleFa, currentVariant.titleFa);
-        const nextColorNameFa = cleanRequiredText(
-          variantPatch.colorNameFa,
-          currentVariant.colorNameFa,
-        );
-        const nextMaterialNameFa = cleanRequiredText(
-          variantPatch.materialNameFa,
-          currentVariant.materialNameFa,
-        );
-        const nextSize = cleanRequiredText(variantPatch.size, currentVariant.size);
 
         await tx
           .update(productVariants)
           .set({
             sku: nextSku,
             titleFa: nextTitleFa,
-            colorNameFa: nextColorNameFa,
-            colorSlug:
-              variantPatch.colorSlug !== undefined
-                ? slugify(variantPatch.colorSlug || nextColorNameFa)
-                : currentVariant.colorSlug,
-            colorHex:
-              variantPatch.colorHex !== undefined
-                ? variantPatch.colorHex?.trim() || null
-                : currentVariant.colorHex,
-            materialNameFa: nextMaterialNameFa,
-            materialSlug:
-              variantPatch.materialSlug !== undefined
-                ? slugify(variantPatch.materialSlug || nextMaterialNameFa)
-                : currentVariant.materialSlug,
-            size: nextSize,
             publicPriceAmount: cleanRequiredPrice(
               variantPatch.publicPriceAmount,
               currentVariant.publicPriceAmount,
@@ -757,12 +846,26 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
           })
           .where(eq(productVariants.id, variantPatch.id));
 
-        await addInventoryUnitsForVariant(tx, {
-          variantId: variantPatch.id,
-          sku: nextSku,
-          codes: variantPatch.stockCodes,
-          quantity: variantPatch.stockToAdd,
-        });
+        // Upsert / clear the subscription plan for this variant when provided.
+        if (variantPatch.subscriptionPlan !== undefined) {
+          await tx
+            .delete(subscriptionPlans)
+            .where(eq(subscriptionPlans.variantId, variantPatch.id));
+          if (variantPatch.subscriptionPlan) {
+            await tx
+              .insert(subscriptionPlans)
+              .values(buildSubscriptionPlanValues(variantPatch.id, variantPatch.subscriptionPlan));
+          }
+        }
+
+        if (current.inventoryPolicy === "TRACKED") {
+          await addInventoryUnitsForVariant(tx, {
+            variantId: variantPatch.id,
+            sku: nextSku,
+            codes: variantPatch.stockCodes,
+            quantity: variantPatch.stockToAdd,
+          });
+        }
       }
     }
 
@@ -792,26 +895,22 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
           showcasePremium: Boolean(image.showcasePremium),
           sortOrder: image.sortOrder ?? index,
           variantId: image.variantId,
+          optionValueId: image.optionValueId,
         };
 
         if (image.id) {
           await tx.update(productImages).set(data).where(eq(productImages.id, image.id));
         } else {
-          await tx.insert(productImages).values({
-            ...data,
-            productId: id,
-          });
+          await tx.insert(productImages).values({ ...data, productId: id });
         }
       }
     }
   });
 
   const updated = await fetchAdminProductById(id);
-
   if (!updated) {
     throw new Error("PRODUCT_NOT_FOUND");
   }
-
   return updated;
 }
 
@@ -819,22 +918,22 @@ export async function listAdminProducts() {
   return getDb().query.products.findMany({
     with: {
       category: true,
-      tags: {
-        with: {
-          tag: true,
-        },
+      tags: { with: { tag: true } },
+      options: {
+        with: { values: { orderBy: (value, { asc }) => [asc(value.position)] } },
+        orderBy: (option, { asc }) => [asc(option.position)],
       },
-      images: {
-        orderBy: (image, { asc }) => [asc(image.sortOrder)],
-      },
+      images: { orderBy: (image, { asc }) => [asc(image.sortOrder)] },
       variants: {
         with: {
-          inventoryUnits: {
-            columns: {
-              id: true,
-              status: true,
+          inventoryUnits: { columns: { id: true, status: true } },
+          optionValues: {
+            with: {
+              option: { columns: { id: true, slug: true, nameFa: true } },
+              optionValue: { columns: { id: true, slug: true, valueFa: true } },
             },
           },
+          subscriptionPlan: true,
         },
         orderBy: (variant, { asc }) => [asc(variant.createdAt)],
       },
@@ -865,6 +964,8 @@ export function toAdminProductRow(product: AdminProductRecord) {
     noindex: product.noindex,
     status: product.status,
     fulfillmentType: product.fulfillmentType,
+    inventoryPolicy: product.inventoryPolicy,
+    isSubscription: product.isSubscription,
     categoryId: product.categoryId ?? "",
     tagIds: product.tags.map((item) => item.tagId),
     tags: product.tags.map((item) => ({
@@ -872,6 +973,21 @@ export function toAdminProductRow(product: AdminProductRecord) {
       slug: item.tag.slug,
       titleFa: item.tag.titleFa,
       isVisible: item.tag.isVisible,
+    })),
+    options: product.options.map((option) => ({
+      id: option.id,
+      nameFa: option.nameFa,
+      slug: option.slug,
+      inputKind: option.inputKind,
+      position: option.position,
+      values: option.values.map((value) => ({
+        id: value.id,
+        valueFa: value.valueFa,
+        slug: value.slug,
+        hex: value.hex ?? "",
+        swatchImageUrl: value.swatchImageUrl ?? "",
+        position: value.position,
+      })),
     })),
     images: product.images.map((image) => ({
       id: image.id,
@@ -884,6 +1000,7 @@ export function toAdminProductRow(product: AdminProductRecord) {
       showcasePremium: image.showcasePremium,
       sortOrder: image.sortOrder,
       variantId: image.variantId ?? "",
+      optionValueId: image.optionValueId ?? "",
       watermarkEnabled: image.watermarkEnabled,
       watermarkImageId: image.watermarkImageId ?? "",
       watermarkX: image.watermarkX,
@@ -896,21 +1013,31 @@ export function toAdminProductRow(product: AdminProductRecord) {
       id: variant.id,
       sku: variant.sku,
       titleFa: variant.titleFa,
-      colorNameFa: variant.colorNameFa,
-      colorSlug: variant.colorSlug,
-      colorHex: variant.colorHex ?? "",
-      materialNameFa: variant.materialNameFa,
-      materialSlug: variant.materialSlug,
-      size: variant.size,
+      optionsKey: variant.optionsKey,
+      optionValues: variant.optionValues.map((link) => ({
+        optionId: link.option?.id ?? link.optionId,
+        optionSlug: link.option?.slug ?? "",
+        optionNameFa: link.option?.nameFa ?? "",
+        optionValueId: link.optionValue?.id ?? link.optionValueId,
+        valueSlug: link.optionValue?.slug ?? "",
+        valueFa: link.optionValue?.valueFa ?? "",
+      })),
       publicPriceAmount: valueFromDecimal(variant.publicPriceAmount),
       registeredPriceAmount: valueFromDecimal(variant.registeredPriceAmount),
       premiumPriceAmount: valueFromDecimal(variant.premiumPriceAmount),
       compareAtAmount: valueFromDecimal(variant.compareAtAmount),
       isDefault: variant.isDefault,
-      inventoryUnits: variant.inventoryUnits.map((unit) => ({
-        id: unit.id,
-        status: unit.status,
-      })),
+      subscriptionPlan: variant.subscriptionPlan
+        ? {
+            intervalUnit: variant.subscriptionPlan.intervalUnit,
+            intervalCount: variant.subscriptionPlan.intervalCount,
+            trialDays: variant.subscriptionPlan.trialDays,
+            termCount: variant.subscriptionPlan.termCount,
+            gracePeriodDays: variant.subscriptionPlan.gracePeriodDays,
+            autoRenewDefault: variant.subscriptionPlan.autoRenewDefault,
+          }
+        : null,
+      inventoryUnits: variant.inventoryUnits.map((unit) => ({ id: unit.id, status: unit.status })),
     })),
   };
 }

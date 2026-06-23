@@ -41,11 +41,77 @@ function metaTitle(product: ProductView): string {
   return product.seoTitle?.trim() || product.titleFa;
 }
 
-/** Lowest variant price — the figure used for SEO offers and meta description. */
-function lowestPrice(product: ProductView): number {
-  const prices = product.variants.map((variant) => variant.price).filter((price) => price > 0);
+/** Variant prices > 0 — the figures used for SEO offers and meta description. */
+function variantPrices(product: ProductView): number[] {
+  return product.variants.map((variant) => variant.price).filter((price) => price > 0);
+}
 
-  return prices.length > 0 ? Math.min(...prices) : 0;
+/** A single variant is purchasable when the product is active and it has stock. */
+function variantInStock(product: ProductView, variant: ProductView["variants"][number]): boolean {
+  return product.status === "ACTIVE" && (variant.isUnlimited || variant.availableStock > 0);
+}
+
+/** Every distinct image URL across product- and variant-level images. */
+function allImageUrls(product: ProductView): string[] {
+  const urls = new Set<string>();
+
+  for (const image of product.images) {
+    if (image.url) {
+      urls.add(image.url);
+    }
+  }
+
+  for (const variant of product.variants) {
+    for (const image of variant.images) {
+      if (image.url) {
+        urls.add(image.url);
+      }
+    }
+  }
+
+  return [...urls];
+}
+
+/** Maps an internal interval unit to a schema.org ISO-8601 duration token. */
+const ISO_DURATION_BY_UNIT: Record<string, string> = {
+  DAY: "D",
+  WEEK: "W",
+  MONTH: "M",
+  YEAR: "Y",
+};
+
+/**
+ * Best-effort schema.org UnitPriceSpecification describing the recurring cadence
+ * of a subscription variant (e.g. billed every P1M). Returns null when the
+ * variant carries no subscription plan.
+ */
+function subscriptionPriceSpec(
+  variant: ProductView["variants"][number],
+): Record<string, unknown> | null {
+  const plan = variant.subscription;
+
+  if (!plan) {
+    return null;
+  }
+
+  const token = ISO_DURATION_BY_UNIT[plan.intervalUnit] ?? "M";
+  // WEEK uses the date-position token (P1W); the rest use the standard PnX form.
+  const duration = `P${plan.intervalCount}${token}`;
+
+  return {
+    priceSpecification: {
+      "@type": "UnitPriceSpecification",
+      price: String(variant.price),
+      priceCurrency: "IRR",
+      billingDuration: duration,
+      billingIncrement: plan.intervalCount,
+      referenceQuantity: {
+        "@type": "QuantitativeValue",
+        value: plan.intervalCount,
+        unitCode: plan.intervalUnit,
+      },
+    },
+  };
 }
 
 /**
@@ -126,10 +192,35 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   }
 
   const canonical = `${siteUrl}/products/${product.slug}`;
-  const image = ogImageUrl(product);
-  const price = lowestPrice(product);
-  const inStock = isInStock(product);
   const hasRating = product.ratingAvg != null && product.ratingCount > 0;
+
+  const prices = variantPrices(product);
+  const lowPrice = prices.length > 0 ? Math.min(...prices) : 0;
+  const highPrice = prices.length > 0 ? Math.max(...prices) : 0;
+  const images = allImageUrls(product);
+
+  // One Offer per variant: each carries its own price, sku, availability, and —
+  // for subscriptions — a recurring price specification. Wrapped in an
+  // AggregateOffer so a range (lowPrice/highPrice) is exposed at the top level.
+  const variantOffers = product.variants.map((variant) => ({
+    "@type": "Offer",
+    url: canonical,
+    priceCurrency: "IRR",
+    price: String(variant.price),
+    sku: variant.sku,
+    ...(variant.titleFa ? { name: variant.titleFa } : {}),
+    availability: variantInStock(product, variant)
+      ? "https://schema.org/InStock"
+      : "https://schema.org/OutOfStock",
+    ...(subscriptionPriceSpec(variant) ?? {}),
+  }));
+
+  // Each configured option becomes a PropertyValue listing its value labels.
+  const additionalProperty = product.options.map((option) => ({
+    "@type": "PropertyValue",
+    name: option.nameFa,
+    value: option.values.map((value) => value.valueFa).join("، "),
+  }));
 
   const productJsonLd = {
     "@context": "https://schema.org",
@@ -138,14 +229,20 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     description: metaDescription(product),
     sku: product.variants[0]?.sku,
     url: canonical,
-    ...(image ? { image: [image] } : {}),
+    ...(images.length > 0 ? { image: images } : {}),
     ...(product.category ? { category: product.category.titleFa } : {}),
+    ...(additionalProperty.length > 0 ? { additionalProperty } : {}),
     offers: {
-      "@type": "Offer",
+      "@type": "AggregateOffer",
       url: canonical,
       priceCurrency: "IRR",
-      price: String(price),
-      availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      lowPrice: String(lowPrice),
+      highPrice: String(highPrice),
+      offerCount: variantOffers.length,
+      availability: isInStock(product)
+        ? "https://schema.org/InStock"
+        : "https://schema.org/OutOfStock",
+      offers: variantOffers,
     },
     ...(hasRating
       ? {

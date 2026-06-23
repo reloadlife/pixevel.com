@@ -166,6 +166,36 @@ export const SETTINGS_REGISTRY: SettingDef[] = [
     default: "0",
     hint: "تا زمانی که پیامک فعال نیست برای دریافت کد از journalctl. بعد خاموش شود.",
   },
+  // ── Subscriptions / recurring billing ──
+  {
+    key: "SUBSCRIPTION_RENEWAL_LEAD_DAYS",
+    label: "اشتراک: روز قبل از تمدید برای یادآوری",
+    group: "general",
+    default: "14",
+    hint: "چند روز پیش از سررسید، صورتحساب تمدید ساخته و یادآوری ارسال شود.",
+  },
+  {
+    key: "SUBSCRIPTION_GRACE_DAYS",
+    label: "اشتراک: مهلت پس از سررسید (روز)",
+    group: "general",
+    default: "3",
+    hint: "پس از این مهلت بدون پرداخت، اشتراک منقضی و سرویس معلق می‌شود.",
+  },
+  {
+    key: "SUBSCRIPTION_WALLET_AUTORENEW",
+    label: "اشتراک: تمدید خودکار از کیف پول",
+    group: "general",
+    default: "1",
+    choices: ["0", "1"],
+    hint: "اگر فعال باشد و موجودی کیف پول کافی باشد، تمدید به‌صورت خودکار از کیف پول کسر می‌شود.",
+  },
+  {
+    key: "CRON_SECRET",
+    label: "کلید امنیتی کران (زمان‌بند)",
+    group: "general",
+    secret: true,
+    hint: "هدر x-cron-secret برای فراخوانی /api/cron/subscriptions توسط سیستم‌د تایمر.",
+  },
 ];
 
 const BY_KEY = new Map(SETTINGS_REGISTRY.map((d) => [d.key, d]));

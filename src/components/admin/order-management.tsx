@@ -81,9 +81,7 @@ type OrderItem = {
   id: string;
   titleFa: string;
   sku: string;
-  colorNameFa: string;
-  materialNameFa: string;
-  size: string;
+  optionsSummaryFa: string | null;
   quantity: number;
   unitPrice: string;
   totalPrice: string;
@@ -92,9 +90,6 @@ type OrderItem = {
     id: string;
     sku: string;
     titleFa: string;
-    colorNameFa: string;
-    materialNameFa: string;
-    size: string;
   } | null;
 };
 
@@ -862,7 +857,7 @@ function OrderDetail({ initialOrder }: { initialOrder: OrderDetail }) {
             <thead>
               <tr className="border-b border-zinc-100 text-right text-xs font-bold text-zinc-500">
                 <th className="py-2 pr-0">محصول</th>
-                <th className="py-2 px-3">رنگ / جنس / سایز</th>
+                <th className="py-2 px-3">گزینه‌ها</th>
                 <th className="py-2 px-3">تعداد</th>
                 <th className="py-2 px-3">قیمت واحد</th>
                 <th className="py-2 px-3">جمع</th>
@@ -878,7 +873,7 @@ function OrderDetail({ initialOrder }: { initialOrder: OrderDetail }) {
                     </div>
                   </td>
                   <td className="py-2 px-3 text-xs text-zinc-600">
-                    {item.colorNameFa} / {item.materialNameFa} / {item.size}
+                    {item.optionsSummaryFa ?? "—"}
                   </td>
                   <td className="py-2 px-3">{item.quantity}</td>
                   <td className="py-2 px-3">{formatToman(item.unitPrice)}</td>

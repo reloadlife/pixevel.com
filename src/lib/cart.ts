@@ -1,5 +1,5 @@
 import { and, count, eq, inArray } from "drizzle-orm";
-import type { FulfillmentType } from "@/db/schema";
+import type { FulfillmentType, InventoryPolicy } from "@/db/schema";
 import { cartItems, carts, inventoryUnits } from "@/db/schema";
 import type { CurrentUser } from "@/lib/auth";
 import { getUserTier, variantPrice } from "@/lib/catalog";
@@ -17,8 +17,8 @@ export type CartLine = {
   variantId: string;
   productSlug: string;
   titleFa: string;
+  /** Composed variant label from the selected option values, e.g. "گلوبال / ماهانه". */
   variantTitleFa: string;
-  size: string;
   imageUrl: string | null;
   unitPrice: number;
   quantity: number;
@@ -26,6 +26,19 @@ export type CartLine = {
   lineTotal: number;
   fulfillmentType: FulfillmentType;
 };
+
+/**
+ * Effective add-to-cart capacity for INFINITE-inventory products (subscriptions,
+ * services, digital-on-demand). They mint no inventory units, so the real unit
+ * count is always 0 — we treat them as practically unlimited instead of out of
+ * stock so they remain addable and their quantity is never clamped to 0.
+ */
+const INFINITE_STOCK = Number.MAX_SAFE_INTEGER;
+
+/** Real available-unit count for TRACKED products; unlimited for INFINITE ones. */
+function effectiveStock(realCount: number, policy: InventoryPolicy): number {
+  return policy === "INFINITE" ? INFINITE_STOCK : realCount;
+}
 
 export type CartView = {
   id: string | null;
@@ -124,6 +137,7 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
               primaryImageUrl: true,
               status: true,
               fulfillmentType: true,
+              inventoryPolicy: true,
             },
           },
         },
@@ -143,7 +157,10 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
       continue;
     }
 
-    const stock = stockMap.get(row.variantId) ?? 0;
+    const stock = effectiveStock(
+      stockMap.get(row.variantId) ?? 0,
+      row.variant.product.inventoryPolicy,
+    );
     const unitPrice = Number(row.unitPrice);
 
     items.push({
@@ -151,7 +168,6 @@ export async function getCartView(identity: CartIdentity): Promise<CartView> {
       productSlug: row.variant.product.slug,
       titleFa: row.variant.product.titleFa,
       variantTitleFa: row.variant.titleFa,
-      size: row.variant.size,
       imageUrl: row.variant.product.primaryImageUrl,
       unitPrice,
       quantity: row.quantity,
@@ -191,7 +207,7 @@ export async function addToCart(
   const variant = await db.query.productVariants.findFirst({
     where: (item, { eq }) => eq(item.id, variantId),
     with: {
-      product: { columns: { status: true, baseCurrency: true } },
+      product: { columns: { status: true, baseCurrency: true, inventoryPolicy: true } },
     },
   });
 
@@ -203,7 +219,9 @@ export async function addToCart(
     throw new CartError("PRODUCT_UNAVAILABLE", "این محصول قابل افزودن به سبد نیست.");
   }
 
-  const stock = await availableStock(variantId);
+  // INFINITE products (subscriptions/services/on-demand) mint no units; never
+  // block them on stock. TRACKED products still need a free unit.
+  const stock = effectiveStock(await availableStock(variantId), variant.product.inventoryPolicy);
 
   if (stock < 1) {
     throw new CartError("OUT_OF_STOCK", "موجودی این تنوع تمام شده است.");
@@ -255,7 +273,12 @@ export async function setItemQuantity(
     return removeItem(identity, variantId);
   }
 
-  const stock = await availableStock(variantId);
+  const variant = await db.query.productVariants.findFirst({
+    where: (item, { eq }) => eq(item.id, variantId),
+    with: { product: { columns: { inventoryPolicy: true } } },
+  });
+  const policy = variant?.product.inventoryPolicy ?? "TRACKED";
+  const stock = effectiveStock(await availableStock(variantId), policy);
   const clamped = Math.min(qty, Math.max(stock, 1));
 
   await db
@@ -308,7 +331,12 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
   }
 
   for (const item of anonCart.items) {
-    const stock = await availableStock(item.variantId);
+    const variant = await db.query.productVariants.findFirst({
+      where: (row, { eq }) => eq(row.id, item.variantId),
+      with: { product: { columns: { inventoryPolicy: true } } },
+    });
+    const policy = variant?.product.inventoryPolicy ?? "TRACKED";
+    const stock = effectiveStock(await availableStock(item.variantId), policy);
 
     if (stock < 1) {
       continue;

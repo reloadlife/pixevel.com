@@ -23,7 +23,8 @@
     "deploy:dry": "bash deploy/deploy.sh --dry",
     "deploy:prepare": "bun run db:push && bun run build",
     "deploy:server": "bash scripts/deploy-server.sh",
-    "db:seed": "tsx scripts/seed.ts",
+    "db:seed": "tsx --conditions=react-server scripts/seed.ts",
+    "cron:tick": "tsx --conditions=react-server scripts/cron-tick.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

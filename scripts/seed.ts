@@ -3,198 +3,86 @@ import { randomBytes } from "node:crypto";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-
+import { createAdminProduct } from "@/lib/admin/products";
+import { optionsKeyFromPairs } from "@/lib/variant-options";
 import * as schema from "../src/db/schema";
 
 /**
- * Seed Pixevel with digital gift-card catalog data.
+ * Seed Pixevel with a diverse "sell anything" catalog that proves the generic
+ * option model end-to-end: physical goods, digital codes, subscriptions
+ * (servers / domains) and a service — each built through the same admin path
+ * (`createAdminProduct`) the panel uses, so the seed and production share one
+ * source of truth for variant generation, pricing tiers and inventory.
  *
- * Gift cards reuse the generic variant model: each denomination is a variant
- * (size = denomination label), with color/material set to inert "standard" /
- * "digital" placeholders. Every denomination carries its own tiered price and a
- * batch of per-unit inventory rows (one redeemable slot per row).
+ * Base bootstrap (categories, tags, home blocks) is created directly; products
+ * go through `createAdminProduct` with arbitrary option dimensions.
  *
  * Idempotent: clears existing catalog (products / tags / categories / home
  * blocks) before inserting. Does NOT touch the User table.
  *
- * Run: npm run db:seed
+ * Run: bun run db:seed
+ *
+ * NOTE: `createAdminProduct` pulls in app code marked `server-only`; the
+ * `db:seed` / `cron:tick` scripts run tsx with `--conditions=react-server` so
+ * that marker resolves to its no-op variant outside the Next.js bundler.
  */
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle({ client: pool, schema });
 
-const STOCK_PER_DENOM = 25;
-
-// Placeholder stock photos (deterministic per product slug). Swap for real
-// brand artwork via the admin panel later.
+// Placeholder stock photos (deterministic per slug). Swap for real artwork via
+// the admin panel later.
 function stockImage(slug: string) {
   return `https://picsum.photos/seed/${encodeURIComponent(slug)}/800/1000`;
 }
 
-function tier(publicToman: number) {
-  return {
-    publicPriceAmount: String(publicToman),
-    registeredPriceAmount: String(Math.round((publicToman * 0.98) / 1000) * 1000),
-    premiumPriceAmount: String(Math.round((publicToman * 0.95) / 1000) * 1000),
-  };
+// Fake redeemable code for DIGITAL inventory (gift-card codes / license keys).
+function fakeCode(prefix: string, index: number) {
+  const block = () => randomBytes(2).toString("hex").toUpperCase();
+  return `${prefix}-${block()}-${block()}-${String(index + 1).padStart(3, "0")}`;
 }
 
-function stockCode(sku: string, index: number) {
-  return `${sku}-${String(index + 1).padStart(4, "0")}-${randomBytes(3).toString("hex")}`;
-}
-
-// --- Catalog definition ----------------------------------------------------
+// --- Taxonomy ---------------------------------------------------------------
 
 type TagSeed = { slug: string; titleFa: string };
 
 const TAGS: TagSeed[] = [
-  { slug: "music", titleFa: "موزیک" },
-  { slug: "streaming", titleFa: "استریم" },
-  { slug: "gaming", titleFa: "گیمینگ" },
-  { slug: "ios", titleFa: "اپل و iOS" },
   { slug: "bestseller", titleFa: "پرفروش" },
-  { slug: "spotify", titleFa: "اسپاتیفای" },
-  { slug: "apple", titleFa: "اپل" },
+  { slug: "gaming", titleFa: "گیمینگ" },
+  { slug: "hardware", titleFa: "سخت‌افزار" },
+  { slug: "merch", titleFa: "پوشاک و مرچ" },
+  { slug: "digital", titleFa: "دیجیتال" },
   { slug: "steam", titleFa: "استیم" },
-  { slug: "google-play", titleFa: "گوگل پلی" },
-  { slug: "playstation", titleFa: "پلی استیشن" },
-  { slug: "xbox", titleFa: "ایکس باکس" },
-  { slug: "netflix", titleFa: "نتفلیکس" },
-];
-
-type ProductSeed = {
-  slug: string;
-  titleFa: string;
-  summaryFa: string;
-  descriptionFa: string;
-  categorySlug: string;
-  color: string;
-  tagSlugs: string[];
-  denominations: Array<{ label: string; toman: number }>;
-};
-
-const PRODUCTS: ProductSeed[] = [
-  {
-    slug: "spotify-premium-gift-card",
-    titleFa: "گیفت کارت اسپاتیفای پرمیوم",
-    summaryFa: "اشتراک اسپاتیفای پرمیوم، تحویل آنی کد",
-    descriptionFa: "کد قانونی اشتراک Spotify Premium با تحویل آنی پس از پرداخت.",
-    categorySlug: "music-streaming",
-    color: "#1DB954",
-    tagSlugs: ["music", "streaming", "spotify", "bestseller"],
-    denominations: [
-      { label: "۱ ماهه", toman: 250000 },
-      { label: "۳ ماهه", toman: 690000 },
-      { label: "۱۲ ماهه", toman: 2400000 },
-    ],
-  },
-  {
-    slug: "apple-gift-card",
-    titleFa: "گیفت کارت اپل (iTunes)",
-    summaryFa: "شارژ اپل آیدی و خرید از App Store",
-    descriptionFa: "گیفت کارت اپل برای شارژ Apple ID، خرید اپلیکیشن، موزیک و اشتراک iCloud.",
-    categorySlug: "app-stores",
-    color: "#111111",
-    tagSlugs: ["ios", "apple", "bestseller"],
-    denominations: [
-      { label: "۵ دلاری", toman: 420000 },
-      { label: "۱۰ دلاری", toman: 830000 },
-      { label: "۲۵ دلاری", toman: 2050000 },
-      { label: "۵۰ دلاری", toman: 4050000 },
-      { label: "۱۰۰ دلاری", toman: 8000000 },
-    ],
-  },
-  {
-    slug: "steam-wallet-gift-card",
-    titleFa: "گیفت کارت استیم (Steam Wallet)",
-    summaryFa: "شارژ کیف پول استیم برای خرید بازی",
-    descriptionFa: "کد شارژ Steam Wallet برای خرید بازی و آیتم روی پلتفرم استیم.",
-    categorySlug: "gaming",
-    color: "#1b2838",
-    tagSlugs: ["gaming", "steam", "bestseller"],
-    denominations: [
-      { label: "۱۰ دلاری", toman: 850000 },
-      { label: "۲۰ دلاری", toman: 1680000 },
-      { label: "۵۰ دلاری", toman: 4150000 },
-      { label: "۱۰۰ دلاری", toman: 8250000 },
-    ],
-  },
-  {
-    slug: "google-play-gift-card",
-    titleFa: "گیفت کارت گوگل پلی",
-    summaryFa: "خرید از Google Play Store",
-    descriptionFa: "گیفت کارت Google Play برای خرید اپلیکیشن، بازی و محتوای دیجیتال اندروید.",
-    categorySlug: "app-stores",
-    color: "#0F9D58",
-    tagSlugs: ["google-play", "gaming"],
-    denominations: [
-      { label: "۱۰ دلاری", toman: 840000 },
-      { label: "۲۵ دلاری", toman: 2070000 },
-      { label: "۵۰ دلاری", toman: 4080000 },
-    ],
-  },
-  {
-    slug: "playstation-network-gift-card",
-    titleFa: "گیفت کارت پلی استیشن (PSN)",
-    summaryFa: "شارژ کیف پول PlayStation Network",
-    descriptionFa: "کد شارژ PSN برای خرید بازی و اشتراک PlayStation Plus.",
-    categorySlug: "gaming",
-    color: "#003791",
-    tagSlugs: ["gaming", "playstation"],
-    denominations: [
-      { label: "۱۰ دلاری", toman: 870000 },
-      { label: "۲۵ دلاری", toman: 2120000 },
-      { label: "۵۰ دلاری", toman: 4180000 },
-    ],
-  },
-  {
-    slug: "xbox-gift-card",
-    titleFa: "گیفت کارت ایکس باکس",
-    summaryFa: "شارژ حساب Xbox و Microsoft Store",
-    descriptionFa: "گیفت کارت Xbox برای خرید بازی، اشتراک Game Pass و محتوای مایکروسافت.",
-    categorySlug: "gaming",
-    color: "#107C10",
-    tagSlugs: ["gaming", "xbox"],
-    denominations: [
-      { label: "۱۰ دلاری", toman: 860000 },
-      { label: "۲۵ دلاری", toman: 2100000 },
-    ],
-  },
-  {
-    slug: "netflix-gift-card",
-    titleFa: "گیفت کارت نتفلیکس",
-    summaryFa: "اشتراک نتفلیکس، تحویل آنی",
-    descriptionFa: "گیفت کارت Netflix برای فعال‌سازی یا تمدید اشتراک استریم.",
-    categorySlug: "music-streaming",
-    color: "#E50914",
-    tagSlugs: ["streaming", "netflix", "bestseller"],
-    denominations: [
-      { label: "۳۰ دلاری", toman: 2450000 },
-      { label: "۶۰ دلاری", toman: 4850000 },
-    ],
-  },
+  { slug: "license", titleFa: "لایسنس" },
+  { slug: "windows", titleFa: "ویندوز" },
+  { slug: "hosting", titleFa: "هاستینگ" },
+  { slug: "subscription", titleFa: "اشتراکی" },
+  { slug: "domain", titleFa: "دامنه" },
+  { slug: "service", titleFa: "خدمات" },
 ];
 
 const CATEGORIES = [
-  { slug: "gift-cards", titleFa: "گیفت کارت", parentSlug: null as string | null, sortOrder: 0 },
-  { slug: "music-streaming", titleFa: "موزیک و استریم", parentSlug: "gift-cards", sortOrder: 1 },
-  { slug: "gaming", titleFa: "گیمینگ", parentSlug: "gift-cards", sortOrder: 2 },
-  { slug: "app-stores", titleFa: "اپ استورها", parentSlug: "gift-cards", sortOrder: 3 },
+  { slug: "store", titleFa: "فروشگاه", parentSlug: null as string | null, sortOrder: 0 },
+  { slug: "gaming", titleFa: "گیمینگ", parentSlug: "store", sortOrder: 1 },
+  { slug: "merch", titleFa: "پوشاک و مرچ", parentSlug: "store", sortOrder: 2 },
+  { slug: "digital-goods", titleFa: "کالای دیجیتال", parentSlug: "store", sortOrder: 3 },
+  { slug: "hosting", titleFa: "هاست و سرور", parentSlug: "store", sortOrder: 4 },
+  { slug: "domains", titleFa: "دامنه", parentSlug: "store", sortOrder: 5 },
+  { slug: "services", titleFa: "خدمات", parentSlug: "store", sortOrder: 6 },
 ];
 
-// --- Seed routine ----------------------------------------------------------
+// --- Seed routine -----------------------------------------------------------
 
 async function main() {
   console.log("Clearing existing catalog…");
   await db.delete(schema.homeBlockItems);
   await db.delete(schema.homeBlocks);
-  await db.delete(schema.products); // cascades to variants, images, inventory, productTags
+  await db.delete(schema.products); // cascades to variants, images, inventory, productTags, options
   await db.delete(schema.tags);
   await db.delete(schema.categories);
 
   console.log("Inserting categories…");
   const categoryIdBySlug = new Map<string, string>();
-  // Insert parents first so parentId references resolve.
   for (const category of CATEGORIES) {
     const [row] = await db
       .insert(schema.categories)
@@ -219,82 +107,364 @@ async function main() {
   }
 
   console.log("Inserting products…");
-  let variantCount = 0;
-  let unitCount = 0;
-  const productIds: string[] = [];
+  const productIdBySlug = new Map<string, string>();
+  const cat = (slug: string) => categoryIdBySlug.get(slug);
+  const tagTitles = (slugs: string[]) =>
+    slugs
+      .map((slug) => TAGS.find((t) => t.slug === slug)?.titleFa)
+      .filter((v): v is string => Boolean(v));
 
-  for (const product of PRODUCTS) {
-    const imageUrl = stockImage(product.slug);
-    const [productRow] = await db
-      .insert(schema.products)
-      .values({
-        slug: product.slug,
-        titleFa: product.titleFa,
-        summaryFa: product.summaryFa,
-        descriptionFa: product.descriptionFa,
-        status: "ACTIVE",
-        categoryId: categoryIdBySlug.get(product.categorySlug) ?? null,
-        primaryImageUrl: imageUrl,
-      })
-      .returning({ id: schema.products.id });
-
-    productIds.push(productRow.id);
-
-    await db.insert(schema.productTags).values(
-      product.tagSlugs
-        .map((slug) => tagIdBySlug.get(slug))
-        .filter((id): id is string => Boolean(id))
-        .map((tagId) => ({ productId: productRow.id, tagId })),
-    );
-
-    // One showcase image per product (used by gallery + showcase blocks).
-    await db.insert(schema.productImages).values({
-      productId: productRow.id,
-      url: imageUrl,
-      altFa: product.titleFa,
-      isPrimary: true,
-      showcasePublic: true,
-      showcasePremium: true,
-      sortOrder: 0,
+  // 1) Gaming monitor — PHYSICAL · TRACKED · Size{24,27,32} × Panel{IPS,VA}.
+  {
+    const product = await createAdminProduct({
+      titleFa: "مانیتور گیمینگ پیکسل‌پرو",
+      slug: "gaming-monitor-pixelpro",
+      summaryFa: "مانیتور گیمینگ با نرخ نوسازی بالا و رنگ دقیق.",
+      descriptionFa: "مانیتور گیمینگ با پنل‌های IPS و VA در سه اندازه، مناسب بازی و کار حرفه‌ای.",
+      status: "ACTIVE",
+      fulfillmentType: "PHYSICAL",
+      inventoryPolicy: "TRACKED",
+      baseCurrency: "IRT",
+      categoryId: cat("gaming"),
+      tags: tagTitles(["gaming", "hardware", "bestseller"]),
+      options: [
+        {
+          nameFa: "اندازه",
+          slug: "size",
+          inputKind: "PILL",
+          values: [{ valueFa: "۲۴ اینچ" }, { valueFa: "۲۷ اینچ" }, { valueFa: "۳۲ اینچ" }],
+        },
+        {
+          nameFa: "پنل",
+          slug: "panel",
+          inputKind: "PILL",
+          values: [{ valueFa: "IPS" }, { valueFa: "VA" }],
+        },
+      ],
+      publicPriceAmount: "18900000",
+      registeredPriceAmount: "18500000",
+      premiumPriceAmount: "17900000",
+      compareAtAmount: "21000000",
+      stockPerVariant: 5,
+      images: [
+        {
+          url: stockImage("gaming-monitor-pixelpro"),
+          altFa: "مانیتور گیمینگ پیکسل‌پرو",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
     });
+    productIdBySlug.set(product.slug, product.id);
+  }
 
-    let isFirst = true;
-    for (let i = 0; i < product.denominations.length; i += 1) {
-      const denom = product.denominations[i];
-      const sku = `${product.slug.toUpperCase().replace(/-/g, "")}-D${i + 1}`;
-      const [variantRow] = await db
-        .insert(schema.productVariants)
-        .values({
-          productId: productRow.id,
-          sku,
-          titleFa: `${product.titleFa} — ${denom.label}`,
-          colorNameFa: "استاندارد",
-          colorSlug: "standard",
-          materialNameFa: "دیجیتال",
-          materialSlug: "digital",
-          size: denom.label,
-          isDefault: isFirst,
-          ...tier(denom.toman),
-        })
-        .returning({ id: schema.productVariants.id });
-      isFirst = false;
-      variantCount += 1;
+  // 2) Merch tee — PHYSICAL · TRACKED · Color (SWATCH) × Size{S,M,L,XL}.
+  {
+    const product = await createAdminProduct({
+      titleFa: "تیشرت گیمینگ پیکسل",
+      slug: "gaming-tee-pixel",
+      summaryFa: "تیشرت نخی با چاپ اختصاصی پیکسل.",
+      descriptionFa: "تیشرت گیمینگ از جنس نخ پنبه با چاپ باکیفیت، در چند رنگ و سایز.",
+      status: "ACTIVE",
+      fulfillmentType: "PHYSICAL",
+      inventoryPolicy: "TRACKED",
+      baseCurrency: "IRT",
+      categoryId: cat("merch"),
+      tags: tagTitles(["merch", "gaming"]),
+      options: [
+        {
+          nameFa: "رنگ",
+          slug: "color",
+          inputKind: "SWATCH",
+          values: [
+            { valueFa: "مشکی", slug: "black", hex: "#111111" },
+            { valueFa: "سفید", slug: "white", hex: "#f5f5f5" },
+            { valueFa: "سرمه‌ای", slug: "navy", hex: "#1b2a4a" },
+          ],
+        },
+        {
+          nameFa: "سایز",
+          slug: "size",
+          inputKind: "PILL",
+          values: [{ valueFa: "S" }, { valueFa: "M" }, { valueFa: "L" }, { valueFa: "XL" }],
+        },
+      ],
+      publicPriceAmount: "690000",
+      registeredPriceAmount: "670000",
+      premiumPriceAmount: "640000",
+      stockPerVariant: 10,
+      images: [
+        {
+          url: stockImage("gaming-tee-pixel"),
+          altFa: "تیشرت گیمینگ پیکسل",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+    productIdBySlug.set(product.slug, product.id);
+  }
 
-      await db.insert(schema.inventoryUnits).values(
-        Array.from({ length: STOCK_PER_DENOM }, (_, n) => ({
-          variantId: variantRow.id,
-          code: stockCode(sku, n),
-        })),
-      );
-      unitCount += STOCK_PER_DENOM;
+  // 3) Steam gift card — DIGITAL · TRACKED · Denomination × Region, with codes.
+  {
+    const denomOption = { slug: "denomination", values: ["10", "25", "50"] };
+    const regionOption = { slug: "region", values: ["global", "europe"] };
+    // Per-variant fake redeemable codes keyed by optionsKey.
+    const overrides: Record<string, { stockCodes: string[] }> = {};
+    for (const denom of denomOption.values) {
+      for (const region of regionOption.values) {
+        const key = optionsKeyFromPairs([
+          { optionSlug: denomOption.slug, valueSlug: denom },
+          { optionSlug: regionOption.slug, valueSlug: region },
+        ]);
+        const prefix = `STEAM${denom}-${region.slice(0, 2).toUpperCase()}`;
+        overrides[key] = {
+          stockCodes: Array.from({ length: 5 }, (_, i) => fakeCode(prefix, i)),
+        };
+      }
     }
+    const product = await createAdminProduct({
+      titleFa: "گیفت کارت استیم",
+      slug: "steam-gift-card",
+      summaryFa: "شارژ کیف پول استیم، تحویل آنی کد.",
+      descriptionFa: "کد شارژ Steam Wallet با مبالغ و ریجن‌های مختلف، تحویل آنی پس از پرداخت.",
+      status: "ACTIVE",
+      fulfillmentType: "DIGITAL",
+      inventoryPolicy: "TRACKED",
+      baseCurrency: "IRT",
+      categoryId: cat("digital-goods"),
+      tags: tagTitles(["digital", "steam", "gaming", "bestseller"]),
+      options: [
+        {
+          nameFa: "مبلغ",
+          slug: denomOption.slug,
+          inputKind: "PILL",
+          values: [
+            { valueFa: "۱۰$", slug: "10" },
+            { valueFa: "۲۵$", slug: "25" },
+            { valueFa: "۵۰$", slug: "50" },
+          ],
+        },
+        {
+          nameFa: "ریجن",
+          slug: regionOption.slug,
+          inputKind: "SELECT",
+          values: [
+            { valueFa: "گلوبال", slug: "global" },
+            { valueFa: "اروپا", slug: "europe" },
+          ],
+        },
+      ],
+      publicPriceAmount: "950000",
+      registeredPriceAmount: "930000",
+      premiumPriceAmount: "900000",
+      stockPerVariant: 0, // codes are supplied per-variant via overrides
+      variantOverridesByKey: overrides,
+      images: [
+        {
+          url: stockImage("steam-gift-card"),
+          altFa: "گیفت کارت استیم",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+    productIdBySlug.set(product.slug, product.id);
+  }
+
+  // 4) Windows license — DIGITAL · TRACKED · Edition{Home,Pro}, with keys.
+  {
+    const editions = [
+      { valueFa: "Home", slug: "home", prefix: "WINHOME" },
+      { valueFa: "Pro", slug: "pro", prefix: "WINPRO" },
+    ];
+    const overrides: Record<string, { stockCodes: string[] }> = {};
+    for (const edition of editions) {
+      const key = optionsKeyFromPairs([{ optionSlug: "edition", valueSlug: edition.slug }]);
+      overrides[key] = {
+        stockCodes: Array.from({ length: 8 }, (_, i) => fakeCode(edition.prefix, i)),
+      };
+    }
+    const product = await createAdminProduct({
+      titleFa: "لایسنس ویندوز ۱۱",
+      slug: "windows-11-license",
+      summaryFa: "کلید فعال‌سازی اصل ویندوز ۱۱.",
+      descriptionFa: "لایسنس قانونی Windows 11 با فعال‌سازی آنلاین، تحویل آنی کلید.",
+      status: "ACTIVE",
+      fulfillmentType: "DIGITAL",
+      inventoryPolicy: "TRACKED",
+      baseCurrency: "IRT",
+      categoryId: cat("digital-goods"),
+      tags: tagTitles(["digital", "license", "windows"]),
+      options: [
+        {
+          nameFa: "نسخه",
+          slug: "edition",
+          inputKind: "PILL",
+          values: editions.map((e) => ({ valueFa: e.valueFa, slug: e.slug })),
+        },
+      ],
+      publicPriceAmount: "2400000",
+      registeredPriceAmount: "2350000",
+      premiumPriceAmount: "2250000",
+      stockPerVariant: 0,
+      variantOverridesByKey: overrides,
+      images: [
+        {
+          url: stockImage("windows-11-license"),
+          altFa: "لایسنس ویندوز ۱۱",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+    productIdBySlug.set(product.slug, product.id);
+  }
+
+  // 5) VPS host — SERVER · INFINITE · subscription (MONTH) · Plan{S,M,L}.
+  {
+    const plans = [
+      { valueFa: "S", slug: "s", price: "390000" },
+      { valueFa: "M", slug: "m", price: "690000" },
+      { valueFa: "L", slug: "l", price: "1290000" },
+    ];
+    const overrides: Record<string, { publicPriceAmount: string }> = {};
+    for (const plan of plans) {
+      const key = optionsKeyFromPairs([{ optionSlug: "plan", valueSlug: plan.slug }]);
+      overrides[key] = { publicPriceAmount: plan.price };
+    }
+    const product = await createAdminProduct({
+      titleFa: "سرور مجازی ابری",
+      slug: "cloud-vps",
+      summaryFa: "VPS پرسرعت با تمدید ماهانه.",
+      descriptionFa: "سرور مجازی ابری با منابع اختصاصی، صورتحساب و تمدید ماهانه.",
+      status: "ACTIVE",
+      fulfillmentType: "SERVER",
+      inventoryPolicy: "INFINITE",
+      baseCurrency: "IRT",
+      isSubscription: true,
+      subscriptionPlan: { intervalUnit: "MONTH", intervalCount: 1, autoRenewDefault: true },
+      categoryId: cat("hosting"),
+      tags: tagTitles(["hosting", "subscription"]),
+      options: [
+        {
+          nameFa: "پلن",
+          slug: "plan",
+          inputKind: "PILL",
+          values: plans.map((p) => ({ valueFa: p.valueFa, slug: p.slug })),
+        },
+      ],
+      publicPriceAmount: "390000",
+      stockPerVariant: 0,
+      variantOverridesByKey: overrides,
+      images: [
+        {
+          url: stockImage("cloud-vps"),
+          altFa: "سرور مجازی ابری",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+    productIdBySlug.set(product.slug, product.id);
+  }
+
+  // 6) Domain (.com/.ir) — DOMAIN · INFINITE · subscription (YEAR) · TLD.
+  {
+    const tlds = [
+      { valueFa: ".com", slug: "com", price: "450000" },
+      { valueFa: ".ir", slug: "ir", price: "150000" },
+    ];
+    const overrides: Record<string, { publicPriceAmount: string }> = {};
+    for (const tld of tlds) {
+      const key = optionsKeyFromPairs([{ optionSlug: "tld", valueSlug: tld.slug }]);
+      overrides[key] = { publicPriceAmount: tld.price };
+    }
+    const product = await createAdminProduct({
+      titleFa: "ثبت دامنه",
+      slug: "domain-registration",
+      summaryFa: "ثبت و تمدید سالانه دامنه.",
+      descriptionFa: "ثبت دامنه با پسوندهای .com و .ir، تمدید خودکار سالانه.",
+      status: "ACTIVE",
+      fulfillmentType: "DOMAIN",
+      inventoryPolicy: "INFINITE",
+      baseCurrency: "IRT",
+      isSubscription: true,
+      subscriptionPlan: { intervalUnit: "YEAR", intervalCount: 1, autoRenewDefault: true },
+      categoryId: cat("domains"),
+      tags: tagTitles(["domain", "subscription"]),
+      options: [
+        {
+          nameFa: "پسوند",
+          slug: "tld",
+          inputKind: "PILL",
+          values: tlds.map((t) => ({ valueFa: t.valueFa, slug: t.slug })),
+        },
+      ],
+      publicPriceAmount: "450000",
+      stockPerVariant: 0,
+      variantOverridesByKey: overrides,
+      images: [
+        {
+          url: stockImage("domain-registration"),
+          altFa: "ثبت دامنه",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+    productIdBySlug.set(product.slug, product.id);
+  }
+
+  // 7) Design service — SERVICE · INFINITE · no options · single price.
+  {
+    const product = await createAdminProduct({
+      titleFa: "طراحی لوگو اختصاصی",
+      slug: "logo-design-service",
+      summaryFa: "طراحی لوگوی حرفه‌ای توسط تیم دیزاین.",
+      descriptionFa: "خدمت طراحی لوگوی اختصاصی شامل چند کانسپت و فایل‌های نهایی قابل تحویل.",
+      status: "ACTIVE",
+      fulfillmentType: "SERVICE",
+      inventoryPolicy: "INFINITE",
+      baseCurrency: "IRT",
+      categoryId: cat("services"),
+      tags: tagTitles(["service"]),
+      options: [],
+      publicPriceAmount: "3500000",
+      registeredPriceAmount: "3400000",
+      premiumPriceAmount: "3200000",
+      stockPerVariant: 0,
+      images: [
+        {
+          url: stockImage("logo-design-service"),
+          altFa: "طراحی لوگو اختصاصی",
+          isPrimary: true,
+          showcasePublic: true,
+          showcasePremium: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+    productIdBySlug.set(product.slug, product.id);
   }
 
   console.log("Inserting home blocks…");
   // Dynamic best-seller gallery.
   await db.insert(schema.homeBlocks).values({
-    titleFa: "گیفت کارت‌های پرفروش",
-    subtitleFa: "محبوب‌ترین کدهای دیجیتال",
+    titleFa: "محبوب‌ترین‌ها",
+    subtitleFa: "پرفروش‌ترین محصولات فروشگاه",
     type: "LEFT_TO_RIGHT_GALLERY",
     source: "DYNAMIC",
     isActive: true,
@@ -304,12 +474,12 @@ async function main() {
     maxItems: 12,
   });
 
-  // Manual showcase featuring the first product.
+  // Manual showcase featuring the gaming monitor.
   const [showcaseBlock] = await db
     .insert(schema.homeBlocks)
     .values({
       titleFa: "پیشنهاد ویژه",
-      subtitleFa: "اشتراک اسپاتیفای پرمیوم",
+      subtitleFa: "مانیتور گیمینگ پیکسل‌پرو",
       type: "SHOWCASE_HERO",
       source: "MANUAL",
       isActive: true,
@@ -318,14 +488,17 @@ async function main() {
     })
     .returning({ id: schema.homeBlocks.id });
 
-  await db.insert(schema.homeBlockItems).values({
-    blockId: showcaseBlock.id,
-    productId: productIds[0],
-    sortOrder: 0,
-  });
+  const showcaseProductId = productIdBySlug.get("gaming-monitor-pixelpro");
+  if (showcaseProductId) {
+    await db.insert(schema.homeBlockItems).values({
+      blockId: showcaseBlock.id,
+      productId: showcaseProductId,
+      sortOrder: 0,
+    });
+  }
 
   console.log(
-    `Done. ${PRODUCTS.length} products, ${variantCount} variants, ${unitCount} inventory units, ${TAGS.length} tags, ${CATEGORIES.length} categories, 2 home blocks.`,
+    `Done. ${productIdBySlug.size} products, ${TAGS.length} tags, ${CATEGORIES.length} categories, 2 home blocks.`,
   );
 }
 

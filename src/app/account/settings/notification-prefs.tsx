@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils";
 export type NotificationPrefs = {
   orderEmail: boolean;
   orderSms: boolean;
+  subscriptionEmail: boolean;
+  subscriptionSms: boolean;
   promoEmail: boolean;
   promoSms: boolean;
   newsletterEmail: boolean;
@@ -18,6 +20,16 @@ type PrefKey = keyof NotificationPrefs;
 const ROWS: { key: PrefKey; label: string; hint: string }[] = [
   { key: "orderSms", label: "پیامک سفارش‌ها", hint: "وضعیت سفارش و کدهای خرید با پیامک" },
   { key: "orderEmail", label: "ایمیل سفارش‌ها", hint: "رسید و جزئیات سفارش با ایمیل" },
+  {
+    key: "subscriptionSms",
+    label: "پیامک اشتراک‌ها",
+    hint: "یادآوری تمدید و سررسید اشتراک با پیامک",
+  },
+  {
+    key: "subscriptionEmail",
+    label: "ایمیل اشتراک‌ها",
+    hint: "یادآوری تمدید و صورتحساب اشتراک با ایمیل",
+  },
   { key: "promoSms", label: "پیامک تخفیف‌ها", hint: "پیشنهادها و کدهای تخفیف با پیامک" },
   { key: "promoEmail", label: "ایمیل تخفیف‌ها", hint: "پیشنهادهای ویژه با ایمیل" },
   { key: "newsletterEmail", label: "خبرنامه", hint: "تازه‌ترین محصولات و اخبار" },

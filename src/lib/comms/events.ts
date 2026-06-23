@@ -17,7 +17,14 @@ export type CommEventKey =
   | "ORDER_REFUNDED"
   | "TICKET_CREATED"
   | "TICKET_REPLIED_TO_USER"
-  | "TICKET_REPLIED_TO_STAFF";
+  | "TICKET_REPLIED_TO_STAFF"
+  | "SUBSCRIPTION_STARTED"
+  | "SUBSCRIPTION_RENEWAL_REMINDER"
+  | "SUBSCRIPTION_RENEWED"
+  | "SUBSCRIPTION_PAYMENT_FAILED"
+  | "SUBSCRIPTION_EXPIRING"
+  | "SUBSCRIPTION_EXPIRED"
+  | "SUBSCRIPTION_CANCELED";
 
 /** Channels an event may dispatch over (subset of the ledger's channels). */
 export type CommEventChannel = Extract<CommChannel, "EMAIL" | "SMS" | "INAPP" | "PUSH">;
@@ -26,8 +33,8 @@ export type CommEventDef = {
   key: CommEventKey;
   labelFa: string;
   channels: CommEventChannel[];
-  /** Preference toggle that gates delivery: "order"→orderEmail/orderSms, "promo"→promo*, null→always. */
-  prefGate: "order" | "promo" | null;
+  /** Preference toggle that gates delivery: "order"→orderEmail/orderSms, "subscription"→subscription*, "promo"→promo*, null→always. */
+  prefGate: "order" | "promo" | "subscription" | null;
   /** In-app notification row type. */
   notificationType: NotificationType;
   /** Transactional events ignore promo opt-out (still respect order* toggles). */
@@ -39,6 +46,15 @@ export type CommEventDef = {
 };
 
 const ORDER_VARS = ["order_number", "customer_name", "total", "status", "href"];
+const SUBSCRIPTION_VARS = [
+  "plan_name",
+  "customer_name",
+  "amount",
+  "next_billing_date",
+  "expires_at",
+  "order_number",
+  "href",
+];
 
 export const EVENTS: Record<CommEventKey, CommEventDef> = {
   ORDER_CREATED: {
@@ -155,6 +171,76 @@ export const EVENTS: Record<CommEventKey, CommEventDef> = {
     transactional: true,
     audience: "staff",
     variables: ["ticket_id", "ticket_subject", "href"],
+  },
+  SUBSCRIPTION_STARTED: {
+    key: "SUBSCRIPTION_STARTED",
+    labelFa: "شروع اشتراک",
+    channels: ["EMAIL", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
+  },
+  SUBSCRIPTION_RENEWAL_REMINDER: {
+    key: "SUBSCRIPTION_RENEWAL_REMINDER",
+    labelFa: "یادآوری تمدید اشتراک",
+    channels: ["EMAIL", "SMS", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
+  },
+  SUBSCRIPTION_RENEWED: {
+    key: "SUBSCRIPTION_RENEWED",
+    labelFa: "تمدید اشتراک",
+    channels: ["SMS", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
+  },
+  SUBSCRIPTION_PAYMENT_FAILED: {
+    key: "SUBSCRIPTION_PAYMENT_FAILED",
+    labelFa: "پرداخت ناموفق تمدید اشتراک",
+    channels: ["EMAIL", "SMS", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
+  },
+  SUBSCRIPTION_EXPIRING: {
+    key: "SUBSCRIPTION_EXPIRING",
+    labelFa: "نزدیک‌شدن انقضای اشتراک",
+    channels: ["EMAIL", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
+  },
+  SUBSCRIPTION_EXPIRED: {
+    key: "SUBSCRIPTION_EXPIRED",
+    labelFa: "انقضای اشتراک",
+    channels: ["EMAIL", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
+  },
+  SUBSCRIPTION_CANCELED: {
+    key: "SUBSCRIPTION_CANCELED",
+    labelFa: "لغو اشتراک",
+    channels: ["EMAIL", "INAPP"],
+    prefGate: "subscription",
+    notificationType: "SUBSCRIPTION",
+    transactional: true,
+    audience: "customer",
+    variables: SUBSCRIPTION_VARS,
   },
 };
 

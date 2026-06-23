@@ -50,11 +50,6 @@ async function seedVariant(tx: any, productId: string): Promise<string> {
       productId,
       sku: `sku-${crypto.randomUUID()}`,
       titleFa: "واریانت تست",
-      colorNameFa: "قرمز",
-      colorSlug: "red",
-      materialNameFa: "چرم",
-      materialSlug: "leather",
-      size: "M",
       publicPriceAmount: "100000",
     })
     .returning({ id: productVariants.id });

@@ -12,6 +12,7 @@ import {
 } from "@/lib/email/templates";
 import { formatToman } from "@/lib/format";
 import { applyRenewalPayment, createSubscriptionsForOrder } from "@/lib/subscriptions/create";
+import { emitOrderEvent } from "./events";
 import { dispatchFulfillment } from "./fulfillment";
 import { releaseUnits, sellReservedUnits } from "./inventory";
 
@@ -97,6 +98,15 @@ export async function confirmPayment(orderId: string, opts: ConfirmOptions = {})
     const newStatus = allDigital ? "DELIVERED" : "PROCESSING";
 
     await tx.update(orders).set({ status: newStatus }).where(eq(orders.id, orderId));
+
+    // Audit: payment confirmed + order advanced.
+    await emitOrderEvent(tx, {
+      orderId,
+      type: "PAYMENT",
+      toStatus: newStatus,
+      noteFa: reference ? `پرداخت تأیید شد (${reference})` : "پرداخت تأیید شد",
+      isCustomerVisible: true,
+    });
 
     return true;
   };
@@ -225,6 +235,7 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
     // Group sold codes by variant, preserving an "گروه" per product line.
     const codesByVariant = new Map<string, string[]>();
     for (const unit of digitalUnits) {
+      if (!unit.code) continue;
       const existing = codesByVariant.get(unit.variantId) ?? [];
       existing.push(unit.code);
       codesByVariant.set(unit.variantId, existing);
@@ -260,7 +271,9 @@ export async function sendOrderEmails(orderId: string): Promise<void> {
   // resolves to the recipient for gifts and the buyer's own phone otherwise.
   const smsTo = order.recipientPhone ?? order.customerPhone;
   if (smsTo && digitalUnits.length > 0) {
-    const codes = digitalUnits.map((unit) => unit.code);
+    const codes = digitalUnits
+      .map((unit) => unit.code)
+      .filter((code): code is string => code != null);
     await notify(
       "DIGITAL_CODES_DELIVERED",
       { phone: smsTo, userId: order.userId, orderId },
@@ -307,6 +320,15 @@ export async function failPayment(orderId: string, opts: TransactionOptions = {}
 
     // 3. Cancel the order.
     await tx.update(orders).set({ status: "CANCELLED" }).where(eq(orders.id, orderId));
+
+    // Audit: payment failed → order cancelled.
+    await emitOrderEvent(tx, {
+      orderId,
+      type: "PAYMENT",
+      toStatus: "CANCELLED",
+      noteFa: "پرداخت ناموفق بود",
+      isCustomerVisible: true,
+    });
   };
 
   if (opts.tx) {

@@ -1,4 +1,5 @@
 import { apiError, apiOk, readJson } from "@/lib/api";
+import { getCurrentUser } from "@/lib/auth";
 import { validateCoupon } from "@/lib/coupons";
 
 // ─── POST /api/coupons/validate ───────────────────────────────────────────────
@@ -24,7 +25,8 @@ export async function POST(request: Request) {
   const subtotalRaw = Number(body?.subtotal ?? 0);
   const subtotal = Number.isFinite(subtotalRaw) ? Math.max(0, Math.trunc(subtotalRaw)) : 0;
 
-  const result = await validateCoupon(code, subtotal);
+  const user = await getCurrentUser();
+  const result = await validateCoupon(code, subtotal, undefined, { userId: user?.id ?? null });
 
   if (!result.ok) {
     // Surface a stable machine code plus the Persian reason message.

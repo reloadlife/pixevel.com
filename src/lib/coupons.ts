@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 
 import type { CouponKind } from "@/db/schema";
-import { coupons } from "@/db/schema";
+import { couponRedemptions, coupons } from "@/db/schema";
 import { getDb } from "@/lib/db";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -18,6 +18,8 @@ export type CouponErrorReason =
 export type CouponValidation =
   | {
       ok: true;
+      /** Coupon row id (for the redemption ledger + Order.couponId link). */
+      couponId: string;
       /** Canonical (stored) coupon code. */
       code: string;
       kind: CouponKind;
@@ -102,6 +104,7 @@ export async function validateCoupon(
   code: string,
   subtotal: number,
   db: DbLike = getDb(),
+  opts: { userId?: string | null } = {},
 ): Promise<CouponValidation> {
   const normalized = code.trim();
 
@@ -135,6 +138,17 @@ export async function validateCoupon(
     return fail("USAGE_LIMIT");
   }
 
+  // Per-user cap (only enforceable for an authenticated buyer).
+  if (coupon.perUserLimit != null && opts.userId) {
+    const priorUses = await db.query.couponRedemptions.findMany({
+      where: (r) => and(eq(r.couponId, coupon.id), eq(r.userId, opts.userId as string)),
+      columns: { id: true },
+    });
+    if (priorUses.length >= coupon.perUserLimit) {
+      return fail("USAGE_LIMIT");
+    }
+  }
+
   const subtotalToman = Math.max(0, Math.trunc(subtotal));
 
   if (coupon.minSubtotalAmount != null) {
@@ -152,6 +166,7 @@ export async function validateCoupon(
 
   return {
     ok: true,
+    couponId: coupon.id,
     code: coupon.code,
     kind: coupon.kind,
     value: toToman(coupon.value),
@@ -211,4 +226,35 @@ export async function decrementCouponUsage(
     .update(coupons)
     .set({ usedCount: sql`GREATEST(${coupons.usedCount} - 1, 0)` })
     .where(sql`lower(${coupons.code}) = lower(${normalized})`);
+}
+
+// ─── Redemption ledger ──────────────────────────────────────────────────────
+
+/**
+ * Records a single coupon use, linking coupon ↔ user ↔ order. Powers per-user
+ * limit enforcement and usage reporting. Call inside the order transaction,
+ * alongside {@link incrementCouponUsage}.
+ */
+export async function recordCouponRedemption(
+  tx: { insert: ReturnType<typeof getDb>["insert"] },
+  args: { couponId: string; userId: string | null; orderId: string; amount: number },
+): Promise<void> {
+  await tx.insert(couponRedemptions).values({
+    couponId: args.couponId,
+    userId: args.userId,
+    orderId: args.orderId,
+    amount: String(Math.max(0, Math.round(args.amount))),
+  });
+}
+
+/**
+ * Removes the redemption row(s) for an order. Used in compensation when an order
+ * is abandoned after the redemption was recorded, so it never counts against the
+ * buyer's per-user limit.
+ */
+export async function deleteCouponRedemptionForOrder(
+  tx: { delete: ReturnType<typeof getDb>["delete"] },
+  orderId: string,
+): Promise<void> {
+  await tx.delete(couponRedemptions).where(eq(couponRedemptions.orderId, orderId));
 }

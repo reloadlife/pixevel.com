@@ -2,7 +2,13 @@ import { and, eq } from "drizzle-orm";
 import { carts, type FulfillmentType, orderItems, orders, payments, users } from "@/db/schema";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { notify } from "@/lib/comms/dispatch";
-import { decrementCouponUsage, incrementCouponUsage, validateCoupon } from "@/lib/coupons";
+import {
+  decrementCouponUsage,
+  deleteCouponRedemptionForOrder,
+  incrementCouponUsage,
+  recordCouponRedemption,
+  validateCoupon,
+} from "@/lib/coupons";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
 import { isPaymentMethod } from "@/lib/payments/methods";
@@ -12,6 +18,7 @@ import { loadExchangeRates } from "@/lib/pricing/exchange";
 import { composeOptionsSnapshot, composeOptionsSummary } from "@/lib/variant-options";
 // Self-register every payment provider so getProvider() always resolves.
 import "@/lib/payments/register";
+import { emitOrderEvent } from "./events";
 import { OutOfStockError, releaseExpiredReservations, reserveUnits } from "./inventory";
 import { generateOrderNumber } from "./order-number";
 import { failPayment } from "./payments";
@@ -172,6 +179,7 @@ export async function placeOrder(
   let resolvedTax = 0;
   let resolvedTotal = 0;
   let appliedCoupon: string | null = null;
+  let appliedCouponId: string | null = null;
 
   const run = async (tx: any) => {
     // 1. Release expired reservations.
@@ -308,12 +316,13 @@ export async function placeOrder(
     let discountToman = 0;
 
     if (requestedCoupon) {
-      const couponResult = await validateCoupon(requestedCoupon, subtotalToman, tx);
+      const couponResult = await validateCoupon(requestedCoupon, subtotalToman, tx, { userId });
       if (!couponResult.ok) {
         throw new OrderError("INVALID_COUPON", couponResult.message);
       }
       discountToman = couponResult.discountAmount;
       appliedCoupon = couponResult.code;
+      appliedCouponId = couponResult.couponId;
     }
 
     // 7b. VAT on the discounted, non-exempt portion of the order.
@@ -352,6 +361,7 @@ export async function placeOrder(
         recipientPhone,
         giftMessage,
         couponCode: appliedCoupon,
+        couponId: appliedCouponId,
         ...(shipping
           ? {
               customerName: shipping.customerName,
@@ -366,6 +376,15 @@ export async function placeOrder(
 
     orderId = insertedOrder.id;
 
+    // Audit: order created.
+    await emitOrderEvent(tx, {
+      orderId,
+      type: "STATUS_CHANGE",
+      toStatus: "PENDING",
+      noteFa: "سفارش ثبت شد",
+      isCustomerVisible: true,
+    });
+
     // 9. Bump coupon usage atomically inside this transaction. A re-checked
     //    usageLimit in the UPDATE makes the increment race-safe; if the coupon
     //    was exhausted between validation and now, reject the order.
@@ -373,6 +392,14 @@ export async function placeOrder(
       const bumped = await incrementCouponUsage(tx, appliedCoupon);
       if (!bumped) {
         throw new OrderError("INVALID_COUPON", "ظرفیت استفاده از این کد تخفیف به پایان رسیده است.");
+      }
+      if (appliedCouponId) {
+        await recordCouponRedemption(tx, {
+          couponId: appliedCouponId,
+          userId,
+          orderId,
+          amount: discountToman,
+        });
       }
     }
 
@@ -461,7 +488,9 @@ export async function placeOrder(
     try {
       await failPayment(orderId!, txOpt);
       if (appliedCoupon) {
-        await decrementCouponUsage(opts.tx ?? getDb(), appliedCoupon);
+        const couponDb = opts.tx ?? getDb();
+        await decrementCouponUsage(couponDb, appliedCoupon);
+        await deleteCouponRedemptionForOrder(couponDb, orderId!);
       }
     } catch (cleanupError) {
       console.error(`[place-order] compensation failed for order ${orderId!}`, cleanupError);

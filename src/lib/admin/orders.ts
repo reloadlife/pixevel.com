@@ -5,6 +5,7 @@ import { notify } from "@/lib/comms/dispatch";
 import type { CommEventKey } from "@/lib/comms/events";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
+import { emitOrderEvent } from "@/lib/orders/events";
 import { releaseExpiredReservations, releaseUnits } from "@/lib/orders/inventory";
 import {
   confirmPayment,
@@ -308,22 +309,48 @@ async function notifyOrderStatus(
 }
 
 /** Mark order as physically shipped. */
-export async function markShipped(id: string): Promise<void> {
-  await getDb().update(orders).set({ status: "SHIPPED" }).where(eq(orders.id, id));
+export async function markShipped(id: string, actorUserId?: string): Promise<void> {
+  const db = getDb();
+  await db.update(orders).set({ status: "SHIPPED" }).where(eq(orders.id, id));
+  await emitOrderEvent(db, {
+    orderId: id,
+    type: "STATUS_CHANGE",
+    toStatus: "SHIPPED",
+    noteFa: "سفارش ارسال شد",
+    isCustomerVisible: true,
+    authorUserId: actorUserId ?? null,
+  });
   await notifyOrderStatus(id, "ORDER_SHIPPED");
 }
 
 /** Mark order as physically delivered. */
-export async function markDelivered(id: string): Promise<void> {
-  await getDb().update(orders).set({ status: "DELIVERED" }).where(eq(orders.id, id));
+export async function markDelivered(id: string, actorUserId?: string): Promise<void> {
+  const db = getDb();
+  await db.update(orders).set({ status: "DELIVERED" }).where(eq(orders.id, id));
+  await emitOrderEvent(db, {
+    orderId: id,
+    type: "STATUS_CHANGE",
+    toStatus: "DELIVERED",
+    noteFa: "سفارش تحویل داده شد",
+    isCustomerVisible: true,
+    authorUserId: actorUserId ?? null,
+  });
   await notifyOrderStatus(id, "ORDER_DELIVERED");
 }
 
 /** Cancel an order and release all reserved inventory units. */
-export async function cancelOrder(id: string): Promise<void> {
+export async function cancelOrder(id: string, actorUserId?: string): Promise<void> {
   await getDb().transaction(async (tx) => {
     await releaseUnits(tx, id);
     await tx.update(orders).set({ status: "CANCELLED" }).where(eq(orders.id, id));
+    await emitOrderEvent(tx, {
+      orderId: id,
+      type: "STATUS_CHANGE",
+      toStatus: "CANCELLED",
+      noteFa: "سفارش لغو شد",
+      isCustomerVisible: true,
+      authorUserId: actorUserId ?? null,
+    });
   });
   await notifyOrderStatus(id, "ORDER_CANCELLED");
 }

@@ -13,6 +13,16 @@ export const ANON_COOKIE = "px_anon";
 
 const ANON_COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year
 
+/** Cookie grouping a single visit (resets after 30 min of inactivity). */
+export const SESSION_COOKIE = "px_session";
+
+/**
+ * Sliding session window. A gap longer than this between tracked events starts
+ * a new session — the standard web-analytics session definition. The cookie's
+ * max-age is refreshed on every event so an active visit never expires.
+ */
+const SESSION_COOKIE_MAX_AGE = 30 * 60; // 30 minutes
+
 /**
  * Input for {@link recordEvent}. Only `type` is required — every other field is
  * optional context. `userId`/`anonId` identify the actor (both PII-free: anonId
@@ -63,6 +73,39 @@ export async function getOrSetAnonId(): Promise<string> {
   }
 
   return anonId;
+}
+
+/**
+ * Reads the `px_session` cookie, creating one when absent, and always refreshes
+ * its 30-minute sliding expiry so an active visit stays in the same session. A
+ * gap longer than 30 minutes lets the cookie lapse and the next event starts a
+ * fresh session id. Like {@link getOrSetAnonId}, the write is best-effort: it is
+ * only possible in a Server Action / Route Handler; elsewhere it is a swallowed
+ * no-op and the read value (or a fresh id) is returned.
+ *
+ * Returns `{ sessionId, isNew }`. `isNew` is true when no prior cookie existed,
+ * which the track API uses to detect a session's landing event.
+ */
+export async function getOrSetSessionId(): Promise<{ sessionId: string; isNew: boolean }> {
+  const cookieStore = await cookies();
+  const existing = cookieStore.get(SESSION_COOKIE)?.value;
+
+  const sessionId = existing ?? randomUUID();
+
+  try {
+    // Re-set on every read to slide the expiry forward for the active visit.
+    cookieStore.set(SESSION_COOKIE, sessionId, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: SESSION_COOKIE_MAX_AGE,
+    });
+  } catch {
+    // Cookie writes are disallowed outside actions/route handlers — ignore.
+  }
+
+  return { sessionId, isNew: !existing };
 }
 
 /**

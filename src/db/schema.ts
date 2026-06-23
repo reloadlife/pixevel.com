@@ -1288,6 +1288,8 @@ export const analyticsEvents = pgTable(
     index("AnalyticsEvent_type_createdAt_idx").on(t.type, t.createdAt),
     index("AnalyticsEvent_createdAt_idx").on(t.createdAt),
     index("AnalyticsEvent_anonId_idx").on(t.anonId),
+    // Journey/session grouping: order a session's events by time in one scan.
+    index("AnalyticsEvent_sessionId_createdAt_idx").on(t.sessionId, t.createdAt),
     index("AnalyticsEvent_productId_idx").on(t.productId),
     index("AnalyticsEvent_categoryId_idx").on(t.categoryId),
     index("AnalyticsEvent_query_idx").on(t.query),

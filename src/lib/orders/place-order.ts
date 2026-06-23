@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { carts, type FulfillmentType, orderItems, orders, payments, users } from "@/db/schema";
+import { getOrSetAnonId, getOrSetSessionId, recordEvent } from "@/lib/analytics/track";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { notify } from "@/lib/comms/dispatch";
 import {
@@ -515,6 +516,23 @@ export async function placeOrder(
         href: `/account/orders/${orderId!}`,
       },
     );
+
+    // Analytics: CHECKOUT_START — fired when an order is created + payment is
+    // initiated. Fire-and-forget; recordEvent never throws, and we read the
+    // session/anon cookies best-effort so a missing cookie can't break checkout.
+    void (async () => {
+      const [anonId, session] = await Promise.all([
+        getOrSetAnonId().catch(() => null),
+        getOrSetSessionId().catch(() => null),
+      ]);
+      await recordEvent({
+        type: "CHECKOUT_START",
+        userId,
+        anonId,
+        sessionId: session?.sessionId ?? null,
+        metadata: { orderId: orderId!, amount: resolvedTotal },
+      });
+    })();
   }
 
   return {

@@ -304,7 +304,16 @@ export async function setItemQuantity(
   });
   const policy = variant?.product.inventoryPolicy ?? "TRACKED";
   const stock = effectiveStock(await availableStock(variantId), policy);
-  const clamped = Math.min(qty, Math.max(stock, 1));
+
+  // Out of stock (TRACKED with no free units) — can't keep the line. Drop it
+  // instead of silently flooring to 1, which would leave an unbuyable item in
+  // the cart. The returned CartView still carries availableStock per line so
+  // the client can detect a clamp when stock > 0 but < requested qty.
+  if (stock < 1) {
+    return removeItem(identity, variantId);
+  }
+
+  const clamped = Math.min(qty, stock);
 
   await db
     .update(cartItems)
@@ -329,6 +338,17 @@ export async function removeItem(identity: CartIdentity, variantId: string): Pro
   return getCartView(identity);
 }
 
+/** A line skipped during merge because the variant went out of stock. */
+export type DroppedMergeLine = { variantId: string; quantity: number };
+
+/** Outcome of folding an anonymous cart into a user cart on login. */
+export type CartMergeResult = {
+  /** Lines successfully re-owned/merged into the user cart. */
+  merged: number;
+  /** Lines dropped because they were out of stock at merge time. */
+  dropped: DroppedMergeLine[];
+};
+
 /**
  * On login, fold an anonymous cart into the user's cart. If the user has no
  * active cart, the anonymous cart is simply re-owned; otherwise its lines are
@@ -337,9 +357,19 @@ export async function removeItem(identity: CartIdentity, variantId: string): Pro
  * Each item is re-priced at the authenticated user's tier so prices reflect
  * the user's entitlement (registered/premium), not the public/anonymous tier
  * that was snapshotted when the anonymous user added the item.
+ *
+ * All reads happen up front; every write runs in a single transaction so the
+ * merge is all-or-nothing. A failure rolls back cleanly and leaves the
+ * anonymous cart intact for a later retry — callers must not assume the anon
+ * cart is gone unless this resolves. Out-of-stock lines are reported in
+ * `dropped` rather than silently discarded.
  */
-export async function mergeAnonymousCart(userId: string, anonymousId: string) {
+export async function mergeAnonymousCart(
+  userId: string,
+  anonymousId: string,
+): Promise<CartMergeResult> {
   const db = getDb();
+  const empty: CartMergeResult = { merged: 0, dropped: [] };
 
   const anonCart = await db.query.carts.findFirst({
     where: (cart, { and, eq }) => and(eq(cart.anonymousId, anonymousId), eq(cart.status, "ACTIVE")),
@@ -347,10 +377,10 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
   });
 
   if (!anonCart) {
-    return;
+    return empty;
   }
 
-  // Load the user so we can determine their pricing tier.
+  // ── Reads (no mutation): tier, target cart, variants, stock counts. ──
   const userRow = await db.query.users.findFirst({
     where: (u, { eq }) => eq(u.id, userId),
     columns: { isPremium: true },
@@ -361,41 +391,8 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
     where: (cart, { and, eq }) => and(eq(cart.userId, userId), eq(cart.status, "ACTIVE")),
   });
 
-  if (!userCart) {
-    // No existing user cart — re-own the anonymous cart, then re-price every
-    // line at the authenticated tier.
-    await db.update(carts).set({ userId, anonymousId: null }).where(eq(carts.id, anonCart.id));
-
-    // Re-price each item for the newly authenticated tier.
-    await loadExchangeRates();
-    const variantIds = anonCart.items.map((i) => i.variantId);
-    const variants = variantIds.length
-      ? await db.query.productVariants.findMany({
-          where: (v, { inArray: inArr }) => inArr(v.id, variantIds),
-          with: { product: { columns: { baseCurrency: true } } },
-        })
-      : [];
-    const variantMap = new Map(variants.map((v) => [v.id, v]));
-
-    for (const item of anonCart.items) {
-      const variant = variantMap.get(item.variantId);
-      if (!variant) continue;
-      const unitPrice = variantPrice(variant, tier, variant.product.baseCurrency);
-      await db
-        .update(cartItems)
-        .set({ unitPrice: String(unitPrice) })
-        .where(eq(cartItems.id, item.id));
-    }
-    return;
-  }
-
-  // User already has an active cart — merge lines into it, re-pricing each
-  // at the authenticated tier and using batched stock counts.
-  const variantIds = anonCart.items.map((i) => i.variantId);
-  const stockMap = await availableStockByVariants(variantIds);
-
-  // Load all variants in one query.
   await loadExchangeRates();
+  const variantIds = anonCart.items.map((i) => i.variantId);
   const variants = variantIds.length
     ? await db.query.productVariants.findMany({
         where: (v, { inArray: inArr }) => inArr(v.id, variantIds),
@@ -403,40 +400,73 @@ export async function mergeAnonymousCart(userId: string, anonymousId: string) {
       })
     : [];
   const variantMap = new Map(variants.map((v) => [v.id, v]));
+  // Stock only matters when merging into an existing cart (re-own keeps lines).
+  const stockMap =
+    userCart && variantIds.length ? await availableStockByVariants(variantIds) : new Map();
 
-  for (const item of anonCart.items) {
-    const variant = variantMap.get(item.variantId);
-    const policy = variant?.product.inventoryPolicy ?? "TRACKED";
-    const stock = effectiveStock(stockMap.get(item.variantId) ?? 0, policy);
+  // ── Writes: one atomic transaction. ──
+  return db.transaction(async (tx) => {
+    if (!userCart) {
+      // No existing user cart — re-own the anonymous cart, then re-price every
+      // line at the authenticated tier.
+      await tx.update(carts).set({ userId, anonymousId: null }).where(eq(carts.id, anonCart.id));
 
-    if (stock < 1) {
-      continue;
+      let merged = 0;
+      for (const item of anonCart.items) {
+        const variant = variantMap.get(item.variantId);
+        if (!variant) continue;
+        const unitPrice = variantPrice(variant, tier, variant.product.baseCurrency);
+        await tx
+          .update(cartItems)
+          .set({ unitPrice: String(unitPrice) })
+          .where(eq(cartItems.id, item.id));
+        merged++;
+      }
+      return { merged, dropped: [] };
     }
 
-    const unitPrice = variant
-      ? variantPrice(variant, tier, variant.product.baseCurrency)
-      : Number(item.unitPrice);
+    // User already has an active cart — merge lines into it, re-pricing each
+    // at the authenticated tier and using batched stock counts.
+    const dropped: DroppedMergeLine[] = [];
+    let merged = 0;
 
-    const existing = await db.query.cartItems.findFirst({
-      where: (row, { and, eq }) =>
-        and(eq(row.cartId, userCart.id), eq(row.variantId, item.variantId)),
-    });
+    for (const item of anonCart.items) {
+      const variant = variantMap.get(item.variantId);
+      const policy = variant?.product.inventoryPolicy ?? "TRACKED";
+      const stock = effectiveStock(stockMap.get(item.variantId) ?? 0, policy);
 
-    const nextQuantity = Math.min((existing?.quantity ?? 0) + item.quantity, stock);
+      if (stock < 1) {
+        dropped.push({ variantId: item.variantId, quantity: item.quantity });
+        continue;
+      }
 
-    await db
-      .insert(cartItems)
-      .values({
-        cartId: userCart.id,
-        variantId: item.variantId,
-        quantity: nextQuantity,
-        unitPrice: String(unitPrice),
-      })
-      .onConflictDoUpdate({
-        target: [cartItems.cartId, cartItems.variantId],
-        set: { quantity: nextQuantity, unitPrice: String(unitPrice) },
+      const unitPrice = variant
+        ? variantPrice(variant, tier, variant.product.baseCurrency)
+        : Number(item.unitPrice);
+
+      const existing = await tx.query.cartItems.findFirst({
+        where: (row, { and, eq }) =>
+          and(eq(row.cartId, userCart.id), eq(row.variantId, item.variantId)),
       });
-  }
 
-  await db.delete(carts).where(eq(carts.id, anonCart.id));
+      const nextQuantity = Math.min((existing?.quantity ?? 0) + item.quantity, stock);
+
+      await tx
+        .insert(cartItems)
+        .values({
+          cartId: userCart.id,
+          variantId: item.variantId,
+          quantity: nextQuantity,
+          unitPrice: String(unitPrice),
+        })
+        .onConflictDoUpdate({
+          target: [cartItems.cartId, cartItems.variantId],
+          set: { quantity: nextQuantity, unitPrice: String(unitPrice) },
+        });
+      merged++;
+    }
+
+    await tx.delete(carts).where(eq(carts.id, anonCart.id));
+    return { merged, dropped };
+  });
 }

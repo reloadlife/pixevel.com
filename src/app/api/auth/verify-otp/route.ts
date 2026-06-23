@@ -108,8 +108,21 @@ export async function POST(request: Request) {
   const anonymousCartId = cookieStore.get(CART_COOKIE)?.value;
 
   if (anonymousCartId) {
-    await mergeAnonymousCart(user.id, anonymousCartId);
-    cookieStore.delete(CART_COOKIE);
+    try {
+      const result = await mergeAnonymousCart(user.id, anonymousCartId);
+      // Merge succeeded (atomic) — anon cart is gone, retire its cookie.
+      cookieStore.delete(CART_COOKIE);
+      if (result.dropped.length > 0) {
+        console.warn(
+          `[auth] cart merge for user ${user.id} dropped ${result.dropped.length} out-of-stock line(s)`,
+        );
+      }
+    } catch (error) {
+      // Login already succeeded (session cookie set above). Don't fail the
+      // request over a cart merge — keep the anon cart cookie so the basket
+      // isn't orphaned and can be recovered on a later request.
+      console.error("[auth] cart merge failed; login kept, anon cart preserved:", error);
+    }
   }
 
   return apiOk({ user });

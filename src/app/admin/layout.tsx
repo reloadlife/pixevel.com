@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AdminProviders } from "@/components/admin/admin-providers";
 import { AdminSidebar } from "@/components/admin/admin-sidebar";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -20,7 +21,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <SidebarTrigger />
             <span className="text-sm font-medium">پنل مدیریت</span>
           </header>
-          <div className="mx-auto w-full max-w-7xl p-4 md:p-6">{children}</div>
+          <div className="mx-auto w-full max-w-7xl p-4 md:p-6">
+            <AdminProviders>{children}</AdminProviders>
+          </div>
         </SidebarInset>
       </SidebarProvider>
     </TooltipProvider>

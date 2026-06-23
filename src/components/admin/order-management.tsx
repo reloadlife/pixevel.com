@@ -20,8 +20,11 @@ import {
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { type ComponentProps, useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { OrderRefundPanel } from "@/components/admin/order-refund-panel";
+import { OrderShipmentsPanel } from "@/components/admin/order-shipments-panel";
+import { OrderTimelinePanel } from "@/components/admin/order-timeline-panel";
 import { formatToman } from "@/lib/format";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -512,9 +515,25 @@ function OrderList({ initialOrders }: { initialOrders: OrderRow[] }) {
   );
 }
 
+// ─── Extra panel data types (opaque – panels own the shape internally) ────────
+
+type AnyRefundRow = Record<string, unknown>;
+type AnyShipmentRow = Record<string, unknown>;
+type AnyEventRow = Record<string, unknown>;
+
 // ─── Order detail ─────────────────────────────────────────────────────────────
 
-function OrderDetail({ initialOrder }: { initialOrder: OrderDetail }) {
+function OrderDetail({
+  initialOrder,
+  initialRefunds = [],
+  initialShipments = [],
+  initialEvents = [],
+}: {
+  initialOrder: OrderDetail;
+  initialRefunds?: AnyRefundRow[];
+  initialShipments?: AnyShipmentRow[];
+  initialEvents?: AnyEventRow[];
+}) {
   const [order, setOrder] = useState(initialOrder);
   const [loading, setLoading] = useState<string | null>(null);
 
@@ -983,6 +1002,33 @@ function OrderDetail({ initialOrder }: { initialOrder: OrderDetail }) {
           </div>
         </div>
       )}
+
+      {/* ── Refunds ─────────────────────────────────────────────────────────── */}
+      <OrderRefundPanel
+        orderId={order.id}
+        orderItems={order.items}
+        initialRefunds={
+          initialRefunds as unknown as ComponentProps<typeof OrderRefundPanel>["initialRefunds"]
+        }
+      />
+
+      {/* ── Shipments ───────────────────────────────────────────────────────── */}
+      <OrderShipmentsPanel
+        orderId={order.id}
+        initialShipments={
+          initialShipments as unknown as ComponentProps<
+            typeof OrderShipmentsPanel
+          >["initialShipments"]
+        }
+      />
+
+      {/* ── Order timeline ──────────────────────────────────────────────────── */}
+      <OrderTimelinePanel
+        orderId={order.id}
+        initialEvents={
+          initialEvents as unknown as ComponentProps<typeof OrderTimelinePanel>["initialEvents"]
+        }
+      />
     </div>
   );
 }
@@ -1013,12 +1059,33 @@ function Row({
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 type OrderManagementProps =
-  | { mode: "list"; initialOrders: OrderRow[]; initialOrder?: never }
-  | { mode: "detail"; initialOrder: OrderDetail; initialOrders?: never };
+  | {
+      mode: "list";
+      initialOrders: OrderRow[];
+      initialOrder?: never;
+      initialRefunds?: never;
+      initialShipments?: never;
+      initialEvents?: never;
+    }
+  | {
+      mode: "detail";
+      initialOrder: OrderDetail;
+      initialOrders?: never;
+      initialRefunds?: AnyRefundRow[];
+      initialShipments?: AnyShipmentRow[];
+      initialEvents?: AnyEventRow[];
+    };
 
 export function OrderManagement(props: OrderManagementProps) {
   if (props.mode === "detail" && props.initialOrder) {
-    return <OrderDetail initialOrder={props.initialOrder} />;
+    return (
+      <OrderDetail
+        initialOrder={props.initialOrder}
+        initialRefunds={props.initialRefunds}
+        initialShipments={props.initialShipments}
+        initialEvents={props.initialEvents}
+      />
+    );
   }
 
   return <OrderList initialOrders={props.initialOrders ?? []} />;

@@ -1,7 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { OrderManagement } from "@/components/admin/order-management";
+import { listOrderEvents } from "@/lib/admin/order-events";
 import { getAdminOrder } from "@/lib/admin/orders";
+import { listOrderRefunds } from "@/lib/admin/refunds";
+import { listOrderShipments } from "@/lib/admin/shipments";
 import { getCurrentUser } from "@/lib/auth";
 
 export default async function AdminOrderDetailPage({
@@ -26,5 +29,19 @@ export default async function AdminOrderDetailPage({
     redirect("/admin/orders");
   }
 
-  return <OrderManagement initialOrder={order} mode="detail" />;
+  const [refunds, shipments, events] = await Promise.all([
+    listOrderRefunds(id),
+    listOrderShipments(id),
+    listOrderEvents(id),
+  ]);
+
+  return (
+    <OrderManagement
+      initialOrder={order}
+      mode="detail"
+      initialRefunds={refunds}
+      initialShipments={shipments}
+      initialEvents={events}
+    />
+  );
 }

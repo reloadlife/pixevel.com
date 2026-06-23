@@ -15,6 +15,7 @@ import {
   NewspaperIcon,
   PackageIcon,
   PlusIcon,
+  ReceiptIcon,
   RepeatIcon,
   SettingsIcon,
   Share2Icon,
@@ -22,6 +23,7 @@ import {
   StarIcon,
   TagIcon,
   TicketPercentIcon,
+  TruckIcon,
   UsersIcon,
   WalletIcon,
 } from "lucide-react";
@@ -72,8 +74,10 @@ const navSections: NavSection[] = [
     label: "فروش",
     items: [
       { href: "/admin/orders", label: "سفارش‌ها", icon: ShoppingBagIcon, exact: false },
+      { href: "/admin/shipping", label: "روش‌های ارسال", icon: TruckIcon, exact: false },
       { href: "/admin/coupons", label: "کدهای تخفیف", icon: TicketPercentIcon, exact: false },
       { href: "/admin/gift-cards", label: "کارت‌های هدیه", icon: GiftIcon, exact: false },
+      { href: "/admin/tax", label: "مالیات", icon: ReceiptIcon, exact: false },
     ],
   },
   {

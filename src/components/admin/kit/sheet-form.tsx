@@ -93,7 +93,7 @@ export function SheetForm({
           {children}
 
           {/* Hidden submit so Enter key works in nested inputs */}
-          <button type="submit" className="sr-only" aria-hidden="true" />
+          <button type="submit" className="sr-only" />
         </form>
 
         <SheetFooter>

@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
+import { getCurrentUser } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
 
@@ -11,11 +13,14 @@ interface PageProps {
   searchParams: Promise<{ orderId?: string; status?: string }>;
 }
 
-function normalizeStatus(value: string | undefined): ResultStatus {
-  if (value === "success" || value === "failed" || value === "pending") {
-    return value;
-  }
-  return "failed";
+/** Map the DB paymentStatus enum to our display state. */
+function dbStatusToResult(
+  dbStatus: "UNPAID" | "AUTHORIZED" | "PAID" | "FAILED" | "REFUNDED",
+): ResultStatus {
+  if (dbStatus === "PAID") return "success";
+  if (dbStatus === "FAILED") return "failed";
+  // UNPAID, AUTHORIZED, REFUNDED all show as pending/ambiguous.
+  return "pending";
 }
 
 // ─── Visual config per state ─────────────────────────────────────────────────
@@ -41,33 +46,76 @@ const STATE = {
   },
 } as const;
 
+// ─── Fulfillment classification ───────────────────────────────────────────────
+
+type FulfillmentBucket = "digital" | "physical" | "mixed" | "unknown";
+
+type FulfillmentType = "DIGITAL" | "PHYSICAL" | "DOMAIN" | "SERVER" | "SERVICE";
+
+const DIGITAL_TYPES = new Set<FulfillmentType>(["DIGITAL"]);
+const PHYSICAL_TYPES = new Set<FulfillmentType>(["PHYSICAL", "DOMAIN", "SERVER", "SERVICE"]);
+
+function classifyFulfillment(types: FulfillmentType[]): FulfillmentBucket {
+  if (types.length === 0) return "unknown";
+  const hasDigital = types.some((t) => DIGITAL_TYPES.has(t));
+  const hasPhysical = types.some((t) => PHYSICAL_TYPES.has(t));
+  if (hasDigital && hasPhysical) return "mixed";
+  if (hasDigital) return "digital";
+  return "physical";
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default async function PaymentResultPage({ searchParams }: PageProps) {
-  const { orderId, status: rawStatus } = await searchParams;
-  const status = normalizeStatus(rawStatus);
-  const state = STATE[status];
+  const { orderId, status: hintStatus } = await searchParams;
 
-  // Load minimal order details for display (best-effort; the page renders even
-  // if the order can't be loaded).
-  let orderNumber: string | null = null;
-  let totalAmount: string | number | null = null;
+  // ── Auth gate ──────────────────────────────────────────────────────────────
+  const user = await getCurrentUser();
+  if (!user) {
+    // Preserve the original query string so after login the user lands back here.
+    const params = new URLSearchParams();
+    if (orderId) params.set("orderId", orderId);
+    if (hintStatus) params.set("status", hintStatus);
+    const returnPath = `/payment/result${params.size > 0 ? `?${params.toString()}` : ""}`;
+    redirect(`/login?redirect=${encodeURIComponent(returnPath)}`);
+  }
+
+  // ── Order lookup (ownership-scoped) ────────────────────────────────────────
+  let order: {
+    orderNumber: string;
+    totalAmount: string | number;
+    paymentStatus: "UNPAID" | "AUTHORIZED" | "PAID" | "FAILED" | "REFUNDED";
+    items: { fulfillmentType: FulfillmentType }[];
+  } | null = null;
 
   if (orderId) {
-    try {
-      const db = getDb();
-      const order = await db.query.orders.findFirst({
-        where: (o, { eq }) => eq(o.id, orderId),
-        columns: { orderNumber: true, totalAmount: true },
-      });
-      if (order) {
-        orderNumber = order.orderNumber;
-        totalAmount = order.totalAmount;
-      }
-    } catch {
-      // Ignore — show the result without order metadata.
-    }
+    const db = getDb();
+    order =
+      (await db.query.orders.findFirst({
+        where: (o, { and, eq }) => and(eq(o.id, orderId), eq(o.userId, user.id)),
+        columns: { orderNumber: true, totalAmount: true, paymentStatus: true },
+        with: {
+          items: { columns: { fulfillmentType: true } },
+        },
+      })) ?? null;
+    // If order not found or belongs to someone else, we fall through with order = null.
+    // We do NOT reveal whether the order exists at all.
   }
+
+  // ── Derive display status from DB, not URL ─────────────────────────────────
+  const status: ResultStatus = order
+    ? dbStatusToResult(order.paymentStatus)
+    : // No order found (missing param, wrong user, etc.) — treat as failed/unknown.
+      // The ?status hint is intentionally ignored for security: the DB is the truth.
+      "failed";
+
+  const state = STATE[status];
+
+  // ── Fulfillment bucket (only relevant for success) ─────────────────────────
+  const fulfillmentBucket: FulfillmentBucket =
+    order && status === "success"
+      ? classifyFulfillment(order.items.map((i) => i.fulfillmentType))
+      : "unknown";
 
   const orderHref = orderId ? `/account/orders/${orderId}` : "/account/orders";
 
@@ -89,33 +137,54 @@ export default async function PaymentResultPage({ searchParams }: PageProps) {
           <p className="mt-2 text-sm text-muted-foreground">{state.subtitle}</p>
 
           {/* Order meta */}
-          {(orderNumber || totalAmount != null) && (
+          {order && (
             <dl className="mt-6 space-y-2 border-t border-border pt-5 text-sm">
-              {orderNumber && (
+              {order.orderNumber && (
                 <div className="flex items-center justify-between">
                   <dt className="text-muted-foreground">شماره سفارش</dt>
                   <dd className="font-mono font-medium" dir="ltr">
-                    {orderNumber}
+                    {order.orderNumber}
                   </dd>
                 </div>
               )}
-              {totalAmount != null && (
+              {order.totalAmount != null && (
                 <div className="flex items-center justify-between">
                   <dt className="text-muted-foreground">مبلغ</dt>
-                  <dd className="font-black">{formatToman(totalAmount)}</dd>
+                  <dd className="font-black">{formatToman(order.totalAmount)}</dd>
                 </div>
               )}
             </dl>
           )}
 
-          {/* Success note: digital codes emailed + viewable in account */}
-          {status === "success" && (
+          {/* Success note: fulfillment-aware */}
+          {status === "success" &&
+            (fulfillmentBucket === "digital" || fulfillmentBucket === "mixed") && (
+              <div className="mt-6 rounded border border-green-500/30 bg-green-500/10 p-4 text-right text-sm">
+                <p className="font-medium text-green-700 dark:text-green-400">
+                  کدهای دیجیتال شما آماده است
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  کدها به ایمیل شما ارسال شدند و در حساب کاربری‌تان نیز قابل مشاهده هستند.
+                </p>
+              </div>
+            )}
+
+          {status === "success" &&
+            (fulfillmentBucket === "physical" || fulfillmentBucket === "mixed") && (
+              <div className="mt-6 rounded border border-green-500/30 bg-green-500/10 p-4 text-right text-sm">
+                <p className="font-medium text-green-700 dark:text-green-400">سفارش شما ثبت شد</p>
+                <p className="mt-1 text-muted-foreground">
+                  سفارش شما پردازش می‌شود و به‌زودی ارسال خواهد شد. وضعیت ارسال را در حساب کاربری‌تان
+                  دنبال کنید.
+                </p>
+              </div>
+            )}
+
+          {status === "success" && fulfillmentBucket === "unknown" && (
             <div className="mt-6 rounded border border-green-500/30 bg-green-500/10 p-4 text-right text-sm">
-              <p className="font-medium text-green-700 dark:text-green-400">
-                کدهای دیجیتال شما ایمیل شد
-              </p>
+              <p className="font-medium text-green-700 dark:text-green-400">سفارش شما ثبت شد</p>
               <p className="mt-1 text-muted-foreground">
-                کدها به ایمیل شما ارسال شدند و در حساب کاربری‌تان نیز قابل مشاهده هستند.
+                جزئیات سفارش در حساب کاربری‌تان قابل مشاهده است.
               </p>
             </div>
           )}

@@ -2,15 +2,13 @@ import { Globe, Headset, RefreshCw, Server, ShieldCheck, Zap } from "lucide-reac
 import type { Metadata } from "next";
 import { isDomainDemo, isDomainSearchEnabled } from "@/lib/domains/spaceship";
 import { formatToman } from "@/lib/format";
+import { resolveMetadata } from "@/lib/seo/resolve";
 import { DomainSearchClient } from "./domain-search-client";
 import { HeroTyper } from "./hero-typer";
 
-export const metadata: Metadata = {
-  title: "ثبت دامنه | پیکس‌ول",
-  description:
-    "نام دامنهٔ دلخواه خود را جستجو کنید، قیمت لحظه‌ای پسوندهای مختلف را ببینید و در چند ثانیه ثبت کنید — با فعال‌سازی آنی و مدیریت کامل DNS.",
-  alternates: { canonical: "/domains" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/domains" });
+}
 
 /**
  * Extension catalog grouped by buyer intent. Prices are representative starting

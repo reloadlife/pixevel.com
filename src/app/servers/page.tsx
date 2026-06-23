@@ -5,12 +5,12 @@ import { getCurrentUser } from "@/lib/auth";
 import { getUserTier, variantPrice } from "@/lib/catalog";
 import { getDb } from "@/lib/db";
 import { decimalToNumber } from "@/lib/format";
+import { resolveMetadata } from "@/lib/seo/resolve";
 import { PlanCard, type ServerPlanView } from "./plan-card";
 
-export const metadata: Metadata = {
-  title: "سرور ابری و VPS | Pixevel",
-  description: "سرورهای مجازی و ابری با تحویل سریع، آپ‌تایم بالا و پلن‌های ماهانه، سه‌ماهه و سالانه.",
-};
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/servers" });
+}
 
 type VariantMetadata = {
   cpu?: number;

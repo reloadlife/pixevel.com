@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "پشتیبانی",
-  description: "مرکز پشتیبانی پیسکول؛ راهنمای خرید، رفع مشکل کد و راه‌های ارتباط با تیم پشتیبانی.",
-  alternates: { canonical: "/support" },
-};
+import { resolveMetadata } from "@/lib/seo/resolve";
+
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/support" });
+}
 
 const topics = [
   {

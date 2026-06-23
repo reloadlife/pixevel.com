@@ -3,13 +3,11 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { listPublishedPosts } from "@/lib/blog";
+import { resolveMetadata } from "@/lib/seo/resolve";
 
-export const metadata: Metadata = {
-  title: "بلاگ",
-  description: "راهنماها و اخبار دنیای گیفت‌کارت، سی‌دی‌کی، دامنه و سرویس‌های دیجیتال در پیسکول.",
-  alternates: { canonical: "/blog" },
-  openGraph: { type: "website", title: "بلاگ پیسکول" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/blog" });
+}
 
 function faDate(value: string | null): string {
   if (!value) return "";

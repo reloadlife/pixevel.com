@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "سوالات متداول",
-  description: "پاسخ پرتکرارترین سوال‌ها درباره خرید، تحویل و پرداخت در پیسکول.",
-  alternates: { canonical: "/faq" },
-};
+import { resolveMetadata } from "@/lib/seo/resolve";
+
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/faq" });
+}
 
 /**
  * Serializes JSON-LD for safe embedding inside a <script> tag. Escapes `<` so a

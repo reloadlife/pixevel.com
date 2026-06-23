@@ -14,6 +14,7 @@ import {
 } from "@/lib/catalog";
 import { getDb } from "@/lib/db";
 import { formatToman } from "@/lib/format";
+import { resolveMetadata } from "@/lib/seo/resolve";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixevel.com";
 
@@ -84,33 +85,20 @@ export async function generateMetadata({
   const category = await getCategoryBySlug(slug);
 
   if (!category?.isVisible) {
-    return { title: "دسته یافت نشد" };
+    return { title: { absolute: "دسته یافت نشد" } };
   }
 
-  const title = category.seoTitle ?? category.titleFa;
-  const description = categoryDescription(category);
-  const canonical = `${siteUrl}/category/${category.slug}`;
-  const image = category.ogImageUrl;
-
-  return {
-    title,
-    description,
-    alternates: { canonical },
-    robots: { index: !category.noindex, follow: true },
-    openGraph: {
-      type: "website",
-      title,
-      description,
-      url: canonical,
-      images: image ? [{ url: image, alt: title }] : undefined,
+  return resolveMetadata({
+    kind: "category",
+    slug: category.slug,
+    entity: {
+      titleFa: category.titleFa,
+      seoTitle: category.seoTitle,
+      seoDescription: categoryDescription(category),
+      ogImageUrl: category.ogImageUrl,
+      noindex: category.noindex,
     },
-    twitter: {
-      card: image ? "summary_large_image" : "summary",
-      title,
-      description,
-      images: image ? [image] : undefined,
-    },
-  };
+  });
 }
 
 export default async function CategoryPage({

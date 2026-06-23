@@ -2131,3 +2131,36 @@ export type RefundItem = typeof refundItems.$inferSelect;
 export type CouponRedemption = typeof couponRedemptions.$inferSelect;
 export type OrderEvent = typeof orderEvents.$inferSelect;
 export type ProductRelation = typeof productRelations.$inferSelect;
+
+// --- SEO Management Hub -----------------------------------------------------
+// DB-backed SEO for standalone/static routes (homepage, /about, /faq, …) that
+// are not backed by a catalog/blog entity. Keyed by route path so each page
+// maps to exactly one row. Products/categories/blog keep their own SEO columns;
+// the hub reads those read-through and writes edits back to the owning table.
+
+export const pageSeo = pgTable("PageSeo", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Stable route identifier, e.g. "/", "/about", "/products". Unique.
+  pathKey: text("pathKey").notNull().unique(),
+  // Human label for the admin list, e.g. "صفحه اصلی", "درباره ما".
+  labelFa: text("labelFa").notNull(),
+  seoTitle: text("seoTitle"),
+  seoDescription: text("seoDescription"),
+  ogImageUrl: text("ogImageUrl"),
+  noindex: boolean("noindex").default(false).notNull(),
+  // Optional absolute/relative canonical override; null = derive from pathKey.
+  canonicalOverride: text("canonicalOverride"),
+  // Sitemap controls (null = use global default). Priority is 0.0–1.0 stored as
+  // numeric text via Drizzle — coerce to a number in the resolver.
+  sitemapPriority: numeric("sitemapPriority"),
+  sitemapChangefreq: text("sitemapChangefreq"), // daily/weekly/monthly/…
+  updatedByUserId: uuid("updatedByUserId").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  updatedAt,
+});
+export type PageSeo = typeof pageSeo.$inferSelect;
+
+export const pageSeoRelations = relations(pageSeo, ({ one }) => ({
+  updatedBy: one(users, { fields: [pageSeo.updatedByUserId], references: [users.id] }),
+}));

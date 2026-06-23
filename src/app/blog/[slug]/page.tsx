@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 
 import { TrackView } from "@/components/analytics/track-view";
 import { getPublishedPostBySlug } from "@/lib/blog";
+import { resolveMetadata } from "@/lib/seo/resolve";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixevel.com";
 
@@ -26,29 +27,24 @@ export async function generateMetadata({
   const post = await getPublishedPostBySlug(slug);
 
   if (!post) {
-    return { title: "مطلب پیدا نشد" };
+    return { title: { absolute: "مطلب پیدا نشد" } };
   }
 
-  const title = post.seoTitle ?? post.titleFa;
-  const description = post.seoDescription ?? post.excerptFa ?? undefined;
-  const image = post.ogImageUrl ?? post.coverImageUrl ?? undefined;
-  const url = `${siteUrl}/blog/${post.slug}`;
-
-  return {
-    title,
-    description,
-    alternates: { canonical: `/blog/${post.slug}` },
-    robots: { index: !post.noindex, follow: true },
-    openGraph: {
-      type: "article",
-      title,
-      description,
-      url,
-      images: image ? [image] : undefined,
-      publishedTime: post.publishedAt ?? undefined,
+  return resolveMetadata(
+    {
+      kind: "blog",
+      slug: post.slug,
+      entity: {
+        titleFa: post.titleFa,
+        seoTitle: post.seoTitle,
+        seoDescription: post.seoDescription,
+        fallbackDescription: post.excerptFa,
+        ogImageUrl: post.ogImageUrl ?? post.coverImageUrl,
+        noindex: post.noindex,
+      },
     },
-    twitter: { card: "summary_large_image", title, description },
-  };
+    { ogPublishedTime: post.publishedAt },
+  );
 }
 
 export default async function BlogPostPage({ params }: { params: Promise<{ slug: string }> }) {

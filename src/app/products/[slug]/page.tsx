@@ -6,6 +6,7 @@ import { ProductCard } from "@/components/shop/product-card";
 import { ProductDetailClient } from "@/components/shop/product-detail-client";
 import { getCurrentUser } from "@/lib/auth";
 import { getProductDetailView } from "@/lib/catalog";
+import { resolveMetadata } from "@/lib/seo/resolve";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://pixevel.com";
 
@@ -153,33 +154,23 @@ export async function generateMetadata({
   const product = await getProductDetailView(slug, null);
 
   if (!product) {
-    return { title: "محصول یافت نشد" };
+    return { title: { absolute: "محصول یافت نشد" } };
   }
 
-  const title = metaTitle(product);
-  const description = metaDescription(product);
-  const image = ogImageUrl(product);
-  const canonical = `/products/${product.slug}`;
-
-  return {
-    title,
-    description,
-    alternates: { canonical },
-    robots: { index: !product.noindex, follow: !product.noindex },
-    openGraph: {
-      type: "website",
-      title,
-      description,
-      url: canonical,
-      images: image ? [{ url: image, alt: product.titleFa }] : undefined,
+  // Pre-compute the page's own fallback chain (image-derived OG, summary/description
+  // truncation) and hand it to the single SEO resolver, which layers the global
+  // defaults (default OG image, robots default) on top.
+  return resolveMetadata({
+    kind: "product",
+    slug: product.slug,
+    entity: {
+      titleFa: product.titleFa,
+      seoTitle: metaTitle(product),
+      seoDescription: metaDescription(product),
+      ogImageUrl: ogImageUrl(product),
+      noindex: product.noindex,
     },
-    twitter: {
-      card: "summary_large_image",
-      title,
-      description,
-      images: image ? [image] : undefined,
-    },
-  };
+  });
 }
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ slug: string }> }) {

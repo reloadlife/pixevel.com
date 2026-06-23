@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { resolveMetadata } from "@/lib/seo/resolve";
+
 import { ContactForm } from "./contact-form";
 
-export const metadata: Metadata = {
-  title: "تماس با ما",
-  description: "راه‌های ارتباط با پشتیبانی پیسکول: تلفن، ایمیل و تلگرام.",
-  alternates: { canonical: "/contact" },
-};
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/contact" });
+}
 
 const channels = [
   { label: "تلفن پشتیبانی", value: "۰۲۱-۰۰۰۰۰۰۰۰", href: "tel:+982100000000" },

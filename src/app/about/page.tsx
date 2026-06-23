@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "درباره ما",
-  description:
-    "پیسکول، فروشگاه تخصصی محصولات دیجیتال: گیفت کارت، سی‌دی‌کی بازی و سرویس‌های آنلاین با تحویل آنی.",
-  alternates: { canonical: "/about" },
-};
+import { resolveMetadata } from "@/lib/seo/resolve";
+
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/about" });
+}
 
 export default function AboutPage() {
   return (

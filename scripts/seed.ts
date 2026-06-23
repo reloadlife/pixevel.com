@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { createAdminProduct } from "@/lib/admin/products";
+import { STATIC_PAGES } from "@/lib/seo/static-pages";
 import { optionsKeyFromPairs } from "@/lib/variant-options";
 import * as schema from "../src/db/schema";
 
@@ -497,8 +498,25 @@ async function main() {
     });
   }
 
+  // Idempotent SEO rows for indexable static pages — seeds each route's current
+  // title/description so the rendered head stays identical until an operator edits
+  // it. onConflictDoNothing(pathKey) never clobbers existing operator edits.
+  await db
+    .insert(schema.pageSeo)
+    .values(
+      STATIC_PAGES.map((page) => ({
+        pathKey: page.pathKey,
+        labelFa: page.labelFa,
+        seoTitle: page.title,
+        seoDescription: page.description,
+        sitemapPriority: String(page.sitemapPriority),
+        sitemapChangefreq: page.sitemapChangefreq,
+      })),
+    )
+    .onConflictDoNothing({ target: schema.pageSeo.pathKey });
+
   console.log(
-    `Done. ${productIdBySlug.size} products, ${TAGS.length} tags, ${CATEGORIES.length} categories, 2 home blocks.`,
+    `Done. ${productIdBySlug.size} products, ${TAGS.length} tags, ${CATEGORIES.length} categories, 2 home blocks, ${STATIC_PAGES.length} SEO pages.`,
   );
 }
 

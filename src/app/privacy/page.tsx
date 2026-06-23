@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "حریم خصوصی",
-  description: "سیاست حریم خصوصی پیسکول؛ نحوه جمع‌آوری، استفاده و محافظت از اطلاعات کاربران.",
-  alternates: { canonical: "/privacy" },
-};
+import { resolveMetadata } from "@/lib/seo/resolve";
+
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/privacy" });
+}
 
 const sections = [
   {

@@ -17,6 +17,7 @@ import {
   PlusIcon,
   ReceiptIcon,
   RepeatIcon,
+  SearchIcon,
   SettingsIcon,
   Share2Icon,
   ShoppingBagIcon,
@@ -95,6 +96,7 @@ const navSections: NavSection[] = [
     items: [
       { href: "/admin/homepage", label: "صفحه خانه", icon: HomeIcon, exact: false },
       { href: "/admin/blog", label: "بلاگ", icon: NewspaperIcon, exact: false },
+      { href: "/admin/seo", label: "سئو", icon: SearchIcon, exact: false },
       { href: "/admin/watermarks", label: "واترمارک‌ها", icon: ImageIcon, exact: false },
       { href: "/admin/newsletter", label: "خبرنامه", icon: MailIcon, exact: false },
       { href: "/admin/notifications", label: "اعلان‌ها", icon: BellIcon, exact: false },

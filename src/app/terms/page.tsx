@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "قوانین و مقررات",
-  description: "قوانین و مقررات استفاده از فروشگاه دیجیتال پیسکول.",
-  alternates: { canonical: "/terms" },
-};
+import { resolveMetadata } from "@/lib/seo/resolve";
+
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/terms" });
+}
 
 const sections = [
   {

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-export const metadata: Metadata = {
-  title: "رویه بازگشت وجه",
-  description: "شرایط و رویه بازگشت وجه و تعویض کد در فروشگاه دیجیتال پیسکول.",
-  alternates: { canonical: "/refund" },
-};
+import { resolveMetadata } from "@/lib/seo/resolve";
+
+export function generateMetadata(): Promise<Metadata> {
+  return resolveMetadata({ kind: "static", pathKey: "/refund" });
+}
 
 const sections = [
   {

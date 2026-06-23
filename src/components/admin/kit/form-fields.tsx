@@ -6,7 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { BaseCurrency } from "@/db/schema";
 import { formatToman } from "@/lib/format";
-import { type ForeignCurrency, getCachedRate } from "@/lib/pricing/exchange";
 import { cn } from "@/lib/utils";
 
 // ─── FormField ────────────────────────────────────────────────────────────────
@@ -298,6 +297,7 @@ export function MoneyField({
   value,
   onChange,
   currency,
+  rateToman,
   disabled,
   error,
 }: {
@@ -306,17 +306,21 @@ export function MoneyField({
   value: string;
   onChange: (value: string) => void;
   currency: BaseCurrency;
+  /**
+   * Toman-per-unit rate for the live conversion hint when currency is USD/EUR.
+   * Supplied by the caller (rates are server-side; this client kit must not
+   * import the exchange module). When omitted, no hint is shown.
+   */
+  rateToman?: number;
   disabled?: boolean;
   error?: string;
 }) {
-  // Compute the live Toman hint when currency is USD or EUR.
+  // Compute the live Toman hint when currency is USD or EUR and a rate is given.
   const tomanHint = (() => {
-    if (currency === "IRT") return undefined;
+    if (currency === "IRT" || !rateToman || rateToman <= 0) return undefined;
     const amount = Number(value);
     if (!Number.isFinite(amount) || amount <= 0) return undefined;
-    // After the IRT guard, currency is "USD" | "EUR" — safe to cast.
-    const rate = getCachedRate(currency as ForeignCurrency);
-    const toman = Math.round(amount * rate);
+    const toman = Math.round(amount * rateToman);
     return `≈ ${formatToman(toman)}`;
   })();
 

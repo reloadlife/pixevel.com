@@ -16,6 +16,16 @@ export type CouponInput = {
   usageLimit?: number | string | null;
   startsAt?: string | Date | null;
   expiresAt?: string | Date | null;
+  // ── Depth / scope fields ─────────────────────────────────────────────────
+  perUserLimit?: number | string | null;
+  individualUse?: boolean;
+  excludeSaleItems?: boolean;
+  freeShipping?: boolean;
+  emailRestrictions?: string[] | null;
+  includeProductIds?: string[] | null;
+  excludeProductIds?: string[] | null;
+  includeCategoryIds?: string[] | null;
+  excludeCategoryIds?: string[] | null;
 };
 
 export type CouponPatchInput = Partial<CouponInput>;
@@ -64,6 +74,18 @@ function toOptionalInt(value: unknown): number | null {
     throw new CouponError("INVALID_USAGE_LIMIT");
   }
   return n;
+}
+
+/**
+ * Normalises a jsonb string[] field coming from either the API body
+ * (already parsed as string[]) or as a raw unknown value.
+ * Returns null when the input is nullish or an empty array.
+ */
+function toOptionalStringArray(value: unknown): string[] | null {
+  if (value == null) return null;
+  const arr = Array.isArray(value) ? value : [];
+  const clean = arr.map((s: unknown) => String(s ?? "").trim()).filter(Boolean);
+  return clean.length > 0 ? clean : null;
 }
 
 function toOptionalDate(value: unknown): Date | null {
@@ -152,6 +174,16 @@ export function toAdminCouponOption(coupon: AdminCouponRecord) {
     expiresAt: coupon.expiresAt ? coupon.expiresAt.toISOString() : null,
     createdAt: coupon.createdAt ? coupon.createdAt.toISOString() : null,
     updatedAt: coupon.updatedAt ? coupon.updatedAt.toISOString() : null,
+    // ── Depth / scope fields ────────────────────────────────────────────────
+    perUserLimit: coupon.perUserLimit,
+    individualUse: coupon.individualUse,
+    excludeSaleItems: coupon.excludeSaleItems,
+    freeShipping: coupon.freeShipping,
+    emailRestrictions: (coupon.emailRestrictions as string[] | null) ?? null,
+    includeProductIds: (coupon.includeProductIds as string[] | null) ?? null,
+    excludeProductIds: (coupon.excludeProductIds as string[] | null) ?? null,
+    includeCategoryIds: (coupon.includeCategoryIds as string[] | null) ?? null,
+    excludeCategoryIds: (coupon.excludeCategoryIds as string[] | null) ?? null,
   };
 }
 
@@ -177,6 +209,15 @@ export async function createCoupon(input: CouponInput) {
         usageLimit: toOptionalInt(input.usageLimit),
         startsAt: toOptionalDate(input.startsAt),
         expiresAt: toOptionalDate(input.expiresAt),
+        perUserLimit: toOptionalInt(input.perUserLimit),
+        individualUse: input.individualUse ?? false,
+        excludeSaleItems: input.excludeSaleItems ?? false,
+        freeShipping: input.freeShipping ?? false,
+        emailRestrictions: toOptionalStringArray(input.emailRestrictions),
+        includeProductIds: toOptionalStringArray(input.includeProductIds),
+        excludeProductIds: toOptionalStringArray(input.excludeProductIds),
+        includeCategoryIds: toOptionalStringArray(input.includeCategoryIds),
+        excludeCategoryIds: toOptionalStringArray(input.excludeCategoryIds),
       })
       .returning();
 
@@ -231,6 +272,33 @@ export async function updateCoupon(id: string, input: CouponPatchInput) {
   }
   if (input.expiresAt !== undefined) {
     patch.expiresAt = toOptionalDate(input.expiresAt);
+  }
+  if (input.perUserLimit !== undefined) {
+    patch.perUserLimit = toOptionalInt(input.perUserLimit);
+  }
+  if (input.individualUse !== undefined) {
+    patch.individualUse = Boolean(input.individualUse);
+  }
+  if (input.excludeSaleItems !== undefined) {
+    patch.excludeSaleItems = Boolean(input.excludeSaleItems);
+  }
+  if (input.freeShipping !== undefined) {
+    patch.freeShipping = Boolean(input.freeShipping);
+  }
+  if (input.emailRestrictions !== undefined) {
+    patch.emailRestrictions = toOptionalStringArray(input.emailRestrictions);
+  }
+  if (input.includeProductIds !== undefined) {
+    patch.includeProductIds = toOptionalStringArray(input.includeProductIds);
+  }
+  if (input.excludeProductIds !== undefined) {
+    patch.excludeProductIds = toOptionalStringArray(input.excludeProductIds);
+  }
+  if (input.includeCategoryIds !== undefined) {
+    patch.includeCategoryIds = toOptionalStringArray(input.includeCategoryIds);
+  }
+  if (input.excludeCategoryIds !== undefined) {
+    patch.excludeCategoryIds = toOptionalStringArray(input.excludeCategoryIds);
   }
 
   patch.updatedAt = new Date();

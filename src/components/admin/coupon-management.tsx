@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreHorizontal, Plus } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, Plus } from "lucide-react";
 import { useState } from "react";
 import {
   AdminPage,
@@ -12,6 +12,7 @@ import {
   SelectField,
   SheetForm,
   SwitchRow,
+  TextareaField,
   TextField,
   useAdminForm,
   useConfirm,
@@ -23,6 +24,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import type { CouponRedemptionRow } from "@/lib/admin/coupon-redemptions";
 import type { AdminCouponOption } from "@/lib/admin/coupons";
 import type { AdminListResponse } from "@/lib/admin/list-response";
 import { useAdminList } from "@/lib/admin/use-admin-list";
@@ -43,6 +46,16 @@ type CouponFormValues = {
   startsAt: string;
   expiresAt: string;
   isActive: boolean;
+  // depth fields
+  perUserLimit: string;
+  individualUse: boolean;
+  excludeSaleItems: boolean;
+  freeShipping: boolean;
+  emailRestrictions: string;
+  includeProductIds: string;
+  excludeProductIds: string;
+  includeCategoryIds: string;
+  excludeCategoryIds: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -91,6 +104,21 @@ function couponStatusLabel(coupon: AdminCouponOption): string {
   return "فعال";
 }
 
+/** string[] | null → comma-separated string for textarea. */
+function arrayToText(arr: string[] | null | undefined): string {
+  if (!arr || arr.length === 0) return "";
+  return arr.join("\n");
+}
+
+/** textarea string → string[] | null (splits on comma or newline, trims, filters). */
+function textToArray(text: string): string[] | null {
+  const items = text
+    .split(/[\n,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : null;
+}
+
 function defaultsFromCoupon(coupon: AdminCouponOption): CouponFormValues {
   return {
     code: coupon.code,
@@ -102,6 +130,15 @@ function defaultsFromCoupon(coupon: AdminCouponOption): CouponFormValues {
     startsAt: toDateInput(coupon.startsAt),
     expiresAt: toDateInput(coupon.expiresAt),
     isActive: coupon.isActive,
+    perUserLimit: coupon.perUserLimit != null ? String(coupon.perUserLimit) : "",
+    individualUse: coupon.individualUse ?? false,
+    excludeSaleItems: coupon.excludeSaleItems ?? false,
+    freeShipping: coupon.freeShipping ?? false,
+    emailRestrictions: arrayToText(coupon.emailRestrictions),
+    includeProductIds: arrayToText(coupon.includeProductIds),
+    excludeProductIds: arrayToText(coupon.excludeProductIds),
+    includeCategoryIds: arrayToText(coupon.includeCategoryIds),
+    excludeCategoryIds: arrayToText(coupon.excludeCategoryIds),
   };
 }
 
@@ -115,6 +152,15 @@ const EMPTY_FORM: CouponFormValues = {
   startsAt: "",
   expiresAt: "",
   isActive: true,
+  perUserLimit: "",
+  individualUse: false,
+  excludeSaleItems: false,
+  freeShipping: false,
+  emailRestrictions: "",
+  includeProductIds: "",
+  excludeProductIds: "",
+  includeCategoryIds: "",
+  excludeCategoryIds: "",
 };
 
 // ─── Mutation body transform ───────────────────────────────────────────────────
@@ -130,7 +176,41 @@ function toPayload(v: CouponFormValues) {
     startsAt: fromDateInput(v.startsAt),
     expiresAt: fromDateInput(v.expiresAt),
     isActive: v.isActive,
+    perUserLimit: v.perUserLimit.trim() || null,
+    individualUse: v.individualUse,
+    excludeSaleItems: v.excludeSaleItems,
+    freeShipping: v.freeShipping,
+    emailRestrictions: textToArray(v.emailRestrictions),
+    includeProductIds: textToArray(v.includeProductIds),
+    excludeProductIds: textToArray(v.excludeProductIds),
+    includeCategoryIds: textToArray(v.includeCategoryIds),
+    excludeCategoryIds: textToArray(v.excludeCategoryIds),
   };
+}
+
+// ─── DepthSection (collapsible) ───────────────────────────────────────────────
+
+function DepthSection({ children }: { children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-2xl border border-border/60 overflow-hidden" dir="rtl">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-right hover:bg-muted/50 transition-colors"
+      >
+        <span>محدودیت‌ها و دامنه</span>
+        {open ? (
+          <ChevronUp className="size-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="size-4 text-muted-foreground" />
+        )}
+      </button>
+      {open ? (
+        <div className="flex flex-col gap-4 p-3 border-t border-border/60">{children}</div>
+      ) : null}
+    </div>
+  );
 }
 
 // ─── CouponSheet ──────────────────────────────────────────────────────────────
@@ -284,7 +364,255 @@ function CouponSheet({
           />
         )}
       </form.Field>
+
+      {/* ── Depth / scope section ─────────────────────────────────────── */}
+      <DepthSection>
+        <form.Field name="perUserLimit">
+          {(field) => (
+            <NumberField
+              id="perUserLimit"
+              label="سقف استفاده هر کاربر"
+              value={field.state.value}
+              onChange={field.handleChange}
+              placeholder="نامحدود"
+              min={0}
+              error={field.state.meta.errors[0] as string | undefined}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="individualUse">
+          {(field) => (
+            <SwitchRow
+              id="individualUse"
+              label="استفاده انفرادی"
+              hint="این کد نمی‌تواند با کدهای دیگر ترکیب شود"
+              checked={field.state.value}
+              onChange={field.handleChange}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="excludeSaleItems">
+          {(field) => (
+            <SwitchRow
+              id="excludeSaleItems"
+              label="محصولات تخفیف‌دار را حذف کن"
+              hint="تخفیف روی محصولات حراجی اعمال نمی‌شود"
+              checked={field.state.value}
+              onChange={field.handleChange}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="freeShipping">
+          {(field) => (
+            <SwitchRow
+              id="freeShipping"
+              label="ارسال رایگان"
+              hint="این کد هزینه ارسال را حذف می‌کند"
+              checked={field.state.value}
+              onChange={field.handleChange}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="emailRestrictions">
+          {(field) => (
+            <TextareaField
+              id="emailRestrictions"
+              label="ایمیل‌های مجاز"
+              value={field.state.value}
+              onChange={field.handleChange}
+              placeholder={"user@example.com\nother@example.com"}
+              hint="هر ایمیل در یک خط یا جدا با ویرگول"
+              rows={3}
+              error={field.state.meta.errors[0] as string | undefined}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="includeProductIds">
+          {(field) => (
+            <TextareaField
+              id="includeProductIds"
+              label="شناسه محصولات مشمول"
+              value={field.state.value}
+              onChange={field.handleChange}
+              placeholder={"uuid1\nuuid2"}
+              hint="فقط این محصولات مشمول تخفیف می‌شوند"
+              rows={2}
+              error={field.state.meta.errors[0] as string | undefined}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="excludeProductIds">
+          {(field) => (
+            <TextareaField
+              id="excludeProductIds"
+              label="شناسه محصولات استثنا"
+              value={field.state.value}
+              onChange={field.handleChange}
+              placeholder={"uuid1\nuuid2"}
+              hint="این محصولات از تخفیف حذف می‌شوند"
+              rows={2}
+              error={field.state.meta.errors[0] as string | undefined}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="includeCategoryIds">
+          {(field) => (
+            <TextareaField
+              id="includeCategoryIds"
+              label="شناسه دسته‌های مشمول"
+              value={field.state.value}
+              onChange={field.handleChange}
+              placeholder={"uuid1\nuuid2"}
+              hint="فقط این دسته‌ها مشمول تخفیف می‌شوند"
+              rows={2}
+              error={field.state.meta.errors[0] as string | undefined}
+            />
+          )}
+        </form.Field>
+
+        <form.Field name="excludeCategoryIds">
+          {(field) => (
+            <TextareaField
+              id="excludeCategoryIds"
+              label="شناسه دسته‌های استثنا"
+              value={field.state.value}
+              onChange={field.handleChange}
+              placeholder={"uuid1\nuuid2"}
+              hint="این دسته‌ها از تخفیف حذف می‌شوند"
+              rows={2}
+              error={field.state.meta.errors[0] as string | undefined}
+            />
+          )}
+        </form.Field>
+      </DepthSection>
     </SheetForm>
+  );
+}
+
+// ─── RedemptionSheet ──────────────────────────────────────────────────────────
+
+const FA_DATETIME = new Intl.DateTimeFormat("fa-IR", {
+  dateStyle: "short",
+  timeStyle: "short",
+});
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : FA_DATETIME.format(date);
+}
+
+function RedemptionSheet({
+  coupon,
+  open,
+  onOpenChange,
+}: {
+  coupon: AdminCouponOption;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [rows, setRows] = useState<CouponRedemptionRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch on first open
+  function handleOpenChange(next: boolean) {
+    onOpenChange(next);
+    if (next && rows === null && !loading) {
+      setLoading(true);
+      setError(null);
+      fetch(`/api/admin/coupons/${coupon.id}/redemptions`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json?.ok && Array.isArray(json.data?.rows)) {
+            setRows(json.data.rows);
+          } else {
+            setError("بارگذاری گزارش ناموفق بود.");
+          }
+        })
+        .catch(() => setError("خطا در دریافت اطلاعات."))
+        .finally(() => setLoading(false));
+    }
+  }
+
+  const redemptionColumns: ColumnDef<CouponRedemptionRow>[] = [
+    {
+      accessorKey: "userPhone",
+      header: "شماره کاربر",
+      cell: (info) => (
+        <span dir="ltr" className="font-mono text-sm">
+          {info.getValue<string | null>() ?? "—"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "orderNumber",
+      header: "شماره سفارش",
+      cell: (info) => (
+        <span dir="ltr" className="font-mono text-sm">
+          {info.getValue<string | null>() ?? "—"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: "مبلغ تخفیف",
+      meta: { align: "end" },
+      cell: (info) => (
+        <span className="text-sm tabular-nums">{formatToman(info.getValue<string>())}</span>
+      ),
+    },
+    {
+      accessorKey: "createdAt",
+      header: "تاریخ",
+      cell: (info) => (
+        <span className="text-xs text-muted-foreground">
+          {formatDateTime(info.getValue<string | null>())}
+        </span>
+      ),
+    },
+  ];
+
+  return (
+    <Sheet open={open} onOpenChange={handleOpenChange}>
+      <SheetContent side="left" className="w-full max-w-2xl overflow-y-auto" dir="rtl">
+        <SheetHeader className="text-right pb-4">
+          <SheetTitle>
+            گزارش استفاده —{" "}
+            <span dir="ltr" className="font-mono">
+              {coupon.code}
+            </span>
+          </SheetTitle>
+        </SheetHeader>
+
+        {loading && (
+          <p className="text-sm text-muted-foreground text-right py-8">در حال بارگذاری…</p>
+        )}
+
+        {error && <p className="text-sm text-destructive text-right py-8">{error}</p>}
+
+        {!loading && !error && rows !== null && (
+          <>
+            <p className="text-xs text-muted-foreground text-right mb-4">
+              {toFaNumber(rows.length)} بار استفاده‌شده
+            </p>
+            <DataTable
+              columns={redemptionColumns}
+              data={rows}
+              loading={false}
+              empty="هنوز این کد تخفیف استفاده نشده است."
+            />
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -295,11 +623,13 @@ function CouponRowMenu({
   onEdit,
   onToggleActive,
   onDelete,
+  onReport,
 }: {
   coupon: AdminCouponOption;
   onEdit: (coupon: AdminCouponOption) => void;
   onToggleActive: (coupon: AdminCouponOption) => void;
   onDelete: (coupon: AdminCouponOption) => void;
+  onReport: (coupon: AdminCouponOption) => void;
 }) {
   return (
     <DropdownMenu>
@@ -311,6 +641,7 @@ function CouponRowMenu({
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" dir="rtl">
         <DropdownMenuItem onClick={() => onEdit(coupon)}>ویرایش</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onReport(coupon)}>گزارش استفاده</DropdownMenuItem>
         <DropdownMenuItem onClick={() => onToggleActive(coupon)}>
           {coupon.isActive ? "غیرفعال‌سازی" : "فعال‌سازی"}
         </DropdownMenuItem>
@@ -334,6 +665,8 @@ export function CouponManagement({
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editCoupon, setEditCoupon] = useState<AdminCouponOption | undefined>(undefined);
+  const [reportCoupon, setReportCoupon] = useState<AdminCouponOption | undefined>(undefined);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const { confirm, dialog } = useConfirm();
 
@@ -375,6 +708,11 @@ export function CouponManagement({
   function openEdit(coupon: AdminCouponOption) {
     setEditCoupon(coupon);
     setSheetOpen(true);
+  }
+
+  function openReport(coupon: AdminCouponOption) {
+    setReportCoupon(coupon);
+    setReportOpen(true);
   }
 
   async function handleDelete(coupon: AdminCouponOption) {
@@ -485,6 +823,7 @@ export function CouponManagement({
             onEdit={openEdit}
             onToggleActive={handleToggleActive}
             onDelete={handleDelete}
+            onReport={openReport}
           />
         )}
       />
@@ -497,6 +836,15 @@ export function CouponManagement({
         onOpenChange={setSheetOpen}
         coupon={editCoupon}
       />
+
+      {reportCoupon && (
+        <RedemptionSheet
+          key={`report-${reportCoupon.id}`}
+          coupon={reportCoupon}
+          open={reportOpen}
+          onOpenChange={setReportOpen}
+        />
+      )}
 
       {dialog}
     </AdminPage>

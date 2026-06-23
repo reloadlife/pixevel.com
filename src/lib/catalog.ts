@@ -1,4 +1,4 @@
-import { and, asc, avg, count, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, avg, count, desc, eq, ilike, inArray, ne, or, sql } from "drizzle-orm";
 import { unstable_noStore as noStore } from "next/cache";
 
 import type {
@@ -10,9 +10,11 @@ import type {
 } from "@/db/schema";
 import {
   categories,
+  inventoryUnits,
   productReviews,
   products as productsTable,
   productTags,
+  productVariants,
   tags,
 } from "@/db/schema";
 import { getDb } from "@/lib/db";
@@ -112,6 +114,9 @@ type CatalogVariant = {
   registeredPriceAmount?: unknown;
   premiumPriceAmount?: unknown;
   compareAtAmount?: unknown;
+  salePriceAmount?: unknown;
+  saleStartsAt?: Date | null;
+  saleEndsAt?: Date | null;
   images: CatalogImage[];
   inventoryUnits: Array<{ id: string }>;
   optionValues?: CatalogVariantOptionValue[];
@@ -131,28 +136,73 @@ export function getUserTier(user: { isPremium: boolean } | null): UserTier {
 }
 
 /**
- * Resolves the Toman price for a variant + tier. Amounts are authored in the
- * product's `baseCurrency`; when that is USD/EUR the figure is converted to Toman
- * via the cached exchange rate (defaults to IRT = no conversion, so callers that
- * don't pass a currency keep the legacy Toman behaviour).
+ * Returns true when the variant's scheduled sale is currently active.
+ * `saleStartsAt` defaults to -∞ and `saleEndsAt` defaults to +∞.
  */
-export function variantPrice(
+function isSaleActive(variant: {
+  salePriceAmount?: unknown;
+  saleStartsAt?: Date | null;
+  saleEndsAt?: Date | null;
+}): boolean {
+  if (variant.salePriceAmount == null) return false;
+  const now = Date.now();
+  const start = variant.saleStartsAt ? variant.saleStartsAt.getTime() : -Infinity;
+  const end = variant.saleEndsAt ? variant.saleEndsAt.getTime() : Infinity;
+  return now >= start && now <= end;
+}
+
+/**
+ * Resolves the effective raw (pre-currency-conversion) price for a variant + tier,
+ * applying an active sale when it beats the tier price.
+ * Used internally; exposed as `variantPrice` for external callers.
+ */
+function effectiveVariantPrice(
   variant: {
     publicPriceAmount: unknown;
     registeredPriceAmount?: unknown;
     premiumPriceAmount?: unknown;
+    salePriceAmount?: unknown;
+    saleStartsAt?: Date | null;
+    saleEndsAt?: Date | null;
   },
   tier: UserTier,
-  baseCurrency: BaseCurrency = "IRT",
-) {
-  const raw =
+): number {
+  const tierRaw =
     tier === "PREMIUM" && variant.premiumPriceAmount != null
       ? decimalToNumber(variant.premiumPriceAmount)
       : tier === "REGISTERED" && variant.registeredPriceAmount != null
         ? decimalToNumber(variant.registeredPriceAmount)
         : decimalToNumber(variant.publicPriceAmount);
 
-  return convertToToman(raw, baseCurrency);
+  if (!isSaleActive(variant)) return tierRaw;
+
+  const saleRaw = decimalToNumber(variant.salePriceAmount);
+  // Sale wins only when it is actually lower than the tier price.
+  return Math.min(tierRaw, saleRaw);
+}
+
+/**
+ * Resolves the Toman price for a variant + tier. Amounts are authored in the
+ * product's `baseCurrency`; when that is USD/EUR the figure is converted to Toman
+ * via the cached exchange rate (defaults to IRT = no conversion, so callers that
+ * don't pass a currency keep the legacy Toman behaviour).
+ *
+ * When a scheduled sale is active (`salePriceAmount` within [saleStartsAt, saleEndsAt]),
+ * the effective price is min(tier price, sale price).
+ */
+export function variantPrice(
+  variant: {
+    publicPriceAmount: unknown;
+    registeredPriceAmount?: unknown;
+    premiumPriceAmount?: unknown;
+    salePriceAmount?: unknown;
+    saleStartsAt?: Date | null;
+    saleEndsAt?: Date | null;
+  },
+  tier: UserTier,
+  baseCurrency: BaseCurrency = "IRT",
+) {
+  return convertToToman(effectiveVariantPrice(variant, tier), baseCurrency);
 }
 
 function mapImage(image: CatalogImage) {
@@ -198,6 +248,7 @@ function mapVariant(
   const compareAt = decimalToNumber(variant.compareAtAmount);
   const { optionValueSlugs, optionValueIds } = variantOptionMaps(variant);
   const plan = variant.subscriptionPlan ?? null;
+  const onSale = isSaleActive(variant);
 
   return {
     id: variant.id,
@@ -207,6 +258,7 @@ function mapVariant(
     optionValueIds,
     price: variantPrice(variant, tier, baseCurrency),
     compareAtAmount: convertToToman(compareAt, baseCurrency),
+    onSale,
     availableStock: unlimited ? UNLIMITED_STOCK : variant.inventoryUnits.length,
     isUnlimited: unlimited,
     images: visibleImages(variant.images, tier),
@@ -358,17 +410,19 @@ export async function getProductsForListing(
   const db = _db ?? getDb();
 
   const tier = getUserTier(user);
+  const offset = (page - 1) * pageSize;
 
-  const needsPostFilter =
-    typeof minPrice === "number" ||
-    typeof maxPrice === "number" ||
-    inStock === true ||
-    (sort != null && sort !== "newest");
+  // Warm the exchange-rate cache so USD/EUR products convert to live Toman.
+  // Must run before any price computation.
+  await loadExchangeRates();
 
+  // ---------------------------------------------------------------------------
+  // Build the shared WHERE predicate for both the count query and the row query.
   // Generic listing hides the legacy per-order DOMAIN/SERVER products (minted via
   // /domains and /servers) but surfaces DOMAIN/SERVER products that are real
   // catalog subscriptions (isSubscription = true).
-  function buildCountWhere() {
+  // ---------------------------------------------------------------------------
+  function buildBaseWhere() {
     const baseFilters = [
       ne(productsTable.status, "ARCHIVED"),
       or(
@@ -421,70 +475,120 @@ export async function getProductsForListing(
       if (textMatch) baseFilters.push(textMatch);
     }
 
+    // ---------------------------------------------------------------------------
+    // inStock: push into SQL via EXISTS on InventoryUnit with status=AVAILABLE.
+    // INFINITE-policy products are always considered in-stock.
+    // ---------------------------------------------------------------------------
+    if (inStock) {
+      baseFilters.push(
+        sql`(
+          ${productsTable.inventoryPolicy} = 'INFINITE'
+          OR EXISTS (
+            SELECT 1 FROM ${productVariants} pv
+            JOIN ${inventoryUnits} iu ON iu."variantId" = pv.id
+            WHERE pv."productId" = ${productsTable.id}
+              AND iu.status = 'AVAILABLE'
+          )
+        )`,
+      );
+    }
+
     return and(...baseFilters);
   }
 
-  const [countRow] = await db
-    .select({ total: count() })
-    .from(productsTable)
-    .where(buildCountWhere());
+  // ---------------------------------------------------------------------------
+  // Price filter: we filter on the stored tier price column in SQL.
+  // Note: for USD/EUR products this filters on the foreign-currency amount, not
+  // the converted Toman value — an accepted limitation documented below. In
+  // practice all prices are authored in IRT unless baseCurrency differs.
+  // ---------------------------------------------------------------------------
+  function tierPriceColumn() {
+    if (tier === "PREMIUM") {
+      // COALESCE to publicPriceAmount when the tier-specific column is NULL
+      return sql<string>`COALESCE(
+        (SELECT MIN(pv."premiumPriceAmount"::numeric) FROM ${productVariants} pv WHERE pv."productId" = ${productsTable.id}),
+        (SELECT MIN(pv."publicPriceAmount"::numeric)  FROM ${productVariants} pv WHERE pv."productId" = ${productsTable.id})
+      )`;
+    }
+    if (tier === "REGISTERED") {
+      return sql<string>`COALESCE(
+        (SELECT MIN(pv."registeredPriceAmount"::numeric) FROM ${productVariants} pv WHERE pv."productId" = ${productsTable.id}),
+        (SELECT MIN(pv."publicPriceAmount"::numeric)     FROM ${productVariants} pv WHERE pv."productId" = ${productsTable.id})
+      )`;
+    }
+    return sql<string>`(SELECT MIN(pv."publicPriceAmount"::numeric) FROM ${productVariants} pv WHERE pv."productId" = ${productsTable.id})`;
+  }
 
-  const sqlTotal = countRow?.total ?? 0;
-  const offset = (page - 1) * pageSize;
+  function buildPriceFilters() {
+    const filters: ReturnType<typeof sql>[] = [];
+    if (typeof minPrice === "number") {
+      filters.push(sql`${tierPriceColumn()} >= ${minPrice}`);
+    }
+    if (typeof maxPrice === "number") {
+      filters.push(sql`${tierPriceColumn()} <= ${maxPrice}`);
+    }
+    return filters;
+  }
 
-  const rows = await db.query.products.findMany({
-    where: (product, { ne: neOp, eq: eqOp, or: orOp, and: andOp }) => {
-      const filters = [
-        neOp(product.status, "ARCHIVED"),
-        orOp(
-          eqOp(product.isSubscription, true),
-          andOp(neOp(product.fulfillmentType, "DOMAIN"), neOp(product.fulfillmentType, "SERVER")),
+  // ---------------------------------------------------------------------------
+  // Sort order expression for SQL ORDER BY.
+  // price_asc / price_desc use the same correlated subquery as the price filter.
+  // stock_desc counts available inventory units across all variants.
+  // ---------------------------------------------------------------------------
+  function buildOrderBy() {
+    if (sort === "price_asc") {
+      return [asc(tierPriceColumn())];
+    }
+    if (sort === "price_desc") {
+      return [desc(tierPriceColumn())];
+    }
+    if (sort === "stock_desc") {
+      return [
+        desc(
+          sql`(SELECT COUNT(*) FROM ${productVariants} pv JOIN ${inventoryUnits} iu ON iu."variantId" = pv.id WHERE pv."productId" = ${productsTable.id} AND iu.status = 'AVAILABLE')`,
         ),
       ];
+    }
+    // "newest" (default)
+    return [desc(productsTable.createdAt)];
+  }
 
-      if (category) {
-        filters.push(
-          sql`EXISTS (
-            SELECT 1 FROM ${categories} c
-            WHERE c.id = ${product.categoryId}
-              AND c.slug = ${category}
-          )`,
-        );
-      }
+  const priceFilters = buildPriceFilters();
+  const baseWhere = buildBaseWhere();
+  const fullWhere = priceFilters.length > 0 ? and(baseWhere, ...priceFilters) : baseWhere;
 
-      if (tag) {
-        filters.push(
-          sql`EXISTS (
-            SELECT 1 FROM ${productTags} pt
-            JOIN ${tags} t ON t.id = pt."tagId"
-            WHERE pt."productId" = ${product.id}
-              AND t.slug = ${tag}
-          )`,
-        );
-      }
+  // Count query — includes all active filters so total is accurate.
+  const [countRow] = await db.select({ total: count() }).from(productsTable).where(fullWhere);
 
-      if (searchTerm) {
-        const term = `%${searchTerm}%`;
-        const textMatch = or(
-          ilike(product.titleFa, term),
-          ilike(product.summaryFa, term),
-          sql`EXISTS (
-            SELECT 1 FROM ${productTags} pt
-            JOIN ${tags} t ON t.id = pt."tagId"
-            WHERE pt."productId" = ${product.id}
-              AND t."titleFa" ILIKE ${term}
-          )`,
-          sql`EXISTS (
-            SELECT 1 FROM ${categories} c
-            WHERE c.id = ${product.categoryId}
-              AND c."titleFa" ILIKE ${term}
-          )`,
-        );
-        if (textMatch) filters.push(textMatch);
-      }
+  const total = countRow?.total ?? 0;
 
-      return and(...filters);
-    },
+  // ---------------------------------------------------------------------------
+  // Fetch only the page we need. ORDER BY is pushed to SQL so rows arrive
+  // already sorted — no JS sort needed for listing pages.
+  // ---------------------------------------------------------------------------
+  const pageProductIds = await db
+    .select({ id: productsTable.id })
+    .from(productsTable)
+    .where(fullWhere)
+    // `id` is the unique tiebreaker — without it, ORDER BY a non-unique column
+    // (createdAt / price / stock) lets rows shuffle between pages, so OFFSET
+    // pagination would overlap or skip items.
+    .orderBy(...buildOrderBy(), asc(productsTable.id))
+    .limit(pageSize)
+    .offset(offset);
+
+  const ids = pageProductIds.map((r) => r.id);
+
+  if (ids.length === 0) {
+    return {
+      items: [] as ListingProduct[],
+      meta: { total, page, pageSize, hasNext: page * pageSize < total } satisfies ListingMeta,
+    };
+  }
+
+  // Fetch full relational data only for the current page's product IDs.
+  const rows = await db.query.products.findMany({
+    where: (product, { inArray: inArrayOp }) => inArrayOp(product.id, ids),
     with: {
       category: true,
       tags: {
@@ -493,29 +597,34 @@ export async function getProductsForListing(
         },
       },
       images: {
-        orderBy: (image, { asc }) => [asc(image.sortOrder)],
+        orderBy: (image, { asc: ascOp }) => [ascOp(image.sortOrder)],
       },
       variants: {
         with: {
           images: {
-            orderBy: (image, { asc }) => [asc(image.sortOrder)],
+            orderBy: (image, { asc: ascOp }) => [ascOp(image.sortOrder)],
           },
           inventoryUnits: {
-            where: (unit, { eq }) => eq(unit.status, "AVAILABLE"),
+            where: (unit, { eq: eqOp }) => eqOp(unit.status, "AVAILABLE"),
             columns: {
               id: true,
             },
           },
           subscriptionPlan: true,
         },
-        orderBy: (variant, { asc }) => [asc(variant.createdAt)],
+        orderBy: (variant, { asc: ascOp }) => [ascOp(variant.createdAt)],
       },
     },
-    orderBy: (product, { desc }) => [desc(product.createdAt)],
-    ...(needsPostFilter ? {} : { limit: pageSize, offset }),
   });
 
-  const productIds = rows.map((product) => product.id);
+  // Re-order rows to match the SQL-sorted ID order (findMany may reorder).
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  const orderedRows = ids.flatMap((id) => {
+    const row = rowById.get(id);
+    return row ? [row] : [];
+  });
+
+  const productIds = orderedRows.map((product) => product.id);
   const ratingByProductId = new Map<string, { avg: number | null; count: number }>();
 
   if (productIds.length > 0) {
@@ -539,10 +648,7 @@ export async function getProductsForListing(
     }
   }
 
-  // Warm the exchange-rate cache so USD/EUR products convert to live Toman.
-  await loadExchangeRates();
-
-  const mapped = rows.map((product) => {
+  const mapped: ListingProduct[] = orderedRows.map((product) => {
     const unlimited = product.inventoryPolicy === "INFINITE";
     const variants = product.variants.map((variant) =>
       mapVariant(variant, tier, product.baseCurrency, unlimited),
@@ -602,32 +708,8 @@ export async function getProductsForListing(
     };
   });
 
-  if (!needsPostFilter) {
-    return {
-      items: mapped,
-      meta: {
-        total: sqlTotal,
-        page,
-        pageSize,
-        hasNext: page * pageSize < sqlTotal,
-      } satisfies ListingMeta,
-    };
-  }
-
-  const filtered = mapped.filter((product) => {
-    if (inStock && product.availableStock <= 0) return false;
-    if (typeof minPrice === "number" && product.price < minPrice) return false;
-    if (typeof maxPrice === "number" && product.price > maxPrice) return false;
-    return true;
-  });
-
-  const sorted = sortBlockProducts(filtered, sort ?? "newest");
-
-  const total = sorted.length;
-  const items = sorted.slice(offset, offset + pageSize);
-
   return {
-    items,
+    items: mapped,
     meta: {
       total,
       page,
@@ -874,7 +956,16 @@ export async function getProductDetailView(slug: string, user: { isPremium: bool
     seoDescription: product.seoDescription,
     ogImageUrl: product.ogImageUrl,
     noindex: product.noindex,
-    primaryImageUrl: product.primaryImageUrl,
+    // primaryImageUrl is the raw DB column. For non-premium tiers it may point
+    // to a VIP-only image that anonymous users must not see (e.g. in OG tags).
+    // Only emit it if the URL appears among the tier-visible images; otherwise
+    // fall back to the first tier-visible image URL (or null).
+    primaryImageUrl: (() => {
+      if (!product.primaryImageUrl) return null;
+      const visibleUrls = new Set(images.map((img) => img.url));
+      if (visibleUrls.has(product.primaryImageUrl)) return product.primaryImageUrl;
+      return images[0]?.url ?? null;
+    })(),
     // Aggregate of APPROVED reviews. ratingAvg is null when there are no reviews.
     ratingAvg: ratingRow?.avg == null ? null : Number(ratingRow.avg),
     ratingCount: ratingRow?.count == null ? 0 : Number(ratingRow.count),

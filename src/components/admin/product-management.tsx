@@ -421,6 +421,48 @@ function variantRowsFromProduct(product: ProductRow | null) {
   return product?.variants.map((variant) => ({ ...variant, stockToAdd: "", stockCodes: "" })) ?? [];
 }
 
+// Hydrate the shared option-builder state from a persisted product's options.
+function builderOptionsFromProduct(product: ProductRow | null): BuilderOption[] {
+  return (
+    product?.options.map((option) => ({
+      id: createId("option"),
+      nameFa: option.nameFa,
+      slug: option.slug,
+      inputKind: option.inputKind,
+      values: option.values.map((value) => ({
+        id: createId("value"),
+        valueFa: value.valueFa,
+        slug: value.slug,
+        hex: value.hex || "#7c3aed",
+        swatchImageUrl: value.swatchImageUrl,
+      })),
+    })) ?? []
+  );
+}
+
+// optionsKey of a product's default variant (falls back to the first variant).
+function defaultVariantKeyOf(product: ProductRow | null): string {
+  const variants = product?.variants ?? [];
+  return (variants.find((variant) => variant.isDefault) ?? variants[0])?.optionsKey ?? "";
+}
+
+// Seed the per-variant override editor from a product's existing variants so
+// edit mode preserves current prices/stock and round-trips them on save.
+function overridesFromProduct(product: ProductRow | null): Record<string, VariantOverrideState> {
+  const seed: Record<string, VariantOverrideState> = {};
+  for (const variant of product?.variants ?? []) {
+    seed[variant.optionsKey] = {
+      publicPriceAmount: variant.publicPriceAmount,
+      registeredPriceAmount: variant.registeredPriceAmount,
+      premiumPriceAmount: variant.premiumPriceAmount,
+      compareAtAmount: variant.compareAtAmount,
+      stockToAdd: "",
+      stockCodes: "",
+    };
+  }
+  return seed;
+}
+
 function subscriptionStateFromPlan(plan: SubscriptionPlanShape | null | undefined) {
   if (!plan) {
     return defaultSubscriptionPlan();
@@ -500,9 +542,13 @@ export function ProductManagement({
   const [productSearchQuery, setProductSearchQuery] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
 
-  // ── Create-mode option builder + product form ────────────────────────────────
-  const [options, setOptions] = useState<BuilderOption[]>([]);
-  const [overrides, setOverrides] = useState<Record<string, VariantOverrideState>>({});
+  // ── Shared option builder + per-variant overrides (create AND edit) ──────────
+  const [options, setOptions] = useState<BuilderOption[]>(() =>
+    builderOptionsFromProduct(initialEditingProduct),
+  );
+  const [overrides, setOverrides] = useState<Record<string, VariantOverrideState>>(() =>
+    overridesFromProduct(initialEditingProduct),
+  );
   const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlanState>(
     defaultSubscriptionPlan(),
   );
@@ -529,6 +575,10 @@ export function ProductManagement({
     noindex: false,
   });
   const [editForm, setEditForm] = useState(editFormFromProduct(initialEditingProduct));
+  // optionsKey of the variant chosen as default (edit reconcile path).
+  const [editDefaultKey, setEditDefaultKey] = useState(() =>
+    defaultVariantKeyOf(initialEditingProduct),
+  );
   // Edit-mode subscription panel applied to every variant on save.
   const [editSubscriptionPlan, setEditSubscriptionPlan] = useState<SubscriptionPlanState>(
     subscriptionStateFromPlan(initialEditingProduct?.variants[0]?.subscriptionPlan ?? null),
@@ -1099,6 +1149,9 @@ export function ProductManagement({
     setEditVariants(
       product.variants.map((variant) => ({ ...variant, stockToAdd: "", stockCodes: "" })),
     );
+    setOptions(builderOptionsFromProduct(product));
+    setOverrides(overridesFromProduct(product));
+    setEditDefaultKey(defaultVariantKeyOf(product));
     setEditSubscriptionPlan(
       subscriptionStateFromPlan(product.variants[0]?.subscriptionPlan ?? null),
     );
@@ -1109,18 +1162,6 @@ export function ProductManagement({
         block: "start",
       });
     });
-  }
-
-  function updateEditVariant(id: string, patch: Partial<VariantEditRow>) {
-    setEditVariants((current) =>
-      current.map((variant) => {
-        if (patch.isDefault && variant.id !== id) {
-          return { ...variant, isDefault: false };
-        }
-
-        return variant.id === id ? { ...variant, ...patch } : variant;
-      }),
-    );
   }
 
   async function saveProductEdits() {
@@ -1134,6 +1175,46 @@ export function ProductManagement({
     const planPayload = editForm.isSubscription
       ? subscriptionPlanPayload(editSubscriptionPlan)
       : null;
+
+    // Build per-variant overrides keyed by optionsKey from the builder-derived
+    // matrix: every variant carries its edited prices (so existing prices are
+    // preserved on reconcile), plus stock additions and the default flag.
+    const previewKeys = new Set(variantPreview.map((variant) => variant.optionsKey));
+    const defaultKey = previewKeys.has(editDefaultKey)
+      ? editDefaultKey
+      : variantPreview[0]?.optionsKey;
+    const variantOverridesByKey: Record<string, Record<string, unknown>> = {};
+    for (const variant of variantPreview) {
+      const override = overrides[variant.optionsKey] ?? emptyOverride();
+      const codes =
+        tracked && editForm.fulfillmentType === "DIGITAL" ? parseCodes(override.stockCodes) : [];
+      const entry: Record<string, unknown> = { isDefault: variant.optionsKey === defaultKey };
+      if (override.publicPriceAmount) entry.publicPriceAmount = override.publicPriceAmount;
+      entry.registeredPriceAmount = override.registeredPriceAmount || null;
+      entry.premiumPriceAmount = override.premiumPriceAmount || null;
+      entry.compareAtAmount = override.compareAtAmount || null;
+      if (tracked && codes.length > 0) entry.stockCodes = codes;
+      if (tracked && override.stockToAdd) {
+        entry.stockToAdd = Number(normalizePriceValue(override.stockToAdd) || 0);
+      }
+      variantOverridesByKey[variant.optionsKey] = entry;
+    }
+
+    const optionsPayload = options
+      .map((option) => ({
+        nameFa: option.nameFa.trim(),
+        slug: option.slug.trim() || undefined,
+        inputKind: option.inputKind,
+        values: option.values
+          .map((value) => ({
+            valueFa: value.valueFa.trim(),
+            slug: value.slug.trim() || undefined,
+            hex: option.inputKind === "SWATCH" ? value.hex.trim() || null : null,
+            swatchImageUrl: value.swatchImageUrl.trim() || null,
+          }))
+          .filter((value) => value.valueFa),
+      }))
+      .filter((option) => option.nameFa && option.values.length > 0);
 
     const response = await fetch(`/api/admin/products/${editingProductId}`, {
       method: "PATCH",
@@ -1171,22 +1252,12 @@ export function ProductManagement({
             optionValueId: image.optionValueId || null,
           }))
           .filter((image) => image.url),
-        variants: editVariants.map((variant) => ({
-          id: variant.id,
-          sku: variant.sku,
-          titleFa: variant.titleFa,
-          publicPriceAmount: variant.publicPriceAmount,
-          registeredPriceAmount: variant.registeredPriceAmount || null,
-          premiumPriceAmount: variant.premiumPriceAmount || null,
-          compareAtAmount: variant.compareAtAmount || null,
-          isDefault: variant.isDefault,
-          // Subscription plan is product-level in the UI; apply to every variant.
-          subscriptionPlan: planPayload,
-          stockToAdd: tracked ? Number(normalizePriceValue(variant.stockToAdd) || 0) : 0,
-          // Codes only apply to DIGITAL/TRACKED; non-digital stock is quantity-driven.
-          stockCodes:
-            tracked && editForm.fulfillmentType === "DIGITAL" ? parseCodes(variant.stockCodes) : [],
-        })),
+        // Reconcile the variant set against the edited option structure.
+        options: optionsPayload,
+        variantOverridesByKey,
+        stockPerVariant: Number(normalizePriceValue(form.stockPerVariant) || 0),
+        // Subscription plan is product-level in the UI; applied to every variant.
+        subscriptionPlan: editForm.isSubscription ? planPayload : null,
       }),
     });
     const result = await response.json();
@@ -1334,6 +1405,264 @@ export function ProductManagement({
     if (editingProductId === product.id) {
       startEditingProduct(updatedProduct);
     }
+  }
+
+  // Shared generic option builder — add/remove options + values. Used by both
+  // the create and edit panels so the variant set is editable everywhere.
+  function renderOptionBuilder() {
+    return (
+      <div className="lg:col-span-2">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-black">ویژگی‌ها و تنوع‌ها</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              هر ویژگی یک بُعد است (مثلاً منطقه، مدت، رنگ). بدون ویژگی، یک تنوع پیش‌فرض ساخته می‌شود.
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={addOption}>
+            <Plus className="size-3.5" />
+            ویژگی جدید
+          </Button>
+        </div>
+        <div className="grid gap-4">
+          {options.map((option) => (
+            <div key={option.id} className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3">
+              <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]">
+                <Input
+                  label="نام ویژگی"
+                  value={option.nameFa}
+                  onChange={(value) => updateOption(option.id, { nameFa: value })}
+                />
+                <Input
+                  label="اسلاگ ویژگی"
+                  value={option.slug}
+                  onChange={(value) => updateOption(option.id, { slug: value })}
+                  dir="ltr"
+                />
+                <SimpleSelect
+                  label="نوع نمایش"
+                  value={option.inputKind}
+                  options={INPUT_KIND_OPTIONS}
+                  onChange={(value) =>
+                    updateOption(option.id, { inputKind: value as OptionInputKind })
+                  }
+                />
+                <div className="flex items-end">
+                  <Button
+                    type="button"
+                    size="icon-lg"
+                    variant="outline"
+                    onClick={() => removeOption(option.id)}
+                    aria-label="حذف ویژگی"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black text-zinc-500">مقادیر</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => addOptionValue(option.id)}
+                  >
+                    <Plus className="size-3.5" />
+                    مقدار
+                  </Button>
+                </div>
+                {option.values.map((value) => (
+                  <div
+                    key={value.id}
+                    className={`grid gap-2 border border-zinc-200 bg-white p-2 ${
+                      option.inputKind === "SWATCH"
+                        ? "md:grid-cols-[1fr_1fr_150px_1fr_auto]"
+                        : "md:grid-cols-[1fr_1fr_1fr_auto]"
+                    }`}
+                  >
+                    <Input
+                      label="مقدار"
+                      value={value.valueFa}
+                      onChange={(next) => updateOptionValue(option.id, value.id, { valueFa: next })}
+                    />
+                    <Input
+                      label="اسلاگ"
+                      value={value.slug}
+                      onChange={(next) => updateOptionValue(option.id, value.id, { slug: next })}
+                      dir="ltr"
+                    />
+                    {option.inputKind === "SWATCH" ? (
+                      <label className="block min-w-0">
+                        <span className="mb-2 block text-sm font-bold">کد رنگ</span>
+                        <div className="flex h-11 min-w-0 items-center gap-2 border border-zinc-300 bg-white px-2">
+                          <input
+                            type="color"
+                            value={value.hex || "#000000"}
+                            onChange={(event) =>
+                              updateOptionValue(option.id, value.id, {
+                                hex: event.target.value,
+                              })
+                            }
+                            className="size-8 cursor-pointer border-0 bg-transparent p-0"
+                            aria-label="انتخاب رنگ"
+                          />
+                          <input
+                            value={value.hex}
+                            onChange={(event) =>
+                              updateOptionValue(option.id, value.id, {
+                                hex: event.target.value,
+                              })
+                            }
+                            className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
+                            dir="ltr"
+                          />
+                        </div>
+                      </label>
+                    ) : null}
+                    <Input
+                      label="تصویر سواچ (URL)"
+                      value={value.swatchImageUrl}
+                      onChange={(next) =>
+                        updateOptionValue(option.id, value.id, { swatchImageUrl: next })
+                      }
+                      dir="ltr"
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        size="icon-lg"
+                        variant="outline"
+                        onClick={() => removeOptionValue(option.id, value.id)}
+                        disabled={option.values.length === 1}
+                        aria-label="حذف مقدار"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {options.length === 0 ? (
+            <p className="border border-dashed border-zinc-300 bg-zinc-50 p-3 text-xs text-zinc-500">
+              هنوز ویژگی‌ای اضافه نشده — محصول با یک تنوع پیش‌فرض ساخته می‌شود.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // Shared live variant matrix (cartesian preview) with per-variant price/stock
+  // overrides. `inventoryPolicy`/`fulfillmentType` come from the active form so
+  // edit and create both drive off the builder-derived matrix keyed by optionsKey.
+  // In edit mode `showDefault` renders a default selector + current-stock summary.
+  function renderVariantMatrix(
+    inventoryPolicy: string,
+    fulfillmentType: string,
+    options?: { showDefault?: boolean },
+  ) {
+    const tracked = inventoryPolicy === "TRACKED";
+    const showDefault = options?.showDefault ?? false;
+    // Persisted variants keyed by optionsKey for current-stock display in edit.
+    const persistedByKey = new Map(editVariants.map((variant) => [variant.optionsKey, variant]));
+
+    return (
+      <div className="lg:col-span-2">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h3 className="text-sm font-black">پیش‌نمایش تنوع‌ها</h3>
+          <span className="text-xs font-bold text-zinc-500">{variantPreview.length} تنوع</span>
+        </div>
+        <div className="grid gap-3">
+          {variantPreview.map((variant) => {
+            const override = overrides[variant.optionsKey] ?? emptyOverride();
+            const persisted = persistedByKey.get(variant.optionsKey);
+
+            return (
+              <div
+                key={variant.optionsKey || "default"}
+                className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-black">{variant.titleFa}</span>
+                  <div className="flex items-center gap-3">
+                    {showDefault ? (
+                      <label className="flex items-center gap-2 text-xs font-bold">
+                        <input
+                          type="radio"
+                          name="default-product-variant"
+                          checked={editDefaultKey === variant.optionsKey}
+                          onChange={() => setEditDefaultKey(variant.optionsKey)}
+                        />
+                        پیش‌فرض
+                      </label>
+                    ) : null}
+                    <span className="font-mono text-[10px] text-zinc-400" dir="ltr">
+                      {variant.optionsKey || "default"}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <PriceInput
+                    label="قیمت عمومی"
+                    value={override.publicPriceAmount}
+                    onChange={(value) =>
+                      updateOverride(variant.optionsKey, { publicPriceAmount: value })
+                    }
+                  />
+                  <PriceInput
+                    label="قیمت کاربران (اختیاری)"
+                    value={override.registeredPriceAmount}
+                    onChange={(value) =>
+                      updateOverride(variant.optionsKey, { registeredPriceAmount: value })
+                    }
+                  />
+                  <PriceInput
+                    label="قیمت پریمیوم (اختیاری)"
+                    value={override.premiumPriceAmount}
+                    onChange={(value) =>
+                      updateOverride(variant.optionsKey, { premiumPriceAmount: value })
+                    }
+                  />
+                  {tracked ? (
+                    <Input
+                      label="افزودن موجودی (اختیاری)"
+                      value={override.stockToAdd}
+                      onChange={(value) =>
+                        updateOverride(variant.optionsKey, { stockToAdd: value })
+                      }
+                      dir="ltr"
+                    />
+                  ) : null}
+                </div>
+                {tracked && fulfillmentType === "DIGITAL" ? (
+                  <Textarea
+                    label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
+                    value={override.stockCodes}
+                    onChange={(value) => updateOverride(variant.optionsKey, { stockCodes: value })}
+                    dir="ltr"
+                  />
+                ) : null}
+                {showDefault && persisted ? (
+                  <p className="text-xs font-bold text-zinc-500">
+                    {inventoryPolicy === "INFINITE"
+                      ? "موجودی نامحدود"
+                      : `${availableStock(persisted)} واحد موجود از ${persisted.inventoryUnits.length} واحد`}
+                  </p>
+                ) : null}
+                {showDefault && !persisted ? (
+                  <p className="text-xs font-bold text-emerald-600">
+                    تنوع جدید — پس از ذخیره ساخته می‌شود.
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1493,226 +1822,9 @@ export function ProductManagement({
               </fieldset>
             </div>
 
-            {/* Generic option builder. */}
-            <div className="lg:col-span-2">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-black">ویژگی‌ها و تنوع‌ها</h3>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    هر ویژگی یک بُعد است (مثلاً منطقه، مدت، رنگ). بدون ویژگی، یک تنوع پیش‌فرض ساخته
-                    می‌شود.
-                  </p>
-                </div>
-                <Button type="button" size="sm" variant="outline" onClick={addOption}>
-                  <Plus className="size-3.5" />
-                  ویژگی جدید
-                </Button>
-              </div>
-              <div className="grid gap-4">
-                {options.map((option) => (
-                  <div key={option.id} className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3">
-                    <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_auto]">
-                      <Input
-                        label="نام ویژگی"
-                        value={option.nameFa}
-                        onChange={(value) => updateOption(option.id, { nameFa: value })}
-                      />
-                      <Input
-                        label="اسلاگ ویژگی"
-                        value={option.slug}
-                        onChange={(value) => updateOption(option.id, { slug: value })}
-                        dir="ltr"
-                      />
-                      <SimpleSelect
-                        label="نوع نمایش"
-                        value={option.inputKind}
-                        options={INPUT_KIND_OPTIONS}
-                        onChange={(value) =>
-                          updateOption(option.id, { inputKind: value as OptionInputKind })
-                        }
-                      />
-                      <div className="flex items-end">
-                        <Button
-                          type="button"
-                          size="icon-lg"
-                          variant="outline"
-                          onClick={() => removeOption(option.id)}
-                          aria-label="حذف ویژگی"
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="grid gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-black text-zinc-500">مقادیر</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => addOptionValue(option.id)}
-                        >
-                          <Plus className="size-3.5" />
-                          مقدار
-                        </Button>
-                      </div>
-                      {option.values.map((value) => (
-                        <div
-                          key={value.id}
-                          className={`grid gap-2 border border-zinc-200 bg-white p-2 ${
-                            option.inputKind === "SWATCH"
-                              ? "md:grid-cols-[1fr_1fr_150px_1fr_auto]"
-                              : "md:grid-cols-[1fr_1fr_1fr_auto]"
-                          }`}
-                        >
-                          <Input
-                            label="مقدار"
-                            value={value.valueFa}
-                            onChange={(next) =>
-                              updateOptionValue(option.id, value.id, { valueFa: next })
-                            }
-                          />
-                          <Input
-                            label="اسلاگ"
-                            value={value.slug}
-                            onChange={(next) =>
-                              updateOptionValue(option.id, value.id, { slug: next })
-                            }
-                            dir="ltr"
-                          />
-                          {option.inputKind === "SWATCH" ? (
-                            <label className="block min-w-0">
-                              <span className="mb-2 block text-sm font-bold">کد رنگ</span>
-                              <div className="flex h-11 min-w-0 items-center gap-2 border border-zinc-300 bg-white px-2">
-                                <input
-                                  type="color"
-                                  value={value.hex || "#000000"}
-                                  onChange={(event) =>
-                                    updateOptionValue(option.id, value.id, {
-                                      hex: event.target.value,
-                                    })
-                                  }
-                                  className="size-8 cursor-pointer border-0 bg-transparent p-0"
-                                  aria-label="انتخاب رنگ"
-                                />
-                                <input
-                                  value={value.hex}
-                                  onChange={(event) =>
-                                    updateOptionValue(option.id, value.id, {
-                                      hex: event.target.value,
-                                    })
-                                  }
-                                  className="min-w-0 flex-1 bg-transparent text-left text-sm outline-none"
-                                  dir="ltr"
-                                />
-                              </div>
-                            </label>
-                          ) : null}
-                          <Input
-                            label="تصویر سواچ (URL)"
-                            value={value.swatchImageUrl}
-                            onChange={(next) =>
-                              updateOptionValue(option.id, value.id, { swatchImageUrl: next })
-                            }
-                            dir="ltr"
-                          />
-                          <div className="flex items-end">
-                            <Button
-                              type="button"
-                              size="icon-lg"
-                              variant="outline"
-                              onClick={() => removeOptionValue(option.id, value.id)}
-                              disabled={option.values.length === 1}
-                              aria-label="حذف مقدار"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {options.length === 0 ? (
-                  <p className="border border-dashed border-zinc-300 bg-zinc-50 p-3 text-xs text-zinc-500">
-                    هنوز ویژگی‌ای اضافه نشده — محصول با یک تنوع پیش‌فرض ساخته می‌شود.
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            {renderOptionBuilder()}
 
-            {/* Live variant matrix preview with per-variant overrides. */}
-            <div className="lg:col-span-2">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">پیش‌نمایش تنوع‌ها</h3>
-                <span className="text-xs font-bold text-zinc-500">
-                  {variantPreview.length} تنوع
-                </span>
-              </div>
-              <div className="grid gap-3">
-                {variantPreview.map((variant) => {
-                  const override = overrides[variant.optionsKey] ?? emptyOverride();
-                  const tracked = form.inventoryPolicy === "TRACKED";
-
-                  return (
-                    <div
-                      key={variant.optionsKey || "default"}
-                      className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-sm font-black">{variant.titleFa}</span>
-                        <span className="font-mono text-[10px] text-zinc-400" dir="ltr">
-                          {variant.optionsKey || "default"}
-                        </span>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                        <PriceInput
-                          label="قیمت عمومی (اختیاری)"
-                          value={override.publicPriceAmount}
-                          onChange={(value) =>
-                            updateOverride(variant.optionsKey, { publicPriceAmount: value })
-                          }
-                        />
-                        <PriceInput
-                          label="قیمت کاربران (اختیاری)"
-                          value={override.registeredPriceAmount}
-                          onChange={(value) =>
-                            updateOverride(variant.optionsKey, { registeredPriceAmount: value })
-                          }
-                        />
-                        <PriceInput
-                          label="قیمت پریمیوم (اختیاری)"
-                          value={override.premiumPriceAmount}
-                          onChange={(value) =>
-                            updateOverride(variant.optionsKey, { premiumPriceAmount: value })
-                          }
-                        />
-                        {tracked ? (
-                          <Input
-                            label="موجودی این تنوع (اختیاری)"
-                            value={override.stockToAdd}
-                            onChange={(value) =>
-                              updateOverride(variant.optionsKey, { stockToAdd: value })
-                            }
-                            dir="ltr"
-                          />
-                        ) : null}
-                      </div>
-                      {tracked && form.fulfillmentType === "DIGITAL" ? (
-                        <Textarea
-                          label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
-                          value={override.stockCodes}
-                          onChange={(value) =>
-                            updateOverride(variant.optionsKey, { stockCodes: value })
-                          }
-                          dir="ltr"
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            {renderVariantMatrix(form.inventoryPolicy, form.fulfillmentType)}
 
             <ImageRowsEditor
               title="تصاویر محصول"
@@ -1942,109 +2054,11 @@ export function ProductManagement({
               onOpenPreview={setPreviewImage}
             />
 
-            <div className="lg:col-span-2">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black">تنوع‌ها</h3>
-                <span className="text-xs font-bold text-zinc-500">{editVariants.length} تنوع</span>
-              </div>
-              <div className="grid gap-3">
-                {editVariants.map((variant) => (
-                  <div
-                    key={variant.id}
-                    className="grid gap-3 border border-zinc-200 bg-zinc-50 p-3"
-                  >
-                    <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_140px_auto]">
-                      <Input
-                        label="عنوان تنوع"
-                        value={variant.titleFa}
-                        onChange={(value) => updateEditVariant(variant.id, { titleFa: value })}
-                      />
-                      <Input
-                        label="SKU"
-                        value={variant.sku}
-                        onChange={(value) => updateEditVariant(variant.id, { sku: value })}
-                        dir="ltr"
-                      />
-                      {editForm.inventoryPolicy === "TRACKED" ? (
-                        <Input
-                          label="افزودن موجودی (تعداد)"
-                          value={variant.stockToAdd}
-                          onChange={(value) => updateEditVariant(variant.id, { stockToAdd: value })}
-                          dir="ltr"
-                        />
-                      ) : (
-                        <div />
-                      )}
-                      <label className="flex items-end gap-2 pb-2 text-sm font-bold">
-                        <input
-                          type="radio"
-                          name="default-product-variant"
-                          checked={variant.isDefault}
-                          onChange={() => updateEditVariant(variant.id, { isDefault: true })}
-                        />
-                        پیش‌فرض
-                      </label>
-                    </div>
-                    {variant.optionValues.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {variant.optionValues.map((link) => (
-                          <span
-                            key={`${variant.id}-${link.optionValueId}`}
-                            className="bg-zinc-100 px-2 py-1 text-[11px] font-black text-zinc-600"
-                          >
-                            {link.optionNameFa}: {link.valueFa}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                      <PriceInput
-                        label="قیمت عمومی"
-                        value={variant.publicPriceAmount}
-                        onChange={(value) =>
-                          updateEditVariant(variant.id, { publicPriceAmount: value })
-                        }
-                      />
-                      <PriceInput
-                        label="قیمت کاربران"
-                        value={variant.registeredPriceAmount}
-                        onChange={(value) =>
-                          updateEditVariant(variant.id, { registeredPriceAmount: value })
-                        }
-                      />
-                      <PriceInput
-                        label="قیمت پریمیوم"
-                        value={variant.premiumPriceAmount}
-                        onChange={(value) =>
-                          updateEditVariant(variant.id, { premiumPriceAmount: value })
-                        }
-                      />
-                      <PriceInput
-                        label="قیمت قبل"
-                        value={variant.compareAtAmount}
-                        onChange={(value) =>
-                          updateEditVariant(variant.id, { compareAtAmount: value })
-                        }
-                      />
-                    </div>
-                    {editForm.inventoryPolicy === "TRACKED" &&
-                    editForm.fulfillmentType === "DIGITAL" ? (
-                      <Textarea
-                        label="کدها، هر خط یک کد (در صورت ورود، جایگزین تعداد می‌شود)"
-                        value={variant.stockCodes}
-                        onChange={(value) => updateEditVariant(variant.id, { stockCodes: value })}
-                        dir="ltr"
-                      />
-                    ) : null}
-                    <p className="text-xs font-bold text-zinc-500">
-                      {editForm.inventoryPolicy === "INFINITE"
-                        ? "موجودی نامحدود"
-                        : `${availableStock(variant)} واحد موجود از ${variant.inventoryUnits.length} واحد`}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            {renderOptionBuilder()}
+
+            {renderVariantMatrix(editForm.inventoryPolicy, editForm.fulfillmentType, {
+              showDefault: true,
+            })}
           </div>
 
           <Button

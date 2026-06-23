@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 
-import { and, eq, notInArray } from "drizzle-orm";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
 
 import {
   type BaseCurrency,
   type BillingInterval,
+  cartItems,
   categories,
   type FulfillmentType,
   type InventoryPolicy,
@@ -293,6 +294,18 @@ type ProductUpdateInput = {
   tags?: string[];
   images?: ProductImageInput[];
   variants?: ProductVariantUpdateInput[];
+  /**
+   * When provided, the variant set is reconciled against this option structure
+   * (add/remove options, values, and variants) instead of the per-id `variants`
+   * patch path. Empty options → a single default variant (optionsKey "").
+   */
+  options?: OptionGroupInput[];
+  /** Per-variant price/stock/default overrides keyed by optionsKey (reconcile path). */
+  variantOverridesByKey?: Record<string, VariantOverrideInput & { isDefault?: boolean }>;
+  /** Default synthetic stock per newly-created variant (TRACKED reconcile path). */
+  stockPerVariant?: number;
+  /** Recurring plan applied to every variant when isSubscription is true (reconcile path). */
+  subscriptionPlan?: SubscriptionPlanInput | null;
 };
 
 const PRODUCT_STATUSES = new Set(["DRAFT", "ACTIVE", "DISABLED", "ARCHIVED"]);
@@ -690,6 +703,303 @@ export async function createAdminProduct(input: ProductCreateInput) {
   });
 }
 
+type ReconcileVariantsParams = {
+  productId: string;
+  productSlug: string;
+  fallbackTitle: string;
+  options: OptionGroupInput[];
+  overridesByKey: Record<string, VariantOverrideInput & { isDefault?: boolean }>;
+  stockPerVariant: number;
+  tracked: boolean;
+  isSubscription: boolean;
+  subscriptionPlan: SubscriptionPlanInput | null | undefined;
+  /** Default price floor used when a brand-new variant has no override. */
+  defaults: {
+    publicPriceAmount: string;
+    registeredPriceAmount: string | null;
+    premiumPriceAmount: string | null;
+    compareAtAmount: string | null;
+  };
+};
+
+/**
+ * Reconcile a product's options/values/variants against a desired option
+ * structure inside an open transaction. Returns warnings for variants that
+ * could not be deleted because they hold SOLD/RESERVED inventory.
+ */
+async function reconcileProductVariants(
+  tx: TxLike,
+  params: ReconcileVariantsParams,
+): Promise<{ warnings: string[] }> {
+  const warnings: string[] = [];
+  const { productId, productSlug } = params;
+  const options = normalizeOptions(params.options);
+
+  // ── Load existing options + values (slug-keyed) for diffing. ────────────────
+  const existingOptions = await tx.query.productOptions.findMany({
+    where: (option, { eq: eqOp }) => eqOp(option.productId, productId),
+    with: { values: true },
+  });
+  const existingOptionBySlug = new Map(existingOptions.map((option) => [option.slug, option]));
+  const desiredOptionSlugs = new Set(options.map((option) => option.slug));
+
+  // Delete options whose slug is gone (cascade removes values + junction rows).
+  const optionsToDelete = existingOptions
+    .filter((option) => !desiredOptionSlugs.has(option.slug))
+    .map((option) => option.id);
+  if (optionsToDelete.length > 0) {
+    await tx.delete(productOptions).where(inArray(productOptions.id, optionsToDelete));
+  }
+
+  // Upsert options + values; capture ids by slug for the variant junction.
+  const optionMeta = new Map<
+    string,
+    { id: string; nameFa: string; valuesBySlug: Map<string, { id: string; valueFa: string }> }
+  >();
+
+  for (const [position, option] of options.entries()) {
+    const existing = existingOptionBySlug.get(option.slug);
+    let optionId: string;
+    if (existing) {
+      await tx
+        .update(productOptions)
+        .set({ nameFa: option.nameFa, inputKind: option.inputKind, position })
+        .where(eq(productOptions.id, existing.id));
+      optionId = existing.id;
+    } else {
+      const [optionRow] = await tx
+        .insert(productOptions)
+        .values({
+          productId,
+          nameFa: option.nameFa,
+          slug: option.slug,
+          position,
+          inputKind: option.inputKind,
+        })
+        .returning();
+      optionId = optionRow.id;
+    }
+
+    const existingValueBySlug = new Map(
+      (existing?.values ?? []).map((value) => [value.slug, value]),
+    );
+    const desiredValueSlugs = new Set(option.values.map((value) => value.slug));
+    const valuesToDelete = (existing?.values ?? [])
+      .filter((value) => !desiredValueSlugs.has(value.slug))
+      .map((value) => value.id);
+    if (valuesToDelete.length > 0) {
+      await tx.delete(productOptionValues).where(inArray(productOptionValues.id, valuesToDelete));
+    }
+
+    const valuesBySlug = new Map<string, { id: string; valueFa: string }>();
+    for (const [valuePosition, value] of option.values.entries()) {
+      const existingValue = existingValueBySlug.get(value.slug);
+      if (existingValue) {
+        await tx
+          .update(productOptionValues)
+          .set({
+            valueFa: value.valueFa,
+            hex: value.hex,
+            swatchImageUrl: value.swatchImageUrl,
+            position: valuePosition,
+          })
+          .where(eq(productOptionValues.id, existingValue.id));
+        valuesBySlug.set(value.slug, { id: existingValue.id, valueFa: value.valueFa });
+      } else {
+        const [valueRow] = await tx
+          .insert(productOptionValues)
+          .values({
+            optionId,
+            valueFa: value.valueFa,
+            slug: value.slug,
+            hex: value.hex,
+            swatchImageUrl: value.swatchImageUrl,
+            position: valuePosition,
+          })
+          .returning();
+        valuesBySlug.set(value.slug, { id: valueRow.id, valueFa: value.valueFa });
+      }
+    }
+
+    optionMeta.set(option.slug, { id: optionId, nameFa: option.nameFa, valuesBySlug });
+  }
+
+  // ── Desired variant set = cartesian product of normalized option values. ────
+  const combos = cartesian(
+    options.map((option) => option.values.map((value) => ({ option, value }))),
+  );
+  type DesiredVariant = {
+    optionsKey: string;
+    sku: string;
+    titleFa: string;
+    combo: Array<{ optionSlug: string; valueSlug: string }>;
+  };
+  const desired = new Map<string, DesiredVariant>();
+  for (const combo of combos) {
+    const pairs = combo.map((item) => ({
+      optionSlug: item.option.slug,
+      valueSlug: item.value.slug,
+    }));
+    const optionsKey = optionsKeyFromPairs(pairs);
+    const valueSlugs = combo.map((item) => item.value.slug);
+    const valueLabels = combo.map((item) => item.value.valueFa);
+    const sku =
+      combo.length === 0 ? productSlug.toUpperCase() : composeVariantSku(productSlug, valueSlugs);
+    desired.set(optionsKey, {
+      optionsKey,
+      sku,
+      titleFa: composeVariantTitle(valueLabels, params.fallbackTitle),
+      combo: pairs,
+    });
+  }
+
+  // ── Load existing variants (with inventory unit statuses) for diffing. ──────
+  const existingVariants = await tx.query.productVariants.findMany({
+    where: (variant, { eq: eqOp }) => eqOp(variant.productId, productId),
+    with: { inventoryUnits: { columns: { status: true } } },
+  });
+  const existingByKey = new Map(existingVariants.map((variant) => [variant.optionsKey, variant]));
+
+  const fallbackPrices = existingVariants[0];
+
+  function priceFor(field: "registeredPriceAmount" | "premiumPriceAmount" | "compareAtAmount") {
+    return params.defaults[field] ?? (fallbackPrices ? fallbackPrices[field] : null);
+  }
+
+  async function insertJunction(variantId: string, combo: DesiredVariant["combo"]) {
+    if (combo.length === 0) return;
+    await tx.insert(variantOptionValues).values(
+      combo.map((pair) => ({
+        variantId,
+        optionId: optionMeta.get(pair.optionSlug)?.id as string,
+        optionValueId: optionMeta.get(pair.optionSlug)?.valuesBySlug.get(pair.valueSlug)
+          ?.id as string,
+      })),
+    );
+  }
+
+  async function upsertSubscriptionPlan(variantId: string) {
+    if (params.subscriptionPlan === undefined) return;
+    await tx.delete(subscriptionPlans).where(eq(subscriptionPlans.variantId, variantId));
+    if (params.isSubscription && params.subscriptionPlan) {
+      await tx
+        .insert(subscriptionPlans)
+        .values(buildSubscriptionPlanValues(variantId, params.subscriptionPlan));
+    }
+  }
+
+  let anyDefault = false;
+
+  // existing ∉ desired → delete (guarded against SOLD/RESERVED inventory).
+  for (const variant of existingVariants) {
+    if (desired.has(variant.optionsKey)) continue;
+    const held = variant.inventoryUnits.some(
+      (unit) => unit.status === "SOLD" || unit.status === "RESERVED",
+    );
+    if (held) {
+      warnings.push(variant.optionsKey || variant.sku);
+      continue;
+    }
+    // cartItems FK is ON DELETE RESTRICT — clear them first; orderItems are SET NULL.
+    await tx.delete(cartItems).where(eq(cartItems.variantId, variant.id));
+    await tx.delete(productVariants).where(eq(productVariants.id, variant.id));
+    existingByKey.delete(variant.optionsKey);
+  }
+
+  // desired entries → insert (new) or update (kept).
+  for (const variant of desired.values()) {
+    const override = params.overridesByKey[variant.optionsKey];
+    const existing = existingByKey.get(variant.optionsKey);
+    const wantsDefault = override?.isDefault ?? false;
+    if (wantsDefault) anyDefault = true;
+
+    if (existing) {
+      await tx
+        .update(productVariants)
+        .set({
+          sku: variant.sku,
+          titleFa: variant.titleFa,
+          ...(override?.publicPriceAmount ? { publicPriceAmount: override.publicPriceAmount } : {}),
+          ...(override?.registeredPriceAmount !== undefined
+            ? { registeredPriceAmount: override.registeredPriceAmount }
+            : {}),
+          ...(override?.premiumPriceAmount !== undefined
+            ? { premiumPriceAmount: override.premiumPriceAmount }
+            : {}),
+          ...(override?.compareAtAmount !== undefined
+            ? { compareAtAmount: override.compareAtAmount }
+            : {}),
+          ...(override?.isDefault !== undefined ? { isDefault: override.isDefault } : {}),
+        })
+        .where(eq(productVariants.id, existing.id));
+
+      await upsertSubscriptionPlan(existing.id);
+
+      if (params.tracked) {
+        await addInventoryUnitsForVariant(tx, {
+          variantId: existing.id,
+          sku: variant.sku,
+          codes: override?.stockCodes,
+          quantity: override?.stockToAdd,
+        });
+      }
+    } else {
+      const [inserted] = await tx
+        .insert(productVariants)
+        .values({
+          productId,
+          sku: variant.sku,
+          titleFa: variant.titleFa,
+          optionsKey: variant.optionsKey,
+          publicPriceAmount: override?.publicPriceAmount || params.defaults.publicPriceAmount,
+          registeredPriceAmount:
+            override?.registeredPriceAmount ?? priceFor("registeredPriceAmount"),
+          premiumPriceAmount: override?.premiumPriceAmount ?? priceFor("premiumPriceAmount"),
+          compareAtAmount: override?.compareAtAmount ?? priceFor("compareAtAmount"),
+          isDefault: wantsDefault,
+        })
+        .returning();
+
+      await insertJunction(inserted.id, variant.combo);
+      await upsertSubscriptionPlan(inserted.id);
+
+      if (params.tracked) {
+        await addInventoryUnitsForVariant(tx, {
+          variantId: inserted.id,
+          sku: variant.sku,
+          codes: override?.stockCodes,
+          quantity: override?.stockToAdd ?? params.stockPerVariant,
+        });
+      }
+    }
+  }
+
+  // Ensure exactly one default variant survives.
+  await tx
+    .update(productVariants)
+    .set({ isDefault: false })
+    .where(eq(productVariants.productId, productId));
+  const remaining = await tx.query.productVariants.findMany({
+    where: (variant, { eq: eqOp }) => eqOp(variant.productId, productId),
+    columns: { id: true, optionsKey: true, isDefault: true },
+  });
+  const explicitDefaultKey = anyDefault
+    ? Object.entries(params.overridesByKey).find(([, override]) => override.isDefault)?.[0]
+    : undefined;
+  const defaultVariant =
+    (explicitDefaultKey != null
+      ? remaining.find((variant) => variant.optionsKey === explicitDefaultKey)
+      : undefined) ?? remaining[0];
+  if (defaultVariant) {
+    await tx
+      .update(productVariants)
+      .set({ isDefault: true })
+      .where(eq(productVariants.id, defaultVariant.id));
+  }
+
+  return { warnings };
+}
+
 export async function updateAdminProduct(id: string, input: ProductUpdateInput) {
   const current = await fetchAdminProductById(id);
   if (!current) {
@@ -751,7 +1061,9 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
     }
   }
 
-  if (input.variants) {
+  const reconcileVariants = input.options !== undefined;
+
+  if (input.variants && !reconcileVariants) {
     for (const variant of input.variants) {
       if (!variantIds.has(variant.id)) throw new Error("INVALID_VARIANT");
     }
@@ -806,7 +1118,36 @@ export async function updateAdminProduct(id: string, input: ProductUpdateInput) 
       }
     }
 
-    if (input.variants?.length) {
+    if (reconcileVariants) {
+      const trackedAfter = (inventoryPolicyValue ?? current.inventoryPolicy) === "TRACKED";
+      const isSubscriptionAfter =
+        input.isSubscription !== undefined ? Boolean(input.isSubscription) : current.isSubscription;
+      const firstVariant = current.variants[0];
+
+      await reconcileProductVariants(tx, {
+        productId: id,
+        productSlug: nextSlug,
+        fallbackTitle: nextTitle,
+        options: input.options ?? [],
+        overridesByKey: input.variantOverridesByKey ?? {},
+        stockPerVariant: input.stockPerVariant ?? 0,
+        tracked: trackedAfter,
+        isSubscription: isSubscriptionAfter,
+        subscriptionPlan: input.subscriptionPlan,
+        defaults: {
+          publicPriceAmount: valueFromDecimal(firstVariant?.publicPriceAmount) || "0",
+          registeredPriceAmount: firstVariant?.registeredPriceAmount
+            ? valueFromDecimal(firstVariant.registeredPriceAmount)
+            : null,
+          premiumPriceAmount: firstVariant?.premiumPriceAmount
+            ? valueFromDecimal(firstVariant.premiumPriceAmount)
+            : null,
+          compareAtAmount: firstVariant?.compareAtAmount
+            ? valueFromDecimal(firstVariant.compareAtAmount)
+            : null,
+        },
+      });
+    } else if (input.variants?.length) {
       const defaultVariantId = input.variants.find((variant) => variant.isDefault)?.id;
       const variantsById = new Map(current.variants.map((variant) => [variant.id, variant]));
 

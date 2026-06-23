@@ -99,7 +99,9 @@ export function ReviewManagement({ initialData }: { initialData: ReviewListData 
     total: 0,
   }) as ReviewStatusCounts;
   const pagination = result.data?.pagination;
-  const isLoading = result.isLoading || result.isFetching;
+  // Only the initial load shows the full-list spinner; in-flight writes keep
+  // rows visible and disable just the acting row (per-row `busy` below).
+  const isLoading = result.isLoading;
 
   // ─── Mutations ─────────────────────────────────────────────────────────────
 

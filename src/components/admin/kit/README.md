@@ -88,15 +88,16 @@ import { useAdminMutation } from "@/lib/admin/use-admin-mutation";
 //   successMessage?: string,         // optional toast shown on success
 // })
 
-const approveMutation = useAdminMutation<{ id: string; approved: boolean }>({
+const approveMutation = useAdminMutation<{ id: string; status: string }>({
   url: (vars) => `/api/admin/reviews/${vars.id}`,  // url is a function
   method: "PATCH",
+  body: (vars) => ({ status: vars.status }),       // send only the API's fields (not id)
   invalidate: ["reviews"],                          // required
   successMessage: "نظر با موفقیت به‌روز شد.",
 });
 
 // To trigger:
-await approveMutation.mutateAsync({ id: review.id, approved: true });
+await approveMutation.mutateAsync({ id: review.id, status: "APPROVED" });
 ```
 
 There is **no** `onSuccess` prop on `useAdminMutation`. For side-effects after success:

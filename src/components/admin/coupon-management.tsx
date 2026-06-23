@@ -489,7 +489,14 @@ export function CouponManagement({
         )}
       />
 
-      <CouponSheet open={sheetOpen} onOpenChange={setSheetOpen} coupon={editCoupon} />
+      {/* key forces a fresh form instance per target, so a touched-but-unsaved
+          edit never leaks its values into the next coupon opened. */}
+      <CouponSheet
+        key={editCoupon?.id ?? "new"}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        coupon={editCoupon}
+      />
 
       {dialog}
     </AdminPage>

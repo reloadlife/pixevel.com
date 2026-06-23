@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 import { useCart } from "@/components/shop/cart-provider";
 import type { CurrentUser } from "@/lib/auth";
@@ -16,6 +17,59 @@ const tabClass = (active: boolean) =>
     active ? "text-gold" : "text-muted-foreground hover:text-foreground",
   );
 
+/** Minimum scroll delta (px) before we register a direction change. */
+const DELTA_THRESHOLD = 6;
+/** Scroll position (px from top) below which we always show the bar. */
+const TOP_THRESHOLD = 60;
+
+function useScrollDirection() {
+  const [hidden, setHidden] = useState(false);
+  const lastScrollY = useRef(0);
+  const rafId = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Respect prefers-reduced-motion: skip animation, always show
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return;
+
+    const onScroll = () => {
+      if (rafId.current !== null) return; // already scheduled
+
+      rafId.current = requestAnimationFrame(() => {
+        rafId.current = null;
+        const currentY = window.scrollY;
+        const delta = currentY - lastScrollY.current;
+
+        if (Math.abs(delta) < DELTA_THRESHOLD) return; // ignore tiny jitter
+
+        if (currentY <= TOP_THRESHOLD) {
+          // Near the top — always visible
+          setHidden(false);
+        } else if (delta > 0) {
+          // Scrolling down — hide
+          setHidden(true);
+        } else {
+          // Scrolling up — show
+          setHidden(false);
+        }
+
+        lastScrollY.current = currentY;
+      });
+    };
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (rafId.current !== null) {
+        cancelAnimationFrame(rafId.current);
+        rafId.current = null;
+      }
+    };
+  }, []);
+
+  return hidden;
+}
+
 export function BottomTabs({
   user,
   categories,
@@ -26,6 +80,7 @@ export function BottomTabs({
   const pathname = usePathname();
   const { count } = useCart();
   const tabs = bottomTabs(user);
+  const hidden = useScrollDirection();
 
   function inner(tab: BottomTab) {
     const Icon = tab.icon;
@@ -48,7 +103,11 @@ export function BottomTabs({
   return (
     <nav
       aria-label="ناوبری پایین"
-      className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur-xl lg:hidden"
+      className={cn(
+        "fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 backdrop-blur-xl lg:hidden",
+        "transition-transform duration-300 ease-in-out",
+        hidden && "translate-y-full",
+      )}
     >
       <div className="mx-auto grid max-w-md grid-cols-4">
         {tabs.map((tab) => {
